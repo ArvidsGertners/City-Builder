@@ -1,0 +1,134 @@
+# CI (ADR-0054, macOS cadence ADR-0060): Linux + Windows on every push and pull request,
+# macOS Apple Silicon only on main (plus nightly.yml and one dispatch per milestone).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  LINUX_DEPS: pkg-config libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+
+jobs:
+  fmt:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - run: cargo fmt --all -- --check
+
+  check:
+    name: check (${{ matrix.os }}, ${{ matrix.features || 'default' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+        features: ["", "dev"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: check-${{ matrix.features }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
+      - name: clippy
+        shell: bash
+        run: cargo clippy --workspace --all-targets ${{ matrix.features && format('--features {0}', matrix.features) }} -- -D warnings
+      - name: test
+        shell: bash
+        run: cargo test --workspace ${{ matrix.features && format('--features {0}', matrix.features) }}
+
+  check-macos:
+    if: github.ref == 'refs/heads/main'
+    name: check (macos-15, ${{ matrix.features || 'default' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["", "dev"]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: check-${{ matrix.features }}
+      - run: cargo clippy --workspace --all-targets ${{ matrix.features && format('--features {0}', matrix.features) }} -- -D warnings
+      - run: cargo test --workspace ${{ matrix.features && format('--features {0}', matrix.features) }}
+
+  sim-isolation:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p cb_sim
+      - run: scripts/check_sim_isolation.sh
+
+  render-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: smoke
+      - run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS mesa-vulkan-drivers xvfb libxkbcommon-x11-0
+      - run: cargo build -p cb_game --profile ci-release
+      - name: smoke test (lavapipe)
+        env:
+          CB_USERDATA: ${{ runner.temp }}/userdata
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
+          WGPU_BACKEND: vulkan
+        run: |
+          xvfb-run -a -s "-screen 0 1280x720x24" target/ci-release/cb_game --smoke-test 60 --resolution 640x360 | tee smoke.txt
+          grep -q "frames=60 validation_errors=0" smoke.txt
+
+  determinism:
+    name: determinism probe (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: probe
+      - shell: bash
+        run: cargo run -p cb_sim --profile ci-release --example determinism_probe > hashes-${{ runner.os }}.txt
+      - uses: actions/upload-artifact@v5
+        with:
+          name: hashes-${{ runner.os }}
+          path: hashes-${{ runner.os }}.txt
+
+  determinism-compare:
+    needs: determinism
+    runs-on: ubuntu-24.04
+    # Informational until M5, blocking afterwards (ADR-0054).
+    continue-on-error: true
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: hashes-*
+          merge-multiple: true
+      - name: compare
+        run: |
+          ls hashes-*.txt
+          first=""
+          for f in hashes-*.txt; do
+            tr -d '\r' < "$f" > "$f.norm"
+            if [ -z "$first" ]; then first="$f.norm"; continue; fi
+            diff -u "$first" "$f.norm"
+          done
+          cat "$first"

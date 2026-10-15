@@ -58,3 +58,11 @@ PC and an Apple Silicon Mac, so cross-platform saves and reproducible bug report
 
 - Reproducible bug reports and portable saves across Windows, Linux and macOS.
 - Slight cost from `libm` and scalar math (negligible in sim hot loops, measured in spikes).
+
+## Amendments
+
+- 2026-10-15 (M1): `shuffle_seed` is a field that only exists with bevy `debug`, which a
+  dev-dependency cannot reveal to cb_sim's own code; instead cb_sim has the feature
+  `debug_schedule` (= `bevy/debug`), enabled by `cb_game/dev`, so the shuffle test is effective
+  in the `dev` CI leg and a plain single-threaded run in the default leg. Sim schedules use the
+  single-threaded executor (ADR-0061).

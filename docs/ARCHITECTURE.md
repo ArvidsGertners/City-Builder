@@ -367,11 +367,12 @@ SimTick:
 ```
 
 Rules:
-- Every set is `.chain()`ed; systems within a set run in parallel only without conflicting
-  access. `ambiguity_detection: LogLevel::Error` on both sim schedules;
+- Every set is `.chain()`ed; both sim schedules use the single-threaded executor (ADR-0061),
+  so systems run in one fixed order. `ambiguity_detection: LogLevel::Error` on both sim schedules;
   `auto_insert_apply_deferred` is disabled — explicit `ApplyDeferred` between sets.
-- A test builds both schedules with `shuffle_seed` (bevy `debug` feature in cb_sim
-  dev-dependencies) and the single-threaded executor and asserts identical state hashes.
+- A test builds both schedules with `shuffle_seed` (cb_sim feature `debug_schedule` = bevy
+  `debug`, enabled by `cb_game/dev`, so it runs in the `dev` CI leg) and asserts identical
+  state hashes.
 - Intra-system parallelism uses `ComputeTaskPool::scope` over `SIM_PARTITIONS = 64` fixed
   partitions; results merged in partition order (ADR-0043).
 
@@ -553,7 +554,8 @@ with `--no-audio` or no device), `SaveIoPlugin`, `TutorialPlugin`, `DebugPlugin`
 
 ## 12. Threading model
 
-- Bevy multi-threaded executor for system-level parallelism.
+- Game schedules: Bevy multi-threaded executor. Sim schedules: single-threaded executor
+  (ADR-0061); sim parallelism is intra-system only.
 - Intra-system parallelism over 64 fixed partitions (routing batches, vehicle step, reach
   Dijkstras, field slices); merges in partition order.
 - Render-side procgen, chunk merges, terrain re-mesh, env map on `AsyncComputeTaskPool`

@@ -37,7 +37,7 @@ ron = "0.12"
 thiserror = "2"
 smallvec = { version = "1", features = ["serde", "union", "const_generics"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry", "std"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry", "std", "tracing-log"] }
 tracing-appender = "0.2"
 fluent-bundle = "0.16"
 unic-langid = { version = "0.9", features = ["macros"] }

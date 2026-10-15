@@ -36,3 +36,10 @@ number, currency, date and time formatting; plurals; German strings ~30 % longer
 
 - Translators/players can edit `.ftl` easily; compile-time key safety.
 - Adding a locale = new folder + formatting rules entry.
+
+## Amendments
+
+- 2026-10-15 (M1): Fluent message IDs cannot contain dots, so keys use dashes
+  (`tool-road-straight`; groups by prefix). The generated constants are `keys::TOOL_ROAD_STRAIGHT`.
+  The OS locale is read from `LC_ALL`/`LC_MESSAGES`/`LANG`; Windows and Finder-launched macOS
+  apps fall back to English unless the settings choose a language (OS API lookup: M15).

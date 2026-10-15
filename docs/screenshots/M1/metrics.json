@@ -1,0 +1,5 @@
+[
+  {"name":"M1-01-overview","width":1600,"height":900,"luma_median":178,"clipped_pct":0.000,"black_pct":0.000,"magenta_count":0,"luma_histogram":[0,0,0,115,2069,18734,3007,25334,182909,21282,36085,1071921,66491,12053,0,0]},
+  {"name":"M1-02-street-level","width":1600,"height":900,"luma_median":189,"clipped_pct":0.000,"black_pct":0.000,"magenta_count":0,"luma_histogram":[0,0,0,1225,20807,37190,4629,69569,89631,89878,6828,947089,169577,3577,0,0]},
+  {"name":"M1-03-top-down","width":1600,"height":900,"luma_median":177,"clipped_pct":0.000,"black_pct":0.000,"magenta_count":0,"luma_histogram":[0,0,0,8,3033,45018,5136,62155,176474,10067,12245,1112100,11120,2644,0,0]}
+]

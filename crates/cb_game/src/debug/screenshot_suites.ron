@@ -1,0 +1,15 @@
+// Deterministic screenshot suites (ADR-0058, PROGRESS.md shot lists). Camera poses are
+// focus + distance (m) + pitch above the horizon + yaw around +Y (degrees).
+(
+    suites: {
+        "M1": (
+            resolution: (1600, 900),
+            settle_frames: 30,
+            shots: [
+                (name: "M1-01-overview", camera: (focus: (0.0, 0.0, 0.0), distance: 70.0, pitch_deg: 32.0, yaw_deg: 35.0)),
+                (name: "M1-02-street-level", camera: (focus: (0.0, 3.0, 0.0), distance: 52.0, pitch_deg: 6.0, yaw_deg: 80.0)),
+                (name: "M1-03-top-down", camera: (focus: (0.0, 0.0, 0.0), distance: 90.0, pitch_deg: 72.0, yaw_deg: 0.0)),
+            ],
+        ),
+    },
+)

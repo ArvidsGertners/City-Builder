@@ -181,7 +181,8 @@ Full tree and responsibilities: `docs/ARCHITECTURE.md` §3.
   `Vec3A/Vec4/Mat4/Quat/Affine3A` and no `mul_add` in pure crates or `cb_sim`
   (clippy-enforced).
 - **Parallelism**: `SIM_PARTITIONS = 64` fixed partitions, reductions in partition order —
-  never partition by core count.
+  never partition by core count. Sim schedules use the single-threaded executor; parallelism
+  is inside systems only (ADR-0061).
 - Sim code never reads wall-clock time, frame time, camera, window, graphics settings or the
   day-length pacing setting.
 - Structural `SimEdit` work completes before the next tick (never split across frames);
@@ -231,6 +232,8 @@ Full tree and responsibilities: `docs/ARCHITECTURE.md` §3.
   through `t!("key")` / `L10n::tr` with keys in `crates/cb_l10n/locales/{en,de}/*.ftl`.
   A test fails if a key is missing in any locale.
 - Numbers, money, dates and times are formatted with `cb_l10n::format::*`, never `format!`.
+- Exempt (English only): developer tooling behind the `dev` feature, CLI help/errors, log
+  messages and crash reports.
 
 ### Tests
 - Every bug fix comes with a regression test where feasible.

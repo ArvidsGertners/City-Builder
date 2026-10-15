@@ -1,6 +1,7 @@
 //! The simulation clock: tick counter and calendar messages (ADR-0042).
 
 use bevy::ecs::message::{Message, MessageWriter};
+use bevy::ecs::reflect::ReflectResource;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::reflect::Reflect;
@@ -10,6 +11,7 @@ use crate::config::SimConfig;
 
 /// Completed simulation ticks since the start of the city.
 #[derive(Resource, Reflect, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[reflect(Resource)]
 pub struct SimClock {
     ticks: u64,
 }

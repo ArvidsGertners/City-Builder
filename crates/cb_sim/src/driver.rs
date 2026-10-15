@@ -6,6 +6,7 @@
 
 use std::time::Instant;
 
+use bevy::ecs::reflect::ReflectResource;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::SystemSet;
 use bevy::ecs::world::World;
@@ -21,6 +22,7 @@ pub const MAX_REAL_DT_S: f64 = 0.25;
 
 /// Simulation speed requested by the player (driver API, independent of menus).
 #[derive(Resource, Reflect, Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+#[reflect(Resource)]
 pub enum SimSpeed {
     /// No ticks (`SimEdit` still runs; single steps possible).
     Paused,
@@ -89,6 +91,7 @@ impl DayLength {
 
 /// Presentation-side pacing inputs.
 #[derive(Resource, Reflect, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[reflect(Resource)]
 pub struct SimPacing {
     /// Day length.
     pub day_length: DayLength,
@@ -98,6 +101,7 @@ pub struct SimPacing {
 
 /// Pending single-step requests; honoured only while paused, one per frame.
 #[derive(Resource, Reflect, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[reflect(Resource)]
 pub struct SimStepRequest(pub u32);
 
 /// Ticks per real second at `speed` and `day_length`: `480 / L × speed`.

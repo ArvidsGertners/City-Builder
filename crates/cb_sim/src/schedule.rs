@@ -1,7 +1,8 @@
 //! The two sim schedules and their ordered system sets (ARCHITECTURE §5.1).
 //!
-//! Both schedules use `ambiguity_detection = Error` and no automatic `ApplyDeferred`
-//! insertion: sets are chained and sync points are explicit (ADR-0043).
+//! Both schedules use the single-threaded executor (ADR-0061), `ambiguity_detection = Error`
+//! and no automatic `ApplyDeferred` insertion: sets are chained and sync points are explicit
+//! (ADR-0043). Parallelism happens inside systems over `SIM_PARTITIONS`.
 
 use bevy::app::App;
 use bevy::ecs::schedule::{
@@ -104,11 +105,13 @@ pub fn build_settings() -> ScheduleBuildSettings {
 pub(crate) fn add_sim_schedules(app: &mut App) {
     let mut edit = Schedule::new(SimEdit);
     edit.set_build_settings(build_settings());
+    edit.set_executor(SingleThreadedExecutor::new());
     chain_sets(&mut edit, &EditSet::ORDER);
     app.add_schedule(edit);
 
     let mut tick = Schedule::new(SimTick);
     tick.set_build_settings(build_settings());
+    tick.set_executor(SingleThreadedExecutor::new());
     chain_sets(&mut tick, &TickSet::ORDER);
     app.add_schedule(tick);
 }
@@ -121,12 +124,11 @@ fn chain_sets<S: SystemSet + Copy>(schedule: &mut Schedule, order: &[S]) {
     }
 }
 
-/// Test/debug helper: reconfigure both schedules for single-threaded execution and, with the
-/// bevy `debug` feature, a shuffled topological order.
+/// Test/debug helper: with feature `debug_schedule`, rebuild both schedules in a shuffled
+/// topological order (`None` = the default order).
 pub fn set_debug_order(app: &mut App, shuffle_seed: Option<u64>) {
     for label in [SimEdit.intern(), SimTick.intern()] {
         app.edit_schedule(label, |s| {
-            s.set_executor(SingleThreadedExecutor::new());
             #[allow(unused_mut)]
             let mut settings = build_settings();
             #[cfg(feature = "debug_schedule")]

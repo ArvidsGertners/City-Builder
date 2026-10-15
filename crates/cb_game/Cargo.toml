@@ -1,8 +1,58 @@
 [package]
 name = "cb_game"
+description = "City Builder game binary: rendering, input, UI, audio playback, debug tooling."
 version.workspace = true
 edition.workspace = true
-publish = false
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+authors.workspace = true
+build = "build.rs"
+default-run = "cb_game"
+
+[features]
+## Debug tooling: perf overlay, sim controls, log console, inspector (ADR-0031).
+dev = ["cb_sim/debug_schedule"]
+
+[dependencies]
+cb_core.workspace = true
+cb_l10n.workspace = true
+cb_sim.workspace = true
+bevy = { workspace = true, features = [
+    "std",
+    "async_executor",
+    "multi_threaded",
+    "bevy_winit",
+    "bevy_window",
+    "x11",
+    "wayland",
+    "bevy_asset",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_post_process",
+    "bevy_anti_alias",
+    "bevy_gizmos_render",
+    "bevy_state",
+    "keyboard",
+    "mouse",
+    "gestures",
+    "png",
+    "tonemapping_luts",
+    "smaa_luts",
+    "ktx2",
+    "zstd_rust",
+] }
+bevy_egui.workspace = true
+serde.workspace = true
+ron.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+
+[dev-dependencies]
+cb_core = { workspace = true, features = ["testing"] }
 
 [lints]
 workspace = true

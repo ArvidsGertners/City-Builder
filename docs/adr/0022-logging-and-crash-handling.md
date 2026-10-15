@@ -48,3 +48,9 @@ errors and reports must be copy-paste friendly for handing back to the developer
   while the lock is held must not deadlock the hook). Log and crash locations follow ADR-0040.
   The "last session crashed" notice is an egui window at startup from M1, moved into the main
   menu in M15.
+- 2026-10-15 (M1): the subscriber (same layers: file, stderr, ring buffer, plus an error
+  counter for the smoke test) is installed with `tracing-subscriber` in `main()` before Bevy
+  starts, so bootstrap messages are captured; Bevy's `LogPlugin` is not compiled in
+  (`bevy_log` feature off). `log`-crate records (wgpu) are bridged via `tracing-log`. File
+  names are `city-builder.YYYY-MM-DD.log`. The hook does not flush the non-blocking file writer
+  (the report carries the last log lines instead).

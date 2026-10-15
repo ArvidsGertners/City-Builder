@@ -1,0 +1,91 @@
+# Release builds for all three platforms (ADR-0038). Tags `v*` publish a GitHub release;
+# `workflow_dispatch` with publish=false only builds and uploads the artifacts (validation).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a GitHub release"
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  LINUX_DEPS: pkg-config libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, os: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+          - { name: windows-x86_64, os: windows-2025, target: x86_64-pc-windows-msvc }
+          - { name: macos-arm64, os: macos-15, target: aarch64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - run: rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: dist-${{ matrix.target }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
+      - name: version
+        id: v
+        shell: bash
+        run: echo "version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" >> "$GITHUB_OUTPUT"
+      - name: package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo build -p cb_game --profile dist --target ${{ matrix.target }}
+          dir=city-builder-${{ steps.v.outputs.version }}-${{ matrix.name }}
+          mkdir -p "$dir"
+          cp target/${{ matrix.target }}/dist/cb_game "$dir/city-builder"
+          cp LICENSE THIRD_PARTY_NOTICES.md crates/cb_game/assets/fonts/OFL.txt "$dir/"
+          tar czf "$dir.tar.gz" "$dir"
+          echo "ASSET=$dir.tar.gz" >> "$GITHUB_ENV"
+      - name: package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build -p cb_game --profile dist --target ${{ matrix.target }}
+          $dir = "city-builder-${{ steps.v.outputs.version }}-${{ matrix.name }}"
+          New-Item -ItemType Directory -Path $dir | Out-Null
+          Copy-Item target/${{ matrix.target }}/dist/cb_game.exe "$dir/CityBuilder.exe"
+          Copy-Item LICENSE, THIRD_PARTY_NOTICES.md, crates/cb_game/assets/fonts/OFL.txt $dir
+          Compress-Archive -Path $dir -DestinationPath "$dir.zip"
+          "ASSET=$dir.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          scripts/macos_bundle.sh
+          asset=city-builder-${{ steps.v.outputs.version }}-${{ matrix.name }}.zip
+          ditto -c -k --keepParent target/bundle/CityBuilder.app "$asset"
+          echo "ASSET=$asset" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ env.ASSET }}
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.tar.gz
+            *.zip

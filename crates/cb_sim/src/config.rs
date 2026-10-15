@@ -1,12 +1,14 @@
 //! Sim-affecting options, saved with the city and changed via `SetSimConfig` (ARCHITECTURE §14).
 //! Presentation options (day length, lock time of day) live in the game's `Settings` instead.
 
+use bevy::ecs::reflect::ReflectResource;
 use bevy::ecs::resource::Resource;
 use bevy::reflect::Reflect;
 use serde::{Deserialize, Serialize};
 
 /// The world seed every deterministic stream derives from (ADR-0043).
 #[derive(Resource, Reflect, Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[reflect(Resource)]
 pub struct WorldSeed(pub u64);
 
 /// Weather simulation mode.
@@ -31,6 +33,7 @@ pub enum Difficulty {
 
 /// Options that change simulation results. Field defaults apply to missing fields in saves.
 #[derive(Resource, Reflect, Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[reflect(Resource)]
 #[serde(default)]
 pub struct SimConfig {
     /// Simulate individual vehicles (otherwise trips are resolved by the flow model only).

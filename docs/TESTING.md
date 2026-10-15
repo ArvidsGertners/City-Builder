@@ -82,8 +82,8 @@ explicitly, and exposes query helpers. `cb_sim::testing::citygen` builds large o
 
 1. Same seed + commands, two runs → equal `state_hash` every game day.
 2. `results_identical_1_4_8_threads` (fixed 64 partitions).
-3. Shuffled schedules (`shuffle_seed`, 3 seeds, single-threaded executor; `bevy/debug` dev
-   feature) → equal hashes.
+3. Shuffled schedules (`shuffle_seed`, 3 seeds; cb_sim feature `debug_schedule` = bevy `debug`,
+   enabled by `cb_game/dev`, so it runs in the `dev` test leg) → equal hashes.
 4. Save at day 3 → load → run to day 6 vs continuous to day 6 → equal hashes (with traffic on
    from M9).
 5. Presentation independence: vary window size, frame rate (tick distribution per frame),

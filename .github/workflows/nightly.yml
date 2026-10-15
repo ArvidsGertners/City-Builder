@@ -1,0 +1,118 @@
+# Nightly and on-demand checks (ADR-0060): macOS Apple Silicon check + smoke, three-OS
+# determinism comparison, soak tests, informational benches. The milestone-completion skill
+# dispatches this on the working branch once per milestone.
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  LINUX_DEPS: pkg-config libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+
+jobs:
+  check-macos:
+    name: check (macos-15, ${{ matrix.features || 'default' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["", "dev"]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: check-${{ matrix.features }}
+      - run: cargo clippy --workspace --all-targets ${{ matrix.features && format('--features {0}', matrix.features) }} -- -D warnings
+      - run: cargo test --workspace ${{ matrix.features && format('--features {0}', matrix.features) }}
+
+  smoke-macos:
+    runs-on: macos-15
+    # GitHub's Apple Silicon VMs have limited Metal support: informational.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: smoke
+      - run: cargo build -p cb_game --profile ci-release
+      - env:
+          CB_USERDATA: ${{ runner.temp }}/userdata
+        run: target/ci-release/cb_game --smoke-test 60 --resolution 640x360
+
+  determinism:
+    name: determinism probe (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: probe
+      - shell: bash
+        run: cargo run -p cb_sim --profile ci-release --example determinism_probe > hashes-${{ runner.os }}.txt
+      - uses: actions/upload-artifact@v5
+        with:
+          name: hashes-${{ runner.os }}
+          path: hashes-${{ runner.os }}.txt
+
+  determinism-compare:
+    needs: determinism
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: hashes-*
+          merge-multiple: true
+      - name: compare
+        run: |
+          first=""
+          for f in hashes-*.txt; do
+            tr -d '\r' < "$f" > "$f.norm"
+            if [ -z "$first" ]; then first="$f.norm"; continue; fi
+            diff -u "$first" "$f.norm"
+          done
+          cat "$first"
+
+  soak:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: soak
+      - run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
+      - run: cargo test --workspace --profile ci-release -- --ignored
+
+  bench:
+    name: bench (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: probe
+      - shell: bash
+        run: cargo run -p cb_sim --profile ci-release --example headless_bench | tee bench-${{ runner.os }}.txt
+      - uses: actions/upload-artifact@v5
+        with:
+          name: bench-${{ runner.os }}
+          path: bench-${{ runner.os }}.txt
+  # trace_tracy build joins once the feature exists (ADR-0054).

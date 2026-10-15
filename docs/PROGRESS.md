@@ -5,21 +5,22 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Current status
 
-- **Phase:** Phase 1 (planning) — **complete after independent review, awaiting approval**.
+- **Phase:** M1 (project setup) **☑** — next: Phase S, spike S-Render.
 - **Last updated:** 2026-10-15
-- **Verified environment:** Bevy 0.20.0 (2026-10-08), bevy_egui 0.43.1 (Bevy 0.20), rustc 1.97.0;
+- **Verified environment:** Bevy 0.20.0 (2026-10-08), bevy_egui 0.43.1 (Bevy 0.20), rustc 1.97.1;
   `bevy-inspector-egui` 0.37 targets Bevy 0.19 (ADR-0031); `mesa-vulkan-drivers` (lavapipe) and
   Xvfb installable in the container for rendering without a GPU.
 
 ## Next step
 
-**Wait for approval of the Phase 1 plan.** Then start **M1 Project setup** with step 1:
-create the root `Cargo.toml` workspace (members = the 10 crates in ARCHITECTURE §3,
-`[workspace.dependencies]` per ADR-0023, `[workspace.lints]` denying `unwrap_used`/`expect_used`
-outside tests, profiles `dev`/`release`/`ci-release`/`dist` per ADR-0002/0054),
-`rust-toolchain.toml` (1.97 + rustfmt + clippy), `rustfmt.toml`, `clippy.toml` (determinism
-`disallowed-methods`/`disallowed-types`, ADR-0043), then `crates/cb_core` (`ids.rs`, `hash.rs`
-with sequential `derive_seed` + collision tests, `rng.rs`, `math.rs`, `collections.rs`).
+**Phase S, spike S-Render** (definition below). First action: create `spikes/s_render/` as a
+standalone crate (own empty `[workspace]` table so it stays out of the main workspace; path
+dependency on `crates/cb_core`; Bevy 0.20 with the cb_game feature list from
+`crates/cb_game/Cargo.toml`), with `src/main.rs` defining `WorldMaterial =
+ExtendedMaterial<StandardMaterial, WorldExt>` and a WESL vertex/fragment pair using the
+ADR-0049 vertex layout (pos f32x3, color unorm8x4, packed u32) with derivative flat normals in
+forward + prepass. Reuse `cb_game::debug::screenshot_metrics` (copy, not depend) for the pass
+metrics; render via `scripts/screenshot.sh`-style Xvfb + lavapipe.
 
 ## Process conventions (ADR-0058)
 
@@ -42,8 +43,8 @@ with sequential `derive_seed` + collision tests, `rng.rs`, `math.rs`, `collectio
 
 | # | Milestone | Estimate (agent-days) | Actual | Status |
 |---|---|---|---|---|
-| 0 | Phase 1 planning package + independent review | 2 | 2 | ☑ (awaiting approval) |
-| 1 | Project setup | 4 | | ☐ |
+| 0 | Phase 1 planning package + independent review | 2 | 2 | ☑ |
+| 1 | Project setup | 4 | 1 | ☑ |
 | S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | | ☐ |
 | 2 | Vertical slice | 12 | | ☐ |
 | 3 | Full road system | 12 | | ☐ |
@@ -72,40 +73,52 @@ CLAUDE.md, skills, ARCHITECTURE, DATA_MODEL, ALGORITHMS, GAME_DESIGN, ART_DIRECT
 PERFORMANCE, TESTING, RISKS, CONSTANTS, ASSUMPTIONS, PLAN_REVIEW (+ raw independent review in
 `docs/review/`), ADRs 0001–0058, README.
 
-### M1 — Project setup (estimate 4)
+### M1 — Project setup (estimate 4, actual 1) ☑
 Includes enabling work moved forward: settings persistence (from M15), Phase S definitions.
-- [ ] `cargo build --workspace --all-targets` on 3 OS; CI job `sim-isolation` runs
+- [x] `cargo build --workspace --all-targets` on 3 OS; CI job `sim-isolation` runs
       `scripts/check_sim_isolation.sh` (fails on `bevy_render|bevy_pbr|wgpu|bevy_winit|bevy_egui|bevy_audio` in `cargo tree -p cb_sim -e normal`).
-- [ ] `cb_core`: tests `derive_seed_no_collisions_1e6`, `derive_seed_order_sensitive`,
+      — Linux local; Linux/Windows `ci.yml`, macOS via nightly dispatch (see log). Script also
+      rejects `bevy_ui`/`winit`; verified it matches on `cb_game` (13 hits) and passes on `cb_sim`.
+- [x] `cb_core`: tests `derive_seed_no_collisions_1e6`, `derive_seed_order_sensitive`,
       `rng_streams_reproducible`, `math_facade_reference_values`, `lookup_map_has_no_iteration`
-      (compile-fail doc test), `spatial_hash_matches_brute_force`, `gametime_from_tick`.
-- [ ] Paths: `paths_resolve_windows`, `paths_resolve_linux`, `paths_resolve_macos`,
+      (compile-fail doc test), `spatial_hash_matches_brute_force`, `gametime_from_tick`. — 24 tests + doc test green.
+- [x] Paths: `paths_resolve_windows`, `paths_resolve_linux`, `paths_resolve_macos`,
       `paths_portable_mode`, `paths_cb_userdata_override`, `paths_app_translocation_ignores_portable`.
-- [ ] Logging: `ring_buffer_keeps_last_500`; integration test `log_line_written_to_app_paths_logs`.
-- [ ] Crash: `crash_report_contains_all_sections` (subprocess with `--debug-panic`): summary,
+      — `cb_game::platform::paths` (pure resolver, all layouts tested on every OS).
+- [x] Logging: `ring_buffer_keeps_last_500`; integration test `log_line_written_to_app_paths_logs`.
+- [x] Crash: `crash_report_contains_all_sections` (subprocess with `--debug-panic`): summary,
       message+location, thread, backtrace, version+git hash, OS/arch, adapter, settings summary,
       sim summary, last 200 log lines; next start shows the "last session crashed" egui window.
-- [ ] Settings: `settings_roundtrip_all_fields`, `settings_invalid_field_falls_back`,
-      `settings_unknown_version_migrates_or_defaults`.
-- [ ] l10n: en + de bundles, `build.rs` key constants; `l10n_keys_complete_en_de`,
+      — test runs the real binary with `CB_USERDATA`; the notice is `ui::crash_notice` (en/de).
+      Adapter/sim sections read "(not yet known)" when the panic precedes the renderer/sim.
+- [x] Settings: `settings_roundtrip_all_fields`, `settings_invalid_field_falls_back`,
+      `settings_unknown_version_migrates_or_defaults`. — per-field fallback via `ron::Value` overlay.
+- [x] l10n: en + de bundles, `build.rs` key constants; `l10n_keys_complete_en_de`,
       `l10n_placeholders_match`, `format_number_money_date_time_en_de`.
-- [ ] Sim skeleton: `driver_runs_1000_ticks_in_lt_100ms`, `driver_step_once_advances_exactly_one_tick`,
+- [x] Sim skeleton: `driver_runs_1000_ticks_in_lt_100ms`, `driver_step_once_advances_exactly_one_tick`,
       `driver_caps_ticks_per_frame`, `driver_day_length_is_pacing_only` (same hash for L = 16/24/48),
       `schedule_shuffle_same_hash` (3 seeds, single-threaded), ambiguity detection = Error.
-- [ ] `cb_game --smoke-test 60 --resolution 640x360` exits 0 on lavapipe and logs
-      `frames=60 validation_errors=0`; window title localized.
-- [ ] Dev tooling (`--features dev`): perf overlay shows frame time p50/p95, sim tick time,
+      — plus `schedule_ambiguity_is_error`; 1 000 ticks = 1.2 ms after ADR-0061 (was ~70 ms with
+      the multi-threaded executor). Shuffling is active with feature `debug_schedule` (`dev` leg).
+- [x] `cb_game --smoke-test 60 --resolution 640x360` exits 0 on lavapipe and logs
+      `frames=60 validation_errors=0`; window title localized. — log: `window: 640x360 "City Builder"`,
+      adapter llvmpipe (Vulkan, CPU); release build also verified (see log).
+- [x] Dev tooling (`--features dev`): perf overlay shows frame time p50/p95, sim tick time,
       entity count; sim controls pause/step/speed/day length; log console; inspector lists ≥ 1 sim
-      entity kind with Reflect fields.
-- [ ] CI: `ci.yml` (Linux + Windows × {default, dev}; macOS only on main; sim-isolation,
+      entity kind with Reflect fields. — `docs/screenshots/M1/M1-04-dev-tools.png`; the inspector
+      lists the reflected fields of the sim resources (`SimClock`, `SimConfig`, `WorldSeed`,
+      `SimSpeed`, `SimPacing`); sim entities do not exist before M2.
+- [x] CI: `ci.yml` (Linux + Windows × {default, dev}; macOS only on main; sim-isolation,
       render-smoke Linux, cross-OS determinism Linux + Windows), `nightly.yml` (schedule +
       dispatch: macOS check × {default, dev}, macOS smoke informational, 3-OS determinism),
       `release.yml` (validated via `workflow_dispatch` with `publish: false` producing all three
-      artifacts); full pipeline ≤ 25 min.
-- [ ] `scripts/screenshot.sh M1` renders one test shot to `docs/screenshots/M1/` (pipeline proof).
-- [ ] `LICENSE` (proprietary), `THIRD_PARTY_NOTICES.md`, Inter font embedded with
-      `font_covers_required_glyphs` test (ADR-0059).
-- [ ] README build/run/controls; PROGRESS updated.
+      artifacts); full pipeline ≤ 25 min. — results in the log.
+- [x] `scripts/screenshot.sh M1` renders one test shot to `docs/screenshots/M1/` (pipeline proof).
+      — 3 shots + `metrics.json` + `index.md` (0 magenta, 0 % black, 0 % clipped).
+- [x] `LICENSE` (proprietary), `THIRD_PARTY_NOTICES.md`, Inter font embedded with
+      `font_covers_required_glyphs` test (ADR-0059). — test parses the cmap and also checks every
+      character used in the en/de `.ftl` files.
+- [x] README build/run/controls; PROGRESS updated.
 
 ### Phase S — Risk spikes (estimate 22; order as listed)
 Throwaway code in `spikes/<name>/`; tag `spike/<name>` before removal; outcome row filled in;
@@ -466,7 +479,7 @@ Includes: agent state saved, garbage trucks replace analytic collection, vehicle
 | ID | Milestone | Request | Exact command / action | Expected | Status |
 |---|---|---|---|---|---|
 | UV-0 | M0 | Identify hardware | PC answered (Ryzen 5 7500F, GTX 1660 Ti, 16 GB single-channel); **Mac model still to confirm** (assumed MacBook Air 13" M4) | — | partially answered |
-| UV-1 | M1 | Real-GPU smoke | `cargo run -p cb_game --release -- --smoke-test 300` on Windows and on the M4 | exit 0, `validation_errors=0` | planned |
+| UV-1 | M1 | Real-GPU smoke | `cargo run -p cb_game --release -- --smoke-test 300` on Windows and on the M4 (also look at the window title and, after `cargo run -p cb_game --features dev`, the F1/F2 windows) | exit 0, prints `frames=300 validation_errors=0` | **open — please run when convenient** |
 | UV-2 | M2 | Screenshots on real GPUs | `scripts/screenshot.sh M2` (or `cb_game --screenshot-suite M2 --out shots/`) on PC and M4 | images comparable to `docs/screenshots/M2/` | planned |
 | UV-3 | M2 | Benchmark | `cb_game --release -- --benchmark m2_slice` on PC and M4; paste report | GPU p95 ≤ 12 ms | planned |
 | UV-4 | M2 | Mac input | trackpad pinch, two-finger scroll/rotate, ⌥-drag, ⌘Z/⌘⇧Z, ⌘Q save prompt | as ADR-0052 | planned |
@@ -478,7 +491,15 @@ Includes: agent state saved, garbage trucks replace analytic collection, vehicle
 
 ## Known bugs
 
-None yet.
+None open. Known gaps (planned):
+- Settings `window_mode`, `frame_cap`, `render_scale`, `preset`, audio and accessibility values
+  are stored and validated but not applied yet (vsync and size are): S-Render/M2 (ADR-0053),
+  M13 (audio), M15 (accessibility).
+- "Auto" language reads `LC_ALL`/`LC_MESSAGES`/`LANG` only; Windows and Finder-launched macOS
+  apps fall back to English unless chosen in settings (OS API lookup in M15; ADR-0021 amendment).
+- `--scene` is parsed but there is one scene (the M1 placeholder); the smoke scene with every
+  material/specialization starts with S-Render/M2.
+- `trace_tracy` nightly build is not wired (feature does not exist yet).
 
 ## Scope-cut ladder (apply in order when a milestone exceeds 1.5× its estimate; brief features are never cut without asking)
 
@@ -505,3 +526,15 @@ None yet.
   `docs/review/2026-10-15-independent-review.md`); resolutions in `docs/PLAN_REVIEW.md`;
   ADRs 0042–0058 supersede/extend 15 ADRs; PERFORMANCE, ALGORITHMS, GAME_DESIGN, DATA_MODEL,
   ARCHITECTURE and this file rewritten; Phase S defined.
+- 2026-10-15 — **M1 done** (estimate 4, actual 1). Workspace (10 crates, edition 2024, Rust
+  1.97.1), cb_core, cb_l10n (en/de), cb_sim skeleton, cb_game bootstrap, smoke test, screenshot
+  pipeline, dev tools, CI/nightly/release workflows, scripts, macOS bundle script.
+  Evidence: fmt + clippy (default, dev) clean; `cargo test --workspace` and `--features dev`
+  green (cb_core 24, cb_l10n 7, cb_sim 9, cb_game 24 incl. crash/logging integration tests);
+  sim isolation ok; lavapipe smoke `frames=60 validation_errors=0` (debug and release);
+  determinism probe hashes (Linux): seed 1 `b78b23a980070796`, seed 2 `6754ae5a029997cc`,
+  seed 3 `2fcce984cb3a62f8`; headless bench (empty sim) p50 1.4 µs/tick.
+  Decisions: ADR-0061 (sim schedules on the single-threaded executor: 70 µs → 1 µs per tick);
+  ADR-0021 amendment (Fluent keys use dashes; locale from env), ADR-0022 amendment (subscriber
+  installed before Bevy; `LogPlugin` not compiled in). Dev-only/CLI/log strings exempt from l10n
+  (CLAUDE.md).
