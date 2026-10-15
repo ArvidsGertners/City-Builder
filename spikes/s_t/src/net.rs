@@ -59,6 +59,17 @@ pub enum Turn {
     U,
 }
 
+impl Turn {
+    pub fn bit(self) -> u8 {
+        match self {
+            Turn::Straight => 1,
+            Turn::Right => 2,
+            Turn::Left => 4,
+            Turn::U => 8,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Node {
     pub pos: Vec2,
@@ -67,8 +78,10 @@ pub struct Node {
     pub inc: Vec<u32>,
     pub out: Vec<u32>,
     pub cut: f32,
-    /// Signal phases: incoming links per phase.
+    /// Signal phases: incoming links per phase and the turns they may make (bits: straight 1,
+    /// right 2, left 4, U 8). Each axis gets a through+right phase and a protected-left phase.
     pub phases: Vec<Vec<u32>>,
+    pub phase_turns: Vec<u8>,
 }
 
 #[derive(Clone, Debug)]
@@ -149,7 +162,7 @@ fn seg_x(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> Option<(f32, f32)> {
 
 impl Net {
     pub fn add_node(&mut self, pos: Vec2, want: Ctrl) -> u32 {
-        self.nodes.push(Node { pos, want, ctrl: NodeCtrl::None, inc: Vec::new(), out: Vec::new(), cut: 0.0, phases: Vec::new() });
+        self.nodes.push(Node { pos, want, ctrl: NodeCtrl::None, inc: Vec::new(), out: Vec::new(), cut: 0.0, phases: Vec::new(), phase_turns: Vec::new() });
         (self.nodes.len() - 1) as u32
     }
 
@@ -346,8 +359,10 @@ impl Net {
                     let zid = self.zones.len() as u32;
                     if self.conns[a].to_lane == self.conns[b].to_lane {
                         let (la, lb) = (self.conns[a].len, self.conns[b].len);
-                        self.conns[a].zones.push((zid, (la - 7.0).max(0.0), la));
-                        self.conns[b].zones.push((zid, (lb - 7.0).max(0.0), lb));
+                        // Merge slot: released once the front has entered the target lane (rear
+                        // past len − 4.5); IDM across the connector end keeps the spacing.
+                        self.conns[a].zones.push((zid, (la - 8.0).max(0.0), (la - 4.5).max(0.5)));
+                        self.conns[b].zones.push((zid, (lb - 8.0).max(0.0), (lb - 4.5).max(0.5)));
                         self.zones.push(Zone { node: n as u32, conns: [a as u32, b as u32] });
                         continue;
                     }
@@ -366,8 +381,9 @@ impl Net {
                     }
                     if let Some((s1, s2, sin)) = hit {
                         let half = (2.5 / sin.max(0.2)).clamp(2.5, 9.0);
-                        self.conns[a].zones.push((zid, (s1 - half).max(0.0), (s1 + half).min(self.conns[a].len)));
-                        self.conns[b].zones.push((zid, (s2 - half).max(0.0), (s2 + half).min(self.conns[b].len)));
+                        let (la, lb) = (self.conns[a].len, self.conns[b].len);
+                        self.conns[a].zones.push((zid, (s1 - half).max(0.0), (s1 + half).min(la)));
+                        self.conns[b].zones.push((zid, (s2 - half).max(0.0), (s2 + half).min(lb)));
                         self.zones.push(Zone { node: n as u32, conns: [a as u32, b as u32] });
                     }
                 }
@@ -433,7 +449,16 @@ impl Net {
                         None => phases.push(vec![l]),
                     }
                 }
-                self.nodes[n].phases = phases;
+                let mut ph = Vec::new();
+                let mut pt = Vec::new();
+                for g in phases {
+                    ph.push(g.clone());
+                    pt.push(1 | 2);
+                    ph.push(g);
+                    pt.push(4 | 8);
+                }
+                self.nodes[n].phases = ph;
+                self.nodes[n].phase_turns = pt;
                 for &l in &inc {
                     self.links[l as usize].approach = Approach::Priority;
                 }

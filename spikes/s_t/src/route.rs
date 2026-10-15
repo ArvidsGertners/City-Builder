@@ -55,7 +55,9 @@ pub struct Router {
     g: Vec<u64>,
     seen: Vec<u32>,
     parent: Vec<u32>,
-    gen: u32,
+    hval: Vec<u64>,
+    active: Vec<usize>,
+    epoch_gen: u32,
 }
 
 fn turn_pen(t: Turn) -> u32 {
@@ -97,7 +99,9 @@ impl Router {
             g: vec![u64::MAX; n],
             seen: vec![0; n],
             parent: vec![u32::MAX; n],
-            gen: 0,
+            hval: vec![0; n],
+            active: Vec::new(),
+            epoch_gen: 0,
         };
         r.rebuild(net);
         r.landmarks(net);
@@ -193,7 +197,7 @@ impl Router {
 
     fn h(&self, v: u32, t: u32) -> u64 {
         let mut best = 0u64;
-        for k in 0..self.lm_from.len() {
+        for &k in &self.active {
             let (fv, ft) = (self.lm_from[k][v as usize], self.lm_from[k][t as usize]);
             let (tv, tt) = (self.lm_to[k][v as usize], self.lm_to[k][t as usize]);
             if fv != u32::MAX && ft != u32::MAX && ft > fv {
@@ -214,11 +218,20 @@ impl Router {
 
     /// A* (ALT); returns (route, cost, settled nodes).
     pub fn search(&mut self, net: &Net, o: u32, d: u32, variant: u8) -> (Option<Vec<u32>>, u64, u64) {
-        self.gen = self.gen.wrapping_add(1);
-        let gen = self.gen;
+        self.epoch_gen = self.epoch_gen.wrapping_add(1);
+        let epoch_gen = self.epoch_gen;
+        // Active landmarks: the 4 with the best bound for this (o, d).
+        let mut scored: Vec<(u64, usize)> = (0..self.lm_from.len())
+            .map(|k| {
+                self.active = vec![k];
+                (self.h(o, d), k)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        self.active = scored.iter().take(4).map(|x| x.1).collect();
         let mut heap: BinaryHeap<Reverse<(u64, Reverse<u64>, u32)>> = BinaryHeap::new();
         self.g[o as usize] = 0;
-        self.seen[o as usize] = gen;
+        self.seen[o as usize] = epoch_gen;
         self.parent[o as usize] = u32::MAX;
         heap.push(Reverse((self.h(o, d), Reverse(0), o)));
         let mut settled = 0u64;
@@ -243,11 +256,15 @@ impl Router {
                     continue;
                 }
                 let ng = gv + self.link_cost(w, variant) + u64::from(p);
-                if self.seen[w as usize] != gen || ng < self.g[w as usize] {
-                    self.seen[w as usize] = gen;
+                let fresh = self.seen[w as usize] != epoch_gen;
+                if fresh || ng < self.g[w as usize] {
+                    if fresh {
+                        self.hval[w as usize] = self.h(w, d);
+                    }
+                    self.seen[w as usize] = epoch_gen;
                     self.g[w as usize] = ng;
                     self.parent[w as usize] = v;
-                    heap.push(Reverse((ng + self.h(w, d), Reverse(ng), w)));
+                    heap.push(Reverse((ng + self.hval[w as usize], Reverse(ng), w)));
                 }
             }
         }
