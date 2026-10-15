@@ -1,0 +1,7 @@
+# Workspace default clippy configuration (cb_game, cb_audio). Sim-affecting crates carry their own
+# clippy.toml with determinism rules (ADR-0043) — keep the shared keys below in sync with them.
+msrv = "1.96"
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-dbg-in-tests = true
+too-many-lines-threshold = 200

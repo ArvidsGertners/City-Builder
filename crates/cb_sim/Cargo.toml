@@ -1,0 +1,28 @@
+[package]
+name = "cb_sim"
+description = "Headless City Builder simulation: schedules, fixed-timestep driver, clock, config (bevy_ecs only, no rendering)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[features]
+## Also exposes `cb_core::test_util` (the `testing` Scenario harness is always available).
+testing = ["cb_core/testing"]
+## Shuffled schedule order for determinism tests (bevy `debug`); enabled by `cb_game/dev`.
+debug_schedule = ["bevy/debug"]
+
+[dependencies]
+cb_core.workspace = true
+bevy = { workspace = true, features = ["std", "async_executor", "multi_threaded", "bevy_state"] }
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+cb_core = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

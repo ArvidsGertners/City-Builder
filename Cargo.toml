@@ -1,0 +1,84 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license-file = "LICENSE"
+publish = false
+authors = ["ArvidsGertners"]
+repository = "https://github.com/ArvidsGertners/City-Builder"
+
+[workspace.dependencies]
+# Internal crates
+cb_core = { path = "crates/cb_core" }
+cb_geometry = { path = "crates/cb_geometry" }
+cb_terrain = { path = "crates/cb_terrain" }
+cb_network = { path = "crates/cb_network" }
+cb_traffic = { path = "crates/cb_traffic" }
+cb_procgen = { path = "crates/cb_procgen" }
+cb_l10n = { path = "crates/cb_l10n" }
+cb_audio = { path = "crates/cb_audio" }
+cb_sim = { path = "crates/cb_sim" }
+
+# Engine (ADR-0001). Features are selected per crate.
+bevy = { version = "0.20", default-features = false }
+bevy_egui = { version = "0.43", default-features = false, features = ["render", "default_fonts", "manage_clipboard"] }
+
+# Math: same glam as bevy_math; `libm` makes glam's own math portable (ADR-0043).
+glam = { version = "0.33", features = ["libm", "serde"] }
+libm = "0.2"
+
+# Data, errors, logging, localization (ADR-0023)
+serde = { version = "1", features = ["derive"] }
+ron = "0.12"
+thiserror = "2"
+smallvec = { version = "1", features = ["serde", "union", "const_generics"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry", "std"] }
+tracing-appender = "0.2"
+fluent-bundle = "0.16"
+unic-langid = { version = "0.9", features = ["macros"] }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "warn"
+semicolon_if_nothing_returned = "warn"
+redundant_closure_for_method_calls = "warn"
+manual_let_else = "warn"
+inconsistent_struct_constructor = "warn"
+# Bevy idioms: systems take queries/resources by value and have many parameters.
+too_many_arguments = "allow"
+type_complexity = "allow"
+
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+debug = "line-tables-only"
+
+# CI release builds: fast to compile, no LTO (ADR-0054/0060).
+[profile.ci-release]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = false
+
+# Distributed builds (release workflow): fully optimized, line tables kept for crash backtraces.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1

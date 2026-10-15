@@ -1,0 +1,15 @@
+[package]
+name = "cb_audio"
+description = "Procedural audio synthesis for City Builder (PCM/WAV buffers)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[dependencies]
+cb_core.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "cb_network"
+description = "Road network geometry for City Builder: cross-sections, profiles, junctions, lanes, lane graph."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[dependencies]
+cb_core.workspace = true
+glam.workspace = true
+
+[lints]
+workspace = true

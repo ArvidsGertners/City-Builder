@@ -1,0 +1,16 @@
+[package]
+name = "cb_geometry"
+description = "Geometry kernel for City Builder: splines, polylines, polygons, booleans, triangulation, subdivision, mesh data."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[dependencies]
+cb_core.workspace = true
+glam.workspace = true
+
+[lints]
+workspace = true

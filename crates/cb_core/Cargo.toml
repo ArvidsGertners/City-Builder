@@ -1,0 +1,23 @@
+[package]
+name = "cb_core"
+description = "Foundation types for City Builder: stable IDs, deterministic hashing and RNG, portable math, spatial hash, units, time, money."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[features]
+## Exposes `test_util` (seeded case generators, shrinker) to other crates' tests.
+testing = []
+
+[dependencies]
+glam.workspace = true
+libm.workspace = true
+serde.workspace = true
+smallvec.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

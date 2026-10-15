@@ -1,0 +1,7 @@
+[alias]
+# Common commands (see CLAUDE.md).
+lint = "clippy --workspace --all-targets -- -D warnings"
+lint-dev = "clippy --workspace --all-targets --features dev -- -D warnings"
+bench-sim = "run -p cb_sim --release --example headless_bench --"
+probe = "run -p cb_sim --release --example determinism_probe"
+game = "run -p cb_game --"

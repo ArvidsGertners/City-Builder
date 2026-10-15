@@ -1,0 +1,16 @@
+[package]
+name = "cb_procgen"
+description = "Procedural content for City Builder: buildings, vehicles, vegetation, props, road and bridge meshes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[dependencies]
+cb_core.workspace = true
+glam.workspace = true
+
+[lints]
+workspace = true

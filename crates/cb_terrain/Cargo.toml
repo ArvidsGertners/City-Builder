@@ -1,0 +1,16 @@
+[package]
+name = "cb_terrain"
+description = "Terrain for City Builder: heightfield, world generation, deformation stamps, water, materials, raycast."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[dependencies]
+cb_core.workspace = true
+glam.workspace = true
+
+[lints]
+workspace = true

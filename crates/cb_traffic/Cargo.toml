@@ -1,0 +1,16 @@
+[package]
+name = "cb_traffic"
+description = "Traffic and routing for City Builder: link graph, ALT A*, route cache, IDM agents, junction control, flow model."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[dependencies]
+cb_core.workspace = true
+glam.workspace = true
+
+[lints]
+workspace = true

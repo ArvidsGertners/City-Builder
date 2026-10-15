@@ -1,0 +1,55 @@
+# Determinism rules for simulation-affecting crates (ADR-0043). Shared keys must match the root
+# clippy.toml (clippy reads only the nearest clippy.toml).
+msrv = "1.96"
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-dbg-in-tests = true
+too-many-lines-threshold = 200
+
+disallowed-methods = [
+    { path = "f32::sin", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::cos", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::tan", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::sin_cos", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::asin", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::acos", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::atan", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::atan2", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::exp", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::exp2", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::exp_m1", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::ln", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::ln_1p", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::log", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::log2", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::log10", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::powf", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::powi", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::hypot", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::cbrt", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::sinh", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::cosh", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::tanh", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f32::mul_add", reason = "fused multiply-add breaks cross-platform determinism, ADR-0043" },
+    { path = "f64::sin", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f64::cos", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f64::tan", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f64::sin_cos", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f64::atan2", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f64::exp", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f64::ln", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f64::powf", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f64::powi", reason = "use cb_core::math (portable libm), ADR-0043" },
+    { path = "f64::mul_add", reason = "fused multiply-add breaks cross-platform determinism, ADR-0043" },
+]
+
+disallowed-types = [
+    { path = "std::collections::HashMap", reason = "iteration order is not deterministic; use cb_core::collections::LookupMap / BTreeMap, ADR-0043" },
+    { path = "std::collections::HashSet", reason = "iteration order is not deterministic; use BTreeSet / sorted Vec, ADR-0043" },
+    { path = "glam::Vec3A", reason = "SIMD reductions differ between SSE2 and NEON, ADR-0043" },
+    { path = "glam::Vec4", reason = "SIMD reductions differ between SSE2 and NEON, ADR-0043" },
+    { path = "glam::Mat3A", reason = "SIMD reductions differ between SSE2 and NEON, ADR-0043" },
+    { path = "glam::Mat4", reason = "SIMD reductions differ between SSE2 and NEON, ADR-0043" },
+    { path = "glam::Quat", reason = "SIMD reductions differ between SSE2 and NEON, ADR-0043" },
+    { path = "glam::Affine3A", reason = "SIMD reductions differ between SSE2 and NEON, ADR-0043" },
+]
