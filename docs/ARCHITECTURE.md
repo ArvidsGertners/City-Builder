@@ -123,7 +123,7 @@ City-Builder/
     │       ├── boolean.rs      Wrapper over i_overlay (union/intersection/difference/offset) with snapping
     │       ├── triangulate.rs  Ear clipping (with hole bridging) for meshing polygons
     │       ├── rect_fit.rs     Largest inscribed oriented rectangle in polygon
-    │       ├── subdivide.rs    Frontage-strip lot subdivision (ADR-0014)
+    │       ├── subdivide.rs    Frontage-strip lot subdivision (ADR-0064)
     │       ├── predicates.rs   Robust orientation/intersection tests (f64, epsilon policy)
     │       ├── sweep.rs        Sweep a 2D cross-section along a 3D curve (road/bridge/railing meshes)
     │       ├── mesh.rs         MeshData (positions, normals, colors, custom attributes, indices) + builders

@@ -242,45 +242,72 @@ for pollution absorption and land value comes from a deterministic 8 m density f
 
 - **Frontage drag** (default): hover a road edge (sidewalk outer edge, including junction corner
   fillets), press at `s0`, drag along the road to `s1` (may continue around a corner), then drag
-  the depth handle (default R 30 m, C 35 m, I 50 m). Back edge = i_overlay offset of the
-  frontage polyline by depth (round joins); side edges straight between frontage ends and offset
-  ends; on concave frontage depth ≤ 0.8 × inner radius. Depth beyond `d_max(zone) + 10 m` snaps
+  the depth handle (default R 30 m, C 35 m, I 50 m). Plot = one-sided offset band of the
+  frontage polyline by depth (round joins at convex vertices), side edges straight between
+  frontage ends and offset ends; on concave frontage that is not a junction fillet depth ≤ 0.8 ×
+  inner radius (fillets get a seam, §10). Auto-clip removes the band beyond adjacent road
+  corridors (deep plots at acute corners) and keeps the component holding the frontage. Depth beyond `d_max(zone) + 10 m` snaps
   to `d_max` (Shift overrides) with a backyard-percentage hint.
 - **Polygon mode**: click vertices; edges within 1.5 m of a road edge snap and become frontage.
 - **Editing**: vertex drag (frontage vertices constrained to the road edge), edge drag, depth
   handle, ± sub-plot count, zone change. The preview lists buildings that no longer fit
-  (ADR-0014 amendment) and will be removed.
+  (ADR-0014 rule, kept by ADR-0064) and will be removed.
 - **Validation**: simple polygon, area 100–40 000 m², frontage ≥ 8 m, no overlap with corridors
   (< 0.5 m²), other plots, service buildings, water; mean slope ≤ 25 %. **Auto-clip** (toggle
   chip, default on): overlaps are subtracted and the clipped result shown before commit.
 
-## 10. Plot subdivision — `cb_geometry::subdivide` (ADR-0014)
+## 10. Plot subdivision — `cb_geometry::subdivide` (ADR-0064)
 
 Input: plot polygon `P` (CCW), frontage polyline(s) `F`, target lot count `N` (player) or
-`round(len(F) / w_target)`, zone parameters `(w_min, w_target, w_max, d_max, a_min)`, seed.
+`round(len(F) / w_target)`, zone parameters `(w_min, w_target, w_max, d_max, a_min)`, seed, and
+for edits the plot's persisted split state (pre-repair split positions on the road edge, the
+splits its repair removed, lot count).
 1. **Widths**: `w_i = w_target (1 + j_i)`, `j_i ∈ [−0.25, 0.25]`, rescaled to `len(F)`,
-   clamped with redistribution; corner frontage → corner lot 1.3× wide spanning both roads.
-2. **Split rays**: road normal averaged over ±`w_i/2`, blended toward the PCA depth axis by
-   β = 0.3; crossing pairs rotated toward their bisector in 5° steps, ≤ 8 iterations, else the
-   split is removed (lots merge; debug log).
-3. **Cut**: lot `i = P ∩ Strip_i` (i_overlay, 1 mm snapping); keep the frontage piece; merge
-   other pieces into the neighbor sharing the longest edge (drop if < 5 m²).
+   clamped to `[w_min, w_max]` with redistribution. Then the **constrained solver** (Gauss–Seidel
+   projection of split positions onto per-lot bounds, ≤ 400 passes, pinned splits fixed)
+   enforces `[w_min, hi]`, `hi = min(w_max, max(w · 25° / turn(lot), w_min + 2 m))`, so lots on
+   curves narrow until their frontage turns ≤ 25° (where whole lots ≥ `w_min` allow it:
+   `fan ≤ max(25°, 1.2 · w_min / r)`). Infeasible → add a split in the widest lot (≤ 4×).
+   **Kinks** (non-corner arcs turning 25–45° over < 10 m) get a pinned split at their midpoint.
+   **Corners** (concave fillet turning ≥ 45°): the corner lot spans the fillet plus
+   `0.65 · w_target` on each side (pinned); the arms are subdivided separately.
+2. **Rays**: length-weighted mean inward normal over ±½ the narrower adjacent lot (no PCA blend);
+   rays from a seam arc aim exactly at its centre. **Seams**: each concave arc with radius <
+   depth gets a seam from its centre along the bisector to the plot boundary (medial axis).
+   Rays stop at the plot boundary and at seams. Crossing adjacent rays: rotate toward their
+   bisector, 5° steps, ≤ 8 iterations, else remove the split (never triggered in S-P).
+3. **Cut**: slice `P` by rays and seams (i_overlay, 1 mm grid; a ray ending at a seam start is
+   one string with that seam); assign pieces by frontage contact; orphan pieces join the
+   neighbour sharing the longest edge (drop if < 5 m²).
 4. **Depth**: deeper than `d_max` stays as backyard (no landlocked lots).
-5. **Repair/validate**: simplify (0.05 m), remove spikes (< 15°), area ≥ `a_min`, frontage ≥
-   `w_min`, rectangularity ≥ 0.55; failing lots merge with the narrower neighbor; repeat.
-6. **Stable IDs**: match new lots to old by frontage-interval overlap ratio ≥ 0.6 (greedy);
-   matched lots keep their `LotId` and their building if it still fits (ADR-0014 amendment).
+5. **Repair/validate**: lots with rectangularity < 0.55, area < `a_min` or frontage < `w_min`
+   merge with the narrower adjacent lot by unioning their raw slice pieces; a merge whose union
+   is not one polygon is skipped (never drop area).
+6. **Stable IDs**: match new lots to old by frontage-interval overlap / longer interval ≥ 0.6
+   (greedy); matched lots keep their `LotId` and their building if it still fits (ADR-0014
+   rule, kept by ADR-0064).
 
-Performance: p99 ≤ 2 ms per plot (subdivision + fit), measured in spike S-P.
+**Edits** (vertex drag, depth handle, ± lots): the stored splits are projected onto the new
+frontage and the stored merges re-applied first. Same count → solver with ×1.1 slack on `w_max`
+and the fan cap (if it no longer fits, the best ±1 change is applied). **±1** → every insert
+(split a lot) / remove (merge two) / dissolve (half to each neighbour) position is solved and the
+one keeping the most IDs wins; none feasible → rejected (control disabled). Repair uses
+rectangularity ≥ 0.50 and area ≥ 0.9 `a_min` for existing lots (hysteresis).
+
+Performance (S-P, container CPU): subdivision + fit p50 0.30 ms, p99 1.63 ms per plot
+(budget p99 ≤ 2 ms).
 
 ## 11. Building fitting & generation — `cb_procgen::building` (ADR-0029)
 
 `fn generate(input: &BuildingInput, seed: u64) -> BuildingOutput` (pure). Seed:
 `derive_seed(world, Building, lot_id, level, regrowth)` for zoned, `building_id` otherwise.
-1. **Setbacks** (R 3/1.5/4 m, C 1/0/2 m, I 4/2/4 m) by i_overlay inset; reduce stepwise; empty
-   → green lot.
-2. **Massing**: R L1–L3 largest inscribed oriented rectangle (raster 0.5 m + continuous edge
-   refinement) + optional wing ≥ 25 m² + annex; R L3 row houses span the frontage; R L4–L5 and
+1. **Setbacks** (R 3/1.5/4 m, C 1/0/2 m, I 4/2/4 m) per edge class (front = on the frontage,
+   rear = far half and within 45° of the frontage direction, else side) on the lot simplified to
+   0.1 m: convex lots by exact half-plane clipping, others as lot − ∪(inward edge strips +
+   wedges at reflex vertices) via i_overlay; reduce ×0.75, ×0.5; empty → green lot.
+2. **Massing**: R L1–L3 largest inscribed oriented rectangle (≤ 4 orientations: frontage tangent
+   + longest inset edges; adaptive raster, cell ≥ 0.5 m and ≤ 40 cells across; continuous edge
+   refinement; ≥ 50 m² with both sides ≥ 6 m) + optional wing ≥ 25 m² + annex; R L3 row houses span the frontage; R L4–L5 and
    C use the inset polygon (≤ 12 vertices) with stepped upper volume; I halls + tanks, silos,
    chimneys, docks; services/utilities/transit/special: family generators (set A in M4, set B
    with its system).

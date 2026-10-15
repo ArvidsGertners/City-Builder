@@ -74,7 +74,8 @@ bench 30, planter 50, fountain 2 000, flower bed 80 — each adds land value wit
 | Commercial | 1–3 | L1 corner shop · L2 shop row / offices · L3 department store / office tower | 1–2 · 2–4 · 4–10 | jobs 4–10 · 10–40 · 40–160 |
 | Industrial | 1–3 | L1 workshop · L2 factory hall · L3 plant with tanks/chimneys | 1 hall · 1–2 · 2 + stacks | jobs 8–20 · 20–60 · 60–200 |
 
-Lot widths: R 10–18 m (target 13), C 14–30 m (20), I 24–60 m (36); max depths R 45, C 50, I 80 m;
+Lot widths: R 10–18 m (target 13), C 14–30 m (20), I 24–60 m (36), narrowed on curves so a lot's
+frontage turns ≤ 25° (ADR-0064); max depths R 45, C 50, I 80 m;
 min area R 120, C 200, I 600 m². Level caps by lot area: R L4 ≥ 400 m², R L5 ≥ 700 m²; C L3 ≥
 600 m²; I L3 ≥ 2 000 m². Leveling thresholds `up = [0.35, 0.5, 0.62, 0.75]`, down = up − 0.15;
 weights in ALGORITHMS §20. Job education requirements: C L1 edu 0+, C L2 edu 1+, C L3 edu 2+

@@ -5,7 +5,8 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Current status
 
-- **Phase:** M1 (project setup) **☑** — next: Phase S, spike S-Render.
+- **Phase:** S (risk spikes) ◐ — S-Render ☑, S-Time ☑ (fallback ADR-0062), S-J ☑ (ADR-0063),
+  S-P ☑ (ADR-0064); next: S-G, then S-T.
 - **Last updated:** 2026-10-15
 - **Verified environment:** Bevy 0.20.0 (2026-10-08), bevy_egui 0.43.1 (Bevy 0.20), rustc 1.97.1;
   `bevy-inspector-egui` 0.37 targets Bevy 0.19 (ADR-0031); `mesa-vulkan-drivers` (lavapipe) and
@@ -13,12 +14,14 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**Phase S, spike S-P — plots → lots → buildings** (definition below; S-Render, S-Time, S-J done).
-First action: read the S-P definition and ALGORITHMS §9–11, then create `spikes/s_p/` as a
-standalone crate (own empty `[workspace]`, path dependency on `crates/cb_core`, glam) with the
-frontage subdivision, lot matching and building-fitting pipeline on random plots, printing the
-pass metrics as `metric=` lines and dumping SVGs (render with headless Chromium:
-`/opt/pw-browsers/chromium-1194/chrome-linux/chrome --headless=new --screenshot`).
+**Phase S, spike S-G — road–terrain interface incl. bridges** (definition below; S-Render,
+S-Time, S-J, S-P done). First action: read the S-G definition, ADR-0046 and ALGORITHMS §2–3 and
+§7, then create `spikes/s_g/` as a standalone crate (own empty `[workspace]`, path dependency on
+`crates/cb_core`, glam; copy the root `Cargo.lock`; build with
+`CARGO_TARGET_DIR=target/spikes`) with the seeded heightfield, corridor stamps (cut/fill,
+continuous compositing vs max-weight), junction and bridge cases, LOD0–3 chunk meshes with
+skirts and the automated road-surface-vs-terrain sampler printing `metric=` lines; the 12
+lavapipe shots come last (pattern: `spikes/s_render`).
 
 ## Process conventions (ADR-0058)
 
@@ -43,7 +46,7 @@ pass metrics as `metric=` lines and dumping SVGs (render with headless Chromium:
 |---|---|---|---|---|
 | 0 | Phase 1 planning package + independent review | 2 | 2 | ☑ |
 | 1 | Project setup | 4 | 1 | ☑ |
-| S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | | ◐ (S-Render ☑, S-Time ☑ fallback, S-J ☑ ADR-0063) |
+| S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | | ◐ (S-Render ☑, S-Time ☑ fallback, S-J ☑ ADR-0063, S-P ☑ ADR-0064) |
 | 2 | Vertical slice | 12 | | ☐ |
 | 3 | Full road system | 12 | | ☐ |
 | 4 | All zone types, special buildings, leveling visuals | 10 | | ☐ |
@@ -235,7 +238,30 @@ fallbacks require a superseding ADR.
   both roads.
 - Fallback: frontage-drag only; parallel side edges on concave curves; dedicated corner-lot
   generator; polygon-extruded townhouse rows for lots failing rect_fit.
-- Outcome: _pending_
+- Outcome (2026-10-15, actual 0.5 day): **PASS with rule changes (ADR-0064 supersedes
+  ADR-0014)**; no fallback needed. Code `spikes/s_p/` (deterministic;
+  `cargo run --release -- --random 10000 --edits 3000 --svg DIR`); evidence
+  `docs/screenshots/S/S-P-*` (showcase, first 24 random, 24 worst by orphans/merges/min rect).
+  - 10 000 random plots (86 573 lots): 0 panics ✓; 0 lots with frontage < w_min ✓; max area
+    error 0.007 % ✓; 0 overlaps ✓ (intersection thicker than 5 mm; union re-snapping leaves
+    ≤ 2.5 mm slivers); rectangularity ≥ 0.55 before merging 99.2 % ✓; merged 1.5 % ✓; R lots
+    fitting an L1–L3 footprint ≥ 50 m² (both sides ≥ 6 m) 98.3 % ✓; footprints always inside
+    the lot ✓; p50 0.30 ms, p99 1.63 ms, max 8.5 ms per plot (subdivision + fit) ✓.
+  - Per family (rect pass / merged / R fit): straight 100/0.4/100, convex 100/0.2/100, concave
+    100/0.6/94.7, S-curve 100/0.5/97.9, corner 98.8/2.5/99.3, two-segment 96.8/4.3/97.7 %.
+  - Edits (3 000 plots × 10 kinds, 28 598 re-subdivisions, same invariants all ✓): drags
+    ±0.25/±1 m keep 99.8 % of LotIds ✓ (±3 m 99.3 %); depth ±5 m 99.8 %; N + 1 keeps 94.4 %,
+    N − 1 89.6 %, `(N − 2)/N` met on 99.5 % / 99.8 % of feasible edits; 845 / 511 requests were
+    infeasible (already at the max/min count) → rejected, control disabled.
+  - Showcase: corner lots front both roads 4/4 ✓; max fan 27° on the tightest curves (concave
+    r 25 m, convex r 30 m) → rule stated as `fan ≤ max(25°, 1.2 · w_min / r)`; 0.74 % of random
+    non-corner lots exceed 25°, all on such curves.
+  - Rule changes (ADR-0064): no PCA blend (β = 0; the blend caused slivers, skewed corner arms
+    and end-lot fans); medial-axis seams for concave arcs with r < depth; constrained width
+    solver with a curvature fan cap and pinned splits at kinks/corners; persisted pre-repair
+    split state + stored merges; best-position search for ±1 lots; edit hysteresis (×1.1
+    bounds, rect 0.50); plot auto-clip against adjacent corridors; fit fast paths (convex
+    half-plane inset, adaptive raster, ≤ 4 orientations) — fit had been 90 % of the time.
 
 **S-G — road–terrain interface incl. bridges (4 days)**
 - Build: seeded 2049² terrain; 150 random roads (cut/fill); 30 junctions on 4–10 % slopes; 5
@@ -296,7 +322,10 @@ worldgen constraints, input map v3.
       `_water_no_bridge`, `_crossing_clearance`); `profile_solver_*` (incl. infeasible endpoints),
       `grading_continuous_compositing`, `crossing_fixed_point_converges`.
 - [ ] Plot tool (residential): `subdivide_random_10k_invariants`, `building_footprint_within_lot_10k`,
-      `lot_ids_stable_under_small_drags`, `plot_clipped_by_new_corridor`, procgen golden hashes.
+      `lot_ids_stable_under_small_drags`, `lot_ids_n_plus_minus_one_keep_n_minus_2`,
+      `subdivide_fan_le_25_or_tight_curve`, `subdivide_corner_lot_fronts_both_roads`,
+      `plot_clipped_by_new_corridor`, procgen golden hashes (S-P metrics and the six frontage
+      families of `spikes/s_p` as fixtures; ADR-0064).
 - [ ] Lighting/art: calibration metrics of ADR-0050 on M2-02 (noon) and M2-11 (night).
 - [ ] Perf: container `--benchmark m2_slice --no-gpu-work`: main thread ≤ 8 ms p95, render thread
       ≤ 8 ms p95. ☑ᵤ: GPU ≤ 12 ms p95 at 1080p on PC and at Auto on M4.
@@ -607,3 +636,5 @@ None open. Known gaps (planned):
 - 2026-10-15 — S-J done (ADR-0063 supersedes ADR-0045): junction rules validated on 40 000 random
   + 12 canonical junctions; live spacing guide replaces the static table; p99 timing (1.4 ms vs
   0.4 ms) carried into M3.
+- 2026-10-15 — S-P done (ADR-0064 supersedes ADR-0014): subdivision + fitting validated on
+  10 000 random plots, a 24-plot showcase and 28 598 edits; all gates pass (p99 1.63 ms).

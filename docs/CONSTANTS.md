@@ -33,7 +33,11 @@ in the PROGRESS.md log. Values live in code consts or `crates/cb_sim/data/*.ron`
 | Cut-back cap | 45 % of segment | `junction_rejection_rate_standard` | ≤ 3 % rejections on realistic layouts with the live guide (S-J: 0.65 %) |
 | Max junction turn | 135° deflection (ADR-0063) | `junction_random_10k_valid_or_typed_error` | every allowed movement has a connector; no growth runaway |
 | Cut-back growth step | 2 m, ≤ 40 iterations | `junction_generation_p99` | p99 ≤ 0.4 ms (S-J: 1.4 ms, M3 optimization) |
-| Ray de-crossing | 8 × 5° | `subdivide_random_10k_invariants` | no crossing rays; ≤ 3 % merged lots |
+| Ray de-crossing | 8 × 5° | `subdivide_random_10k_invariants` | no crossing rays; ≤ 3 % merged lots (S-P: never triggered, 1.5 % merged) |
+| Ray rule | mean inward normal over ±½ narrower lot, no PCA blend (ADR-0064) | `subdivide_random_10k_invariants` | rect ≥ 0.55 for ≥ 95 % before merging (S-P: 99.2 %) |
+| Fan cap | 25° frontage turn per lot, lot ≥ w_min + 2 m on tight curves | `subdivide_fan_le_25_or_tight_curve` | fan ≤ max(25°, 1.2 · w_min / r) (S-P: max 27°) |
+| Corner lot | fillet + 0.65 · w_target each side | `subdivide_corner_lot_fronts_both_roads` | corner lots front both roads (S-P: 4/4) |
+| Edit slack / repair hysteresis | ×1.1 on w_max and fan cap; rect 0.50, area 0.9 a_min for existing lots | `lot_ids_stable_under_small_drags` | ≤ 1 m drags keep ≥ 90 % IDs (S-P: 99.8 %) |
 | Rectangularity min | 0.55 | `subdivide_random_10k_invariants` | ≥ 95 % of lots pass before merging |
 | Lot match overlap | 0.6 | `lot_ids_stable_under_small_drags` | ≥ 90 % IDs kept for ≤ 1 m drags |
 | Setbacks R/C/I | 3/1.5/4, 1/0/2, 4/2/4 m | `building_footprint_within_lot_10k` | 100 % within lot; ≥ 90 % R lots fit L1–L3 ≥ 50 m² |

@@ -20,7 +20,7 @@ has since been superseded should be read as references to its successor (follow 
 | [0011](0011-pathfinding-and-caching.md) | Pathfinding algorithm and route caching | Superseded by 0048 |
 | [0012](0012-terrain-representation.md) | Terrain representation | Superseded by 0046 |
 | [0013](0013-spatial-index.md) | Spatial index | Accepted |
-| [0014](0014-plot-subdivision.md) | Plot subdivision algorithm | Accepted |
+| [0014](0014-plot-subdivision.md) | Plot subdivision algorithm | Superseded by 0064 |
 | [0015](0015-command-pattern-undo-redo.md) | Command pattern and undo/redo | Superseded by 0055 |
 | [0016](0016-citizen-simulation-granularity.md) | Citizen simulation granularity | Accepted |
 | [0017](0017-procgen-determinism.md) | Procedural generation determinism and seeds | Superseded by 0043 |
@@ -70,12 +70,13 @@ has since been superseded should be read as references to its successor (follow 
 | [0061](0061-sim-single-threaded-executor.md) | Single-threaded executor for the sim schedules | Accepted |
 | [0062](0062-trip-scale.md) | Trip scale — one vehicle trip per six citizens' trips | Accepted |
 | [0063](0063-junction-geometry-v3.md) | Junction geometry v3 (validated by spike S-J) | Accepted (supersedes 0045) |
+| [0064](0064-plot-subdivision-v2.md) | Plot subdivision v2 (validated by spike S-P) | Accepted (supersedes 0014) |
 
 Current decision per required topic (superseded ADRs remain for history): engine (0001),
 rendering (0049), lighting (0050), sim/render separation (0005), fixed timestep & time model
 (0042), road spline type (0007), lane model (0008), intersections (0063), traffic model incl.
 agent count, LOD and trip generation (0047), pathfinding & caching (0048), terrain (0046),
-spatial index (0013), plot subdivision (0014), undo/redo (0055), citizen granularity (0016),
+spatial index (0013), plot subdivision (0064), undo/redo (0055), citizen granularity (0016),
 procgen determinism (0043), weather & day/night sim effects (0018), audio (0019), save format &
 migration (0044), localization (0021), logging (0022), crate selection (0023). Platforms:
 support (0037), CI/release (0060), input (0052), file locations (0040), high-DPI (0053). Also:

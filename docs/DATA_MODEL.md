@@ -179,6 +179,10 @@ struct ConflictZone { node: NodeId, connectors: SmallVec<[ConnectorId; 4]>, cent
     polygon: Polygon2,                     // CCW, simple, validated
     frontage: SmallVec<[FrontageRef; 2]>,  // FrontageRef::Segment { segment, side, t0, t1 } | Corner { node, corner }
     subdivision: SubdivisionParams { target_lots: u16, seed_salt: u32, depth_mode: DepthMode },
+    // Persisted split state (ADR-0064): pre-repair splits and the splits removed by repair, as
+    // positions on the frontage road edges (stable under edits of the plot itself).
+    splits: SmallVec<[FrontagePos; 16]>,   // FrontagePos { part: u8 (index into frontage), s_m: f32 }
+    merged_splits: SmallVec<[FrontagePos; 4]>,
     lots: SmallVec<[LotId; 16]>,
     access: AccessState,                   // Connected | Disconnected{since_tick}
 }

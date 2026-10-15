@@ -1,6 +1,6 @@
 # ADR-0014: Plot subdivision algorithm
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0064
 - **Date:** 2026-10-15
 - **Milestone:** M2
 

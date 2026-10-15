@@ -57,7 +57,7 @@ explicitly, and exposes query helpers. `cb_sim::testing::citygen` builds large o
 | Area | Tests (names in PROGRESS.md acceptance criteria) |
 |---|---|
 | Geometry edge cases | Bézier split/eval/nearest point vs dense sampling; arc-length accuracy; degenerate curves; offsets at r_min; polygon orientation/area/containment with collinear & duplicate points; self-intersecting input rejected; ear clipping on random polygons; booleans on touching/overlapping/slivers; rect fitting on L/U/angled shapes |
-| Plot subdivision | `subdivide_random_10k_invariants`, `lot_ids_stable_under_small_drags`, corner plots, concave/S-curve frontage, tiny plots, N too large, slivers, area conservation ±0.5 % |
+| Plot subdivision | `subdivide_random_10k_invariants`, `lot_ids_stable_under_small_drags`, `lot_ids_n_plus_minus_one_keep_n_minus_2`, `subdivide_fan_le_25_or_tight_curve`, `subdivide_corner_lot_fronts_both_roads`, corner plots, concave/S-curve frontage, kinks with seams, tiny plots, N too large (rejected), slivers, area conservation ±0.5 %; fixtures = the six S-P frontage families (`spikes/s_p`) |
 | Building fitting | `building_footprint_within_lot_10k`, triangle budgets, façade edges, slope classes, golden hashes |
 | Lanes | counts/offsets per cross-section incl. bus/tram variants; parallelism; reversal |
 | Junctions | `junction_random_10k_valid_or_typed_error`, connectors cover movements, same-approach no crossing, conflict zone symmetry, `junction_surface_continuous_8pct`, ring detection |

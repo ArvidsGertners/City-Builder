@@ -1,0 +1,16 @@
+# Throwaway spike (CLAUDE.md "Risk spikes"): not a workspace member.
+[package]
+name = "s_p"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+cb_core = { path = "../../crates/cb_core" }
+glam = "0.33"
+i_overlay = "9"
+
+[profile.release]
+debug = "line-tables-only"
