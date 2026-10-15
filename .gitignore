@@ -1,0 +1,8 @@
+/target/
+**/*.rs.bk
+/userdata/
+/screenshots/
+*.cbsave
+*.log
+crash-*.txt
+.DS_Store
