@@ -100,6 +100,8 @@ pub struct World {
     pub forest: Grid<u8>,
     /// Material weights (derived).
     pub materials: MaterialWeights,
+    /// Seed of the material moisture noise (for incremental repaints).
+    pub material_seed: u64,
     /// Diagnostics.
     pub report: WorldReport,
 }
@@ -208,14 +210,8 @@ pub fn generate(params: &WorldGenParams, seed: u64) -> Result<World, TerrainErro
         report.relaxed.push("buildable_lowland");
     }
     let forest = forest_mask(&base, &wdist, seed);
-    let materials = materials::compute(
-        &base,
-        &water,
-        &wdist,
-        &wlevel,
-        &forest,
-        derive_seed(seed, Domain::Terrain, 9, 0),
-    );
+    let material_seed = derive_seed(seed, Domain::Terrain, 9, 0);
+    let materials = materials::compute(&base, &water, &wdist, &wlevel, &forest, material_seed);
     Ok(World {
         base,
         water,
@@ -224,6 +220,7 @@ pub fn generate(params: &WorldGenParams, seed: u64) -> Result<World, TerrainErro
         outside,
         forest,
         materials,
+        material_seed,
         report,
     })
 }

@@ -103,6 +103,64 @@ pub fn quantize(w: [f32; MATERIALS]) -> [u8; MATERIALS] {
     out
 }
 
+/// Inputs shared by every material evaluation.
+pub struct MaterialInputs<'a> {
+    /// Final heights.
+    pub h: &'a HeightGrid,
+    /// Water surfaces.
+    pub water: &'a WaterField,
+    /// Distance to water (m).
+    pub wdist: &'a Grid<f32>,
+    /// Level of the nearest water.
+    pub wlevel: &'a Grid<f32>,
+    /// Forest mask (8 m).
+    pub forest: &'a Grid<u8>,
+    /// Stamp disturbance 0–255 per sample (empty slice = none).
+    pub disturbed: &'a [u8],
+    /// Seed of the moisture noise.
+    pub seed: u64,
+}
+
+/// Material weights of sample `(i, j)`: rock by slope, sand near water, forest floor under the
+/// forest mask, dirt by moisture noise and where stamps disturbed the ground (shoulders,
+/// embankments, cut faces), grass otherwise.
+#[must_use]
+pub fn sample(inp: &MaterialInputs<'_>, i: usize, j: usize) -> [u8; MATERIALS] {
+    let h = inp.h;
+    let n = h.n();
+    let p = h.pos(i, j);
+    let height = h.get(i, j);
+    let slope = h.sample_slope(i, j);
+    let rock = smoothstep(0.53, 0.84, slope);
+    let sand = if inp.water.level(i, j).is_some() {
+        1.0
+    } else {
+        let lv = inp.wlevel.get(i, j);
+        if lv.is_nan() {
+            0.0
+        } else {
+            (1.0 - smoothstep(18.0, 25.0, inp.wdist.get(i, j)))
+                * (1.0 - smoothstep(1.0, 1.5, height - lv))
+        }
+    };
+    let disturbed = inp
+        .disturbed
+        .get(j * n + i)
+        .map_or(0.0, |d| f32::from(*d) / 255.0);
+    let fscale = (inp.forest.n() - 1) as f32 / (n - 1) as f32;
+    let fi = ((i as f32 * fscale).round() as usize).min(inp.forest.n() - 1);
+    let fj = ((j as f32 * fscale).round() as usize).min(inp.forest.n() - 1);
+    let forest_w = f32::from(inp.forest.get(fi, fj)) / 255.0 * (1.0 - disturbed);
+    let dirt =
+        (smoothstep(0.35, 0.6, noise::fbm(p, 200.0, 3, inp.seed)) * 0.6).max(disturbed * 0.85);
+    let r = rock;
+    let sa = sand * (1.0 - r);
+    let f = forest_w * (1.0 - r - sa).max(0.0);
+    let d = dirt * (1.0 - r - sa - f).max(0.0);
+    let g = (1.0 - r - sa - f - d).max(0.0);
+    quantize([g, d, r, sa, f])
+}
+
 /// Material weights for every height sample.
 #[must_use]
 pub fn compute(
@@ -113,39 +171,22 @@ pub fn compute(
     forest: &Grid<u8>,
     seed: u64,
 ) -> MaterialWeights {
-    let (n, s) = (h.n(), h.spacing_m());
+    let n = h.n();
+    let inp = MaterialInputs {
+        h,
+        water,
+        wdist,
+        wlevel,
+        forest,
+        disturbed: &[],
+        seed,
+    };
     let mut data = vec![[0u8; MATERIALS]; n * n];
-    let fscale = (forest.n() - 1) as f32 / (n - 1) as f32;
     for_rows(&mut data, n, |j, row| {
         for (i, out) in row.iter_mut().enumerate() {
-            let p = h.pos(i, j);
-            let height = h.get(i, j);
-            let slope = h.sample_slope(i, j);
-            let rock = smoothstep(0.53, 0.84, slope);
-            let sand = if water.level(i, j).is_some() {
-                1.0
-            } else {
-                let lv = wlevel.get(i, j);
-                if lv.is_nan() {
-                    0.0
-                } else {
-                    (1.0 - smoothstep(18.0, 25.0, wdist.get(i, j)))
-                        * (1.0 - smoothstep(1.0, 1.5, height - lv))
-                }
-            };
-            let fi = ((i as f32 * fscale).round() as usize).min(forest.n() - 1);
-            let fj = ((j as f32 * fscale).round() as usize).min(forest.n() - 1);
-            let forest_w = f32::from(forest.get(fi, fj)) / 255.0;
-            let dirt = smoothstep(0.35, 0.6, noise::fbm(p, 200.0, 3, seed)) * 0.6;
-            let r = rock;
-            let sa = sand * (1.0 - r);
-            let f = forest_w * (1.0 - r - sa).max(0.0);
-            let d = dirt * (1.0 - r - sa - f).max(0.0);
-            let g = (1.0 - r - sa - f - d).max(0.0);
-            *out = quantize([g, d, r, sa, f]);
+            *out = sample(&inp, i, j);
         }
     });
-    let _ = s;
     Grid::from_vec(n, h.spacing_m(), data)
         .unwrap_or_else(|| Grid::filled(n, h.spacing_m(), [255, 0, 0, 0, 0]))
 }
