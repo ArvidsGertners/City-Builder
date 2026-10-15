@@ -34,7 +34,7 @@ fn crash_report_contains_all_sections() {
     }
     for needle in [
         "debug panic requested with --debug-panic",
-        "src/lib.rs",
+        "lib.rs:", // panic location; the separator before it is `\\` on Windows
         env!("CARGO_PKG_VERSION"),
         "lang=",
         "City Builder", // version line from the log ring
