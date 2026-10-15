@@ -1,0 +1,50 @@
+# Throwaway spike (CLAUDE.md "Risk spikes"): not a workspace member, never promoted as-is.
+[package]
+name = "s_g"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+cb_core = { path = "../../crates/cb_core" }
+glam = "0.33"
+bevy = { version = "0.20", default-features = false, features = [
+    "std",
+    "async_executor",
+    "multi_threaded",
+    "bevy_winit",
+    "bevy_window",
+    "x11",
+    "wayland",
+    "bevy_asset",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_post_process",
+    "bevy_anti_alias",
+    "bevy_gizmos_render",
+    "bevy_state",
+    "keyboard",
+    "mouse",
+    "gestures",
+    "png",
+    "tonemapping_luts",
+    "smaa_luts",
+    "ktx2",
+    "zstd_rust",
+    "bevy_log",
+] }
+
+
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# The heavy terrain work needs optimisation even in dev builds.
+[profile.dev.package.s_g]
+opt-level = 3

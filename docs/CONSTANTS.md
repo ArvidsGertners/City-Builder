@@ -28,7 +28,12 @@ in the PROGRESS.md log. Values live in code consts or `crates/cb_sim/data/*.ron`
 | Agent cap default | 5 000 | spike S-Time / `agent_share_at_50k` | ≥ 40 % of peak trips are agents (S-Time: 100 % at trip scale 6) |
 | Shift starts | commercial N(08:45, σ 75) [06:30, 11:30]; industry N(07:30, σ 45) [06:00, 11:00] | spike S-Time | night share ≤ 10 %; peak/off-peak (10–13 h) ≥ 3 |
 | Perceived time factor | 0.1 min per sim s | `commute_p50_balance` | p50 12–25 perceived min |
-| Corridor carve / shoulder | 0.15 m / 3.5 m | `road_above_terrain_all_lods` | terrain ≤ road − 0.03 m under carriageway |
+| Corridor carve / shoulder | 0.15 m / 3.5 m | `road_above_terrain_all_lods` | terrain ≤ road − 0.03 m under carriageway (S-G: 100 % of carriageway samples) |
+| Blend width factor | 1.6 · \|e\| / side slope | `no_cliffs_outside_corridors` | 0 adjacent-sample jumps > tan(slope)·2 m + 5 cm (S-G: 0) |
+| Terrain LOD1+ downsampling | constrained decimation, core − 5 mm, ≤ 12 passes (ADR-0065) | `road_above_terrain_all_lods` | LOD1–3 ≤ road on ≥ 99.9 % (S-G: 100 %) |
+| Terrain chunk skirts | 3 / 4 / 6 / 8 m (LOD0–3) | `terrain_lod_cracks_covered` | skirt ≥ crack (S-G max 2.5 / 3.2 / 4.7 m) |
+| Road edge skirts | 0.6 / 1.0 / 2.0 / 4.0 m (by chunk LOD) | `road_edge_gap_covered` | p99.9 terrain depth below edge 0.17 / 0.97 / 1.79 / 3.62 m (S-G) |
+| Clearance under decks | 4.5 m | `road_under_deck_clearance` | validation error below |
 | Landing grade | 4 % | `junction_surface_continuous_8pct` | cut-line step ≤ 2 cm |
 | Cut-back cap | 45 % of segment | `junction_rejection_rate_standard` | ≤ 3 % rejections on realistic layouts with the live guide (S-J: 0.65 %) |
 | Max junction turn | 135° deflection (ADR-0063) | `junction_random_10k_valid_or_typed_error` | every allowed movement has a connector; no growth runaway |

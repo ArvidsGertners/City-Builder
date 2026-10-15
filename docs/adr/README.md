@@ -52,7 +52,7 @@ has since been superseded should be read as references to its successor (follow 
 | [0043](0043-determinism-v2.md) | Determinism v2 — seeds, partitions, portable math, maps | Accepted (supersedes 0017) |
 | [0044](0044-save-format-v2.md) | Save format v2 — completeness rule, saved base terrain, validation | Accepted (supersedes 0020) |
 | [0045](0045-junctions-v2.md) | Junction geometry and traffic control v2 | Accepted (supersedes 0009) |
-| [0046](0046-terrain-v2.md) | Terrain representation v2 — continuous compositing, carved corridors | Accepted (supersedes 0012) |
+| [0046](0046-terrain-v2.md) | Terrain representation v2 — continuous compositing, carved corridors | Superseded by 0065 |
 | [0047](0047-traffic-v2.md) | Traffic simulation model v2 | Accepted (supersedes 0010) |
 | [0048](0048-routing-v2.md) | Pathfinding and route caching v2 | Accepted (supersedes 0011) |
 | [0049](0049-rendering-v2.md) | Rendering approach v2 — memory and entity budgets | Accepted (supersedes 0003) |
@@ -71,11 +71,12 @@ has since been superseded should be read as references to its successor (follow 
 | [0062](0062-trip-scale.md) | Trip scale — one vehicle trip per six citizens' trips | Accepted |
 | [0063](0063-junction-geometry-v3.md) | Junction geometry v3 (validated by spike S-J) | Accepted (supersedes 0045) |
 | [0064](0064-plot-subdivision-v2.md) | Plot subdivision v2 (validated by spike S-P) | Accepted (supersedes 0014) |
+| [0065](0065-terrain-v3.md) | Terrain v3 — road–terrain interface (validated by spike S-G) | Accepted (supersedes 0046) |
 
 Current decision per required topic (superseded ADRs remain for history): engine (0001),
 rendering (0049), lighting (0050), sim/render separation (0005), fixed timestep & time model
 (0042), road spline type (0007), lane model (0008), intersections (0063), traffic model incl.
-agent count, LOD and trip generation (0047), pathfinding & caching (0048), terrain (0046),
+agent count, LOD and trip generation (0047), pathfinding & caching (0048), terrain (0065),
 spatial index (0013), plot subdivision (0064), undo/redo (0055), citizen granularity (0016),
 procgen determinism (0043), weather & day/night sim effects (0018), audio (0019), save format &
 migration (0044), localization (0021), logging (0022), crate selection (0023). Platforms:

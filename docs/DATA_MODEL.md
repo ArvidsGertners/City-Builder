@@ -53,7 +53,7 @@ struct Terrain {
     minmax: MinMaxQuadtree,        // for ray marching (derived)
 }
 struct Stamp { id: StampId, owner: StableRef, kind: StampKind, aabb: Aabb2, priority: u8 /* road > abutment > pad */ }
-enum StampKind {                          // core = exact target, blend zone = weighted (ADR-0046)
+enum StampKind {                          // core = exact target, blend zone = weighted (ADR-0065)
     Corridor { centerline: Polyline3, core_half_width_m: f32 /* edge + 3.5 m */, carve_m: f32 /* 0.15 */,
                fill_slope: f32 /* 1:1.5 */, cut_slope: f32 /* 1:1 */ },
     Pad { polygon: Polygon2, target_h: f32, falloff_m: f32 },

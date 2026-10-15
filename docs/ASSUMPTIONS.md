@@ -39,8 +39,8 @@ blocks M1.
 | B29 | Demolish refund 25 % within one game day | T | GAME_DESIGN §9 | default |
 | B30 | Junction limits: min angle 25°, no junctions on bridges, live minimum spacing guide, no turns > 135° | DS | ADR-0063 (S-J) | default |
 | B31 | Grade separation only via manual elevation (≥ 5.5 m) with an "auto overpass" quick fix; no interchange ramps tool; no tunnels | T | ALGORITHMS §1 | default |
-| B32 | Water bodies immutable (no land reclamation or dams) | DS | ADR-0046 | default |
-| B33 | Terrain resolution 2 m | DS | ADR-0046 (+ carve/shoulder rules) | default |
+| B32 | Water bodies immutable (no land reclamation or dams) | DS | ADR-0065 | default |
+| B33 | Terrain resolution 2 m | DS | ADR-0065 (+ carve/shoulder rules) | default |
 | B34 | Zoned buildings seeded by LotId (+ level, regrowth) | T | ADR-0043 | resolved |
 | B35 | Household sizes, cars by wealth, lifecycle rates | T | GAME_DESIGN §10 | default |
 | B36 | Logit mode-choice form and β | T | ALGORITHMS §16 | default |

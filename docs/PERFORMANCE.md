@@ -143,7 +143,7 @@ components and cost only sim work.
 |---|---|---|
 | 10k unique buildings | per-chunk merged meshes, 20 B indexed vertices with derivative normals, param buffer for state, LOD rings, LRU of per-building meshes | 0049 |
 | 150k+ trees and props | merged per chunk per LOD, cross-quads at distance, residency rings | 0049 |
-| Terrain 4.2 M samples | chunked LODs with skirts, min-downsampling in corridors, async re-mesh | 0046 |
+| Terrain 4.2 M samples | chunked LODs with LOD-scaled skirts, constrained decimation near corridors (0.09 ms/chunk for LOD1–3), async re-mesh (300 m road re-stamp + LOD0 re-mesh 3 ms p50 in S-G) | 0065 |
 | 5k+ agents | 1D lane state, SoA, fixed partitions; poses only for visible agents; pooled instanced entities | 0047 |
 | Trip volume at 50k citizens | time wheel, routed estimates, cost-unit routing budget, cache keyed per commuter, sampling beyond the cap | 0042, 0047, 0048 |
 | Sub-rate spikes | phase table with fixed offsets and slices, 0.6 ms slot cap | 0042 |

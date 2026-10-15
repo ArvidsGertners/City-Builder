@@ -6,7 +6,7 @@ milestone and before ending a session (skill `milestone-completion`).
 ## Current status
 
 - **Phase:** S (risk spikes) ◐ — S-Render ☑, S-Time ☑ (fallback ADR-0062), S-J ☑ (ADR-0063),
-  S-P ☑ (ADR-0064); next: S-G, then S-T.
+  S-P ☑ (ADR-0064), S-G ☑ (ADR-0065); next: S-T (last spike).
 - **Last updated:** 2026-10-15
 - **Verified environment:** Bevy 0.20.0 (2026-10-08), bevy_egui 0.43.1 (Bevy 0.20), rustc 1.97.1;
   `bevy-inspector-egui` 0.37 targets Bevy 0.19 (ADR-0031); `mesa-vulkan-drivers` (lavapipe) and
@@ -14,14 +14,13 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**Phase S, spike S-G — road–terrain interface incl. bridges** (definition below; S-Render,
-S-Time, S-J, S-P done). First action: read the S-G definition, ADR-0046 and ALGORITHMS §2–3 and
-§7, then create `spikes/s_g/` as a standalone crate (own empty `[workspace]`, path dependency on
-`crates/cb_core`, glam; copy the root `Cargo.lock`; build with
-`CARGO_TARGET_DIR=target/spikes`) with the seeded heightfield, corridor stamps (cut/fill,
-continuous compositing vs max-weight), junction and bridge cases, LOD0–3 chunk meshes with
-skirts and the automated road-surface-vs-terrain sampler printing `metric=` lines; the 12
-lavapipe shots come last (pattern: `spikes/s_render`).
+**Phase S, spike S-T — traffic at scale** (definition below; the other five spikes are done).
+First action: read the S-T definition, ADR-0047, ADR-0048, ADR-0063 (control rules) and
+ALGORITHMS §6, §12–13, then create `spikes/s_t/` as a standalone crate (own empty `[workspace]`,
+path dependency on `crates/cb_core`, glam; copy the root `Cargo.lock`; build with
+`CARGO_TARGET_DIR=target/spikes`): synthetic 4 × 4 km network generator first, then lanes +
+connectors + conflict zones, IDM + admission, routing, OD, and the seven cases printing
+`metric=` lines (pattern: `spikes/s_time`, `spikes/s_j`).
 
 ## Process conventions (ADR-0058)
 
@@ -46,7 +45,7 @@ lavapipe shots come last (pattern: `spikes/s_render`).
 |---|---|---|---|---|
 | 0 | Phase 1 planning package + independent review | 2 | 2 | ☑ |
 | 1 | Project setup | 4 | 1 | ☑ |
-| S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | | ◐ (S-Render ☑, S-Time ☑ fallback, S-J ☑ ADR-0063, S-P ☑ ADR-0064) |
+| S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | | ◐ (S-Render ☑, S-Time ☑ fallback, S-J ☑ ADR-0063, S-P ☑ ADR-0064, S-G ☑ ADR-0065) |
 | 2 | Vertical slice | 12 | | ☐ |
 | 3 | Full road system | 12 | | ☐ |
 | 4 | All zone types, special buildings, leveling visuals | 10 | | ☐ |
@@ -276,7 +275,28 @@ fallbacks require a superseding ADR.
   LOD0 re-mesh of a 300 m road ≤ 25 ms async and ≤ 1.5 ms main thread.
 - Fallback: deeper carve + depth-biased road mesh with 0.6 m skirts; conservative LOD
   downsampling everywhere near corridors; straight horizontal bridge spans with ramps.
-- Outcome: _pending_
+- Outcome (2026-10-15, actual 0.5 day): **PASS with rule changes (ADR-0065 supersedes
+  ADR-0046)**; no fallback needed. Code `spikes/s_g/` (deterministic; `cargo run` prints the
+  metrics, `-- --shots DIR` renders the 12 shots under lavapipe); evidence `docs/screenshots/S/S-G-*`.
+  - Scenario: 2049² terrain (river, 30 m valley), 270 roads (150 random), 30 junctions on 4–10 %
+    slopes, 5 parallel pairs (gaps 9–19 m, Δh 1.9–3.9 m), 2 river + 2 valley bridges, 2 overpasses.
+  - Sampler (545 083 lane/edge samples): LOD0 terrain ≤ road − 0.03 m on 100 % of carriageway
+    samples ✓ (2 sidewalk-edge samples at −0.019/−0.027 m, under the skirt); LOD1/2/3 ≤ road on
+    100 % ✓ (plain decimation: 99.95 %).
+  - 0 cliffs outside corridors and decks ✓ (max-weight composite: 58 two-road cliffs; continuous:
+    1 two-road interaction → `road.too_close_height` validation); junction cut-line step 0.7 mm ✓;
+    abutment step 0.3 mm ✓; 0 piers in corridors ✓; overpass leaves 3 219/3 219 lower-core samples
+    bitwise unchanged ✓; stamp removal restores the base bitwise ✓.
+  - Timing: 300 m road re-stamp + profile + composite + LOD0 re-mesh p50 3.2 ms, max 9.4 ms ✓
+    (≤ 25 ms async); main-thread apply only as a buffer-copy proxy (p50 0.28, p95 0.66, max 1.7 ms)
+    → real Bevy mesh replacement measured in M2.
+  - Rule changes (ADR-0065): constrained LOD decimation instead of min-downsampling (min sagged up
+    to 13 m beside hillside roads; LOD3 road-edge gaps 24 % → 8 %); blend width 1.6·|e|/slope;
+    adaptive stamp extent; spans classified from the terrain-following profile only (the deck
+    re-solve had turned roads into viaducts); grade-feasible clearance envelope (overpasses had
+    been rejected); bridge soft end caps + abutment pad at deck underside; clearance 4.5 m and
+    pier re-placement for roads under decks; skirts by LOD (terrain 3/4/6/8 m, road
+    0.6/1.0/2.0/4.0 m).
 
 **S-T — traffic at scale (5 days)**
 - Build: synthetic 4 × 4 km network (6 000 segments; mixed T/X/Y/5-way; 4-lane avenues;
@@ -638,3 +658,6 @@ None open. Known gaps (planned):
   0.4 ms) carried into M3.
 - 2026-10-15 — S-P done (ADR-0064 supersedes ADR-0014): subdivision + fitting validated on
   10 000 random plots, a 24-plot showcase and 28 598 edits; all gates pass (p99 1.63 ms).
+- 2026-10-15 — S-G done (ADR-0065 supersedes ADR-0046): road–terrain interface validated on 270
+  roads, 30 sloped junctions, bridges and overpasses with an automated LOD0–3 sampler and 12
+  lavapipe shots; constrained LOD decimation replaces min-downsampling.

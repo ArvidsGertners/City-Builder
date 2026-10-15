@@ -77,7 +77,7 @@ and frontages re-attach by the 2 m rule (§14).
 **Splitting** (de Casteljau at `t`) is exact; profiles split at the matching arc length;
 style/type copied; dependents re-pointed by arc-length position.
 
-## 2. Vertical profile & terrain grading — `cb_network::profile`, `cb_network::grading` (ADR-0046)
+## 2. Vertical profile & terrain grading — `cb_network::profile`, `cb_network::grading` (ADR-0065)
 
 **Profile solver.** Samples every 4 m along arc length of terrain *base + all stamps except
 this road's own* → `g[i]`; endpoint heights fixed (existing node) or terrain + player
@@ -92,26 +92,34 @@ Max grades: dirt 14 %, street 10 %, avenue 8 %, tram 6 %.
 **Grading.** Ground spans emit a `Corridor` stamp: **core** = carriageway + shoulder (flat
 margin ≥ 3.5 m beyond the edge), target = road surface − 0.15 m (carve); **blend zone** to the
 original terrain along side slopes ≤ 1:1.5 (fill) / 1:1 (cut) with smoothstep weight.
-Compositing per ADR-0046 (cores override; elsewhere max-fill/min-cut). Earthwork volume is
+Compositing per ADR-0065 (cores override; elsewhere max-fill/min-cut; blend width `1.6 · |e| / slope` so the smoothstep never exceeds the side slope; stamp extent grows until no blend weight touches its bounds). Earthwork volume is
 integrated during stamping (`cost += m³ × 1.5`). Road meshes sit on the profile height with
-0.6 m skirts; the shoulder area is painted `dirt` in material weights.
+skirts scaled with the chunk's terrain LOD (0.6 / 1.0 / 2.0 / 4.0 m); terrain LOD1+ uses constrained
+decimation (ADR-0065: smallest vertex lowering so the coarse surface is ≤ every core sample);
+the shoulder area is painted `dirt` in material weights.
 
 ## 3. Bridges — `cb_network::bridge`, `cb_procgen::bridge_mesh`
 
 1. After the profile solve, mark bridge candidates: over water; fill `h − g` > 6 m (street) /
    8 m (avenue); fill reaching water; **overlap with another road corridor with Δh ≥ 4 m**
    (overpass; min span = crossed width + 2 × 6 m).
-2. Hysteresis for stable previews: enter at the threshold, exit at threshold − 1 m. Merge
+2. Classify from the terrain-following profile only (never from the re-solved deck, which would
+   grow the spans into viaducts). Hysteresis for stable previews: enter at the threshold, exit at threshold − 1 m. Merge
    candidates into spans, extend to stable abutments (≥ 4 m beyond `h − g ≤ 1 m`), min span 12 m,
    merge spans closer than 20 m.
 3. Re-solve the deck profile on spans (smoothness + grade only, clearance ≥ 4 m over water,
-   ≥ 5.5 m over roads).
+   ≥ 5.5 m over roads); clearance bounds first become a grade-feasible envelope (forward/backward
+   max with the grade step), then are enforced every pass.
 4. Piers: spacing 24–40 m by type, evenly distributed; a pier inside another corridor or a pier
    exclusion zone shifts along the span in 5 % steps up to ±25 %, then one pier is added or
    removed (keeping max unsupported span 60 m), else invalid `bridge.pier_conflict`. Pier
    height = deck − ground; > 25 m uses the tapered style.
-5. Deck 1.2 m (street) / 1.6 m (avenue), railings both sides, **abutment** stamps (core = pad at
-   deck height) so embankment, abutment and deck meet (step ≤ 2 cm, spike S-G).
+5. Deck 1.2 m (street) / 1.6 m (avenue), railings both sides, one profile for road and deck
+   (step 0.3 mm in S-G). **Abutment** stamp: core = pad at deck underside − carve under the first
+   4 m of the deck; the ground run ends in a **soft end cap** (blend-only, target ramping from
+   road − carve to deck underside − carve over 4 m beyond the end) so the side slopes wrap around.
+   Roads built under a deck need ≥ 4.5 m below its underside; piers are re-placed when one is,
+   avoiding every other road's footprint (ground core or deck + 1 m).
 6. Cost: `length × bridge_cost_per_m + piers × (1 200 + 40 × height_m)`.
 7. Validation: no start/end inside water, max deck height 40 m, no junctions on bridges (v1).
 8. Bridge decks are pickable (§23).
@@ -201,7 +209,7 @@ release : zone when v's rear passes its exit s; reservation when v's rear is len
 - **Visual pedestrians** cross a crosswalk only if no granted connector intersects the
   crosswalk capsule within the next 3 s; they never block vehicles.
 
-## 7. Terrain generation & deformation — `cb_terrain` (ADR-0046)
+## 7. Terrain generation & deformation — `cb_terrain` (ADR-0065)
 
 **Generation** (deterministic, portable math; ~2–4 s, parallel over 64 row partitions):
 1. Macro fBm (4 octaves, 2.5 km) + domain-warped valley axis; height 0–180 m; edge falloff.
@@ -221,7 +229,7 @@ release : zone when v's rear passes its exit s; reservation when v's rear is len
     saved (ADR-0044).
 
 **Height sampling** uses the render triangulation. **Deformation**: `H = composite(base,
-stamps)` per ADR-0046 (cores override with highest priority; elsewhere `base + max fills +
+stamps)` per ADR-0065 (cores override with highest priority; elsewhere `base + max fills +
 min cuts`); recomputed only in dirty rects; removing a stamp restores the base bitwise.
 
 ## 8. Terrain materials & natural decoration — `cb_terrain::materials`, `cb_terrain::scatter`

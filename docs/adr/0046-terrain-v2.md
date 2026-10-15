@@ -1,6 +1,6 @@
 # ADR-0046: Terrain representation v2 — continuous compositing, carved corridors, saved base
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0065
 - **Date:** 2026-10-15
 - **Milestone:** M2; validated by spike S-G
 - **Supersedes:** ADR-0012 (keeps the 2 m heightfield, stamps, chunks and LODs)

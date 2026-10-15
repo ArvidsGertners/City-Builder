@@ -42,3 +42,25 @@ footprint (largest inscribed rectangle clamped to 16 × 16 m at the front); red 
 | `S-P-01-showcase.png` | 24-plot showcase: straight R/C/I, convex r 30–300, concave r 25–300, S-curves, corners 60–120°, kinks ±15–35° | Lots follow curves and face the road; corner lots front both roads (4/4); kinks split at the bend; fans ≤ 25° except the tightest curves (r 25/30 m, max 27°); every R lot but the narrowest concave pies has a footprint |
 | `S-P-02-random.png` | First 24 random plots | No slivers, overlaps or landlocked lots; deep plots keep backyards; I lots on r ≈ 40 m fan 33–37° (w_min 24 m — inherent, see ADR-0064) |
 | `S-P-03-worst.png` | 24 worst random plots (orphan pieces, merges, lowest rectangularity) — all corner plots | Acute deep corners give pie/trapezoid lots along the seam (rect ≥ 0.6); orphans come from the generator's corridor clip notches and merge cleanly; nothing invalid |
+
+## S-G (2026-10-15)
+
+lavapipe, 1600 × 900 (stored at 1280 × 720), spike `spikes/s_g` (ADR-0065). Terrain chunks pick
+LOD by distance (0 < 350 m, 1 < 900 m, 2 < 2 km, else 3) unless a shot forces a LOD within 700 m.
+Placeholder colours (not art direction): grass, brown = carved/stamped corridor, grey = steep
+cut/fill, roads with 2 m walks, concrete decks and piers.
+
+| Image | What it proves | Self-review |
+|---|---|---|
+| `S-G-01-river-bridge.png` | River bridge: span classified over water, deck clearance, smooth embankments | Deck continuous with the road; banks smooth; no terrain through the road |
+| `S-G-02-river-bridge-abutment.png` | Abutment and soft end cap at the span start | Embankment wraps the abutment; no wall, no terrain above the deck |
+| `S-G-03-valley-bridge.png` | Two viaducts over the 30 m valley; piers evenly spaced | Piers stand on the valley sides, ends meet the ground cleanly |
+| `S-G-04-valley-bridge-lod1.png` | Same area with LOD1 forced within 700 m | No terrain poking through roads at LOD1; zig-zag band on the ridge is vertex-colour aliasing of the slope threshold (cosmetic, spike colouring) |
+| `S-G-05-overpass.png` | Avenue over a street: span over the lower corridor, ramps at max grade | Lower road untouched; piers outside its corridor |
+| `S-G-06-under-overpass.png` | Driver's view along the lower street under the overpass | Clearance visible; piers clear of the walks |
+| `S-G-07-junction-slope.png` | 4-way junction on a sloped hillside (LOD0) | Approaches meet the junction surface without steps; terrain below everywhere |
+| `S-G-08-junction-slope-lod1.png` | 3-way junction on a slope with LOD1 forced | Still no terrain through the junction or the approaches |
+| `S-G-09-parallel-pair.png` | Two parallel roads 9–19 m apart at different heights | Continuous slope between them (max-fill/min-cut), no cliff |
+| `S-G-10-parallel-pair-lod2.png` | Pair with LOD2 forced | Coarse terrain stays under both roads; small dark edge gaps hidden by skirts |
+| `S-G-11-hillside-cut-fill.png` | Road with the deepest cut in the random set | 1:1 cut slope (grey) blends smoothly into the hill |
+| `S-G-12-aerial-lod-rings.png` | Whole map with distance LOD rings, river, junctions, bridges | No cracks between LOD rings (skirts), roads visible at all distances |
