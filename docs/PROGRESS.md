@@ -538,3 +538,13 @@ None open. Known gaps (planned):
   ADR-0021 amendment (Fluent keys use dashes; locale from env), ADR-0022 amendment (subscriber
   installed before Bevy; `LogPlugin` not compiled in). Dev-only/CLI/log strings exempt from l10n
   (CLAUDE.md).
+- 2026-10-15 — M1 CI confirmed. `ci.yml` run 2 on `9e558da` green (11 jobs, 32.6 min wall):
+  https://github.com/ArvidsGertners/City-Builder/actions/runs/38776258475 — run 1 on `eeafc2a`
+  failed only `crash_report_contains_all_sections` on Windows (test expected `src/lib.rs`, Windows
+  reports `src\lib.rs`; fixed in the test). Linux/Windows determinism hashes equal.
+  `nightly.yml` dispatch on `eeafc2a` green (macOS check × {default, dev}, macOS smoke, 3-OS
+  determinism equal, soak, bench; 20.7 min): https://github.com/ArvidsGertners/City-Builder/actions/runs/38771849977
+  `release.yml` dispatch (publish: false) green, three artifacts (51 min):
+  https://github.com/ArvidsGertners/City-Builder/actions/runs/38771854627
+  Known issue: CI wall time 32.6 min > 25 min target; the Windows debug test build dominates
+  (~23 min). Plan: revisit caching/profile for Windows tests during S-Render (logged, not blocking).
