@@ -49,9 +49,24 @@ fn report_common(tag: &str, sim: &mut Sim) {
     let (mut a, mut b, mut c, mut d) = (st.t_par.clone(), st.t_seq.clone(), st.t_junc.clone(), st.t_route.clone());
     let veh: Vec<f32> = st.t_par.iter().zip(&st.t_seq).map(|(x, y)| x + y).collect();
     let mut veh = veh;
-    let names = ["build", "apply", "transfers", "releases", "lanes", "spawn", "stuck"];
-    let parts: Vec<String> = (0..7).map(|k| { let mut v = st.t_parts[k].clone(); format!("{}={:.3}", names[k], pct(&mut v, 0.95)) }).collect();
+    let names = ["apply_par", "merge", "transfers", "releases", "lanes", "spawn", "stuck", "j_collect", "j_grant", "signals"];
+    let parts: Vec<String> = (0..10).map(|k| { let mut v = st.t_parts[k].clone(); format!("{}={:.3}", names[k], pct(&mut v, 0.95)) }).collect();
     println!("metric={tag}.seq_breakdown_p95_ms {}", parts.join(" "));
+    {
+        let mut rn: Vec<f32> = st.req_n.iter().map(|x| *x as f32).collect();
+        let mut ts = st.t_sort.clone();
+        let mut bq: Vec<f32> = st.route_q_len.iter().map(|x| *x as f32).collect();
+        let mut nb: Vec<f32> = st.batches.iter().map(|x| *x as f32).collect();
+        let mut tr = st.t_route.clone();
+        let tot_units: u64 = st.units.iter().sum();
+        let tot_ms: f32 = tr.iter().sum();
+        println!("metric={tag}.routing_misses n={} units_per_miss={:.0}", sim.router.misses, (sim.router.units_total as f64 - sim.router.hits as f64) / sim.router.misses.max(1) as f64);
+        println!("metric={tag}.routing_detail ns_per_unit={:.0} batches_p99={:.0} route_queue_p99={:.0} route_queue_max={:.0} routing_p50_ms={:.3}", tot_ms as f64 * 1e6 / tot_units.max(1) as f64, pct(&mut nb, 0.99), pct(&mut bq.clone(), 0.99), pct(&mut bq, 1.0), pct(&mut tr, 0.5));
+        let mut rl: Vec<f32> = st.route_lat.iter().map(|x| *x as f32).collect();
+        let mut rr: Vec<f32> = st.reroute_lat.iter().map(|x| *x as f32).collect();
+        println!("metric={tag}.route_latency_ticks trip_p50={:.0} trip_p99={:.0} trip_max={:.0} reroute_p99={:.0} reroute_max={:.0}", pct(&mut rl.clone(), 0.5), pct(&mut rl.clone(), 0.99), pct(&mut rl, 1.0), pct(&mut rr.clone(), 0.99), pct(&mut rr, 1.0));
+        println!("metric={tag}.junction_detail req_per_tick_p95={:.0} reeval_per_tick={:.2} sort_p95_ms={:.3}", pct(&mut rn, 0.95), st.reeval as f64 / st.req_n.len().max(1) as f64, pct(&mut ts, 0.95));
+    }
     println!(
         "metric={tag}.timing_ms vehicle_step_p95={:.3} (par p95 {:.3}, seq p95 {:.3}) junction_p95={:.3} routing_p99={:.3}",
         pct(&mut veh, 0.95),
@@ -602,6 +617,41 @@ fn main() {
         let _ = &p;
         let hw: Vec<f32> = p.windows(2).map(|w| (w[1] - w[0]) as f32 * 0.1).collect();
         println!("metric=diag.signal passes={} headways_first30={:?}", p.len(), &hw[..hw.len().min(30)]);
+    }
+    if case == Some(62) {
+        // Router micro-benchmark: random (o, d) on the city, single thread and 4-way pool.
+        let (net, homes, jobs) = city(1);
+        let router = Router::new(&net, CachePolicy::Epoch);
+        let mut sc = route::Scratch::default();
+        let mut rng = Pcg32::new(7, 3);
+        let keys: Vec<Key> = (0..400).map(|i| Key { o: homes[rng.below(homes.len() as u32) as usize], d: jobs[rng.below(jobs.len() as u32) as usize], variant: (i % 4) as u8 }).collect();
+        let t = std::time::Instant::now();
+        let mut units = 0u64;
+        for k in &keys {
+            units += router.search(&mut sc, k.o, k.d, k.variant).2;
+        }
+        let el = t.elapsed().as_secs_f64();
+        println!("metric=router.single searches={} units={} ns_per_unit={:.0} us_per_search={:.0}", keys.len(), units, el * 1e9 / units as f64, el * 1e6 / keys.len() as f64);
+        let pool = pool::Pool::new(threads);
+        let t = std::time::Instant::now();
+        let mut u2 = 0;
+        for ch in keys.chunks(route::BATCH) {
+            for (i, k) in ch.iter().enumerate() {
+                router.start(i, &[(k.o, 0)], k.d, k.variant);
+            }
+            loop {
+                let u = router.step_slots(&pool, 2000);
+                u2 += u;
+                if u == 0 {
+                    break;
+                }
+            }
+            for i in 0..ch.len() {
+                let _ = router.take_done(i);
+            }
+        }
+        let el = t.elapsed().as_secs_f64();
+        println!("metric=router.pool threads={threads} units={u2} wall_ns_per_unit={:.0}", el * 1e9 / u2 as f64);
     }
     if case == Some(61) {
         case6(threads, 5000, days, CachePolicy::Revalidate, false, "case6_5000");
