@@ -20,8 +20,13 @@ in the PROGRESS.md log. Values live in code consts or `crates/cb_sim/data/*.ron`
 | Lane-plan runway | 40 m per change | `lane_plan_feasible_on_short_links` | ≥ 99 % plans feasible on citygen networks |
 | Spawn TTC / wait | 2 s / 30 sim s | `spawn_queue_never_overlaps` | 0 overlaps; macro fallback counted |
 | Flow EMA half-life | 120 sim s | `flow_ema_tracks_step_change` | 90 % of step within 400 sim s |
-| Cost epoch | 1 game hour (120 sim s) | `route_flapping_bounded` | ≤ 10 % of commuters change route per epoch in steady state |
-| Routing budget | 50 000 units/tick | `routing_budget_wall_time` | ≈ 0.65 ms nominal, ≤ 0.8 ms p99 wall (container proxy) |
+| Cost epoch | 15 game min (300 ticks = 30 sim s) (ADR-0067) | `route_flapping_bounded` | ≤ 10 % of commuters change route per epoch in steady state; S-T 5k: stuck despawns 8.9 vs 31 per 1 000 with 1-h epochs |
+| Route search slots / slice | 8 slots × 1 200 settled nodes per tick (ADR-0067) | `routing_budget_wall_time` | ≤ 0.8 ms p99 wall (container proxy, 4 threads; S-T 0.70 ms), latency p99 ≤ 30 ticks (S-T 7) |
+| Route hit budget | 4 000 units/tick (hit 1 + path/8 revalidated; plan = route length) | `routing_budget_wall_time` | included in the 0.8 ms p99 |
+| Roundabout metering | ring occupancy > 70 % incl. ring connectors and granted entries (ADR-0066) | `roundabout_6_entry_saturated_no_lock` | 0 despawns saturated; capacity ≥ 1 400 veh/sim-h (S-T 1 572, r = 30 m) |
+| Zone claim | after 6 sim s blocked by zones/space (ADR-0066) | `merge_platoon_no_starvation` | minor merge served while major platoon passes (S-T case 4) |
+| Equal-priority release | earliest arrival + greedy non-conflicting (ADR-0066) | `equal_priority_4way_capacity` | ≥ 1 700 veh/sim-h saturated 4-way (S-T 1 846) |
+| Legitimate wait window | node granted within 10 sim s (ADR-0066) | `traffic_multi_day_large` | despawns < 1 per 1 000 trips at peak node V/C ≤ 1 |
 | Route cache size | 32 768 | `route_cache_hit_rate` | ≥ 80 % in steady-state 50k bench |
 | Variant cost range | +0…+20 % | `alt_heuristic_admissible_with_variants` | no overestimate |
 | Trip scale | 6 citizens' trips per vehicle trip (ADR-0062) | spike S-Time / `trip_scale_50k_peak` | 50k city: peak concurrent vehicles 4–7 % of population (realistic count, user requirement), on-time ≥ 90 %, peak ≤ agent cap, congestion p95 2–4× |

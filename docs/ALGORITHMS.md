@@ -173,7 +173,7 @@ the shoulder area is painted `dirt` in material weights.
     frontage (`FrontageRef::Corner`).
 11. Lane-graph patching is atomic per node in `EditSet::Lanes`.
 
-## 6. Intersection traffic control — `cb_traffic::junction_ctl`, `cb_traffic::reservations` (ADR-0063)
+## 6. Intersection traffic control — `cb_traffic::junction_ctl`, `cb_traffic::reservations` (ADR-0066)
 
 Vehicles within braking distance + 10 m of the stop line request their connector each tick.
 
@@ -186,26 +186,40 @@ release : zone when v's rear passes its exit s; reservation when v's rear is len
 ```
 - Requests per junction per tick processed in order `(priority class desc, arrival tick asc,
   VehicleId asc)`; anti-starvation (waiting > 12 sim s) moves a request to the front ordered by
-  wait time desc.
+  wait time desc. A request that control allows but zones/space block for > 6 sim s **claims**
+  its zones for the rest of the node's pass. No grant while the vehicle still holds zones or a
+  reservation of its previous connector.
+- **Parallel prepass** (exact): requests are collected and `control_allows` + feasibility
+  (zones free, target space) evaluated in parallel per lane partition; both depend only on
+  grants at the same node, so the sequential pass re-evaluates them only after a grant at that
+  node. Sort key packed into a `u128`.
 - **Priority / Yield / Stop per approach** (`ApproachControl`); `Auto` classifies majors by road
   hierarchy (tie: most opposite pair). Minor/yield approaches pass a gap check against major
   vehicles on the **upstream horizon** (lanes/connectors within 100 m, precomputed per approach):
   critical gap left-across 4.0 s, merge 3.0 s, straight-cross 3.5 s (× 1.3 in rain/snow). Stop
-  approaches additionally require `v < 0.3 m/s` within 2 m of the stop line.
+  approaches additionally require `v < 0.3 m/s` within 2 m of the stop line. Non-granted major
+  vehicles inside their request range are skipped (they are blocked) — **except** one whose
+  connector targets the same lane as the yielding movement: it always blocks, moving or not
+  (else entries steal its space and rings/merges lock up; S-T).
 - **Equal priority**: right-before-left; if all waiting approaches would yield, grant the
-  earliest arrival immediately (test: 4-way all occupied never idles > 2 s).
+  earliest arrival immediately, then greedily every later waiting request (arrival order) whose
+  zones are still free (test: 4-way all occupied never idles > 2 s; S-T capacity 1 846
+  veh/sim-h, was 1 222 with a single release).
 - **All-way stop**: FCFS by stop completion; in the same tick, later vehicles whose zones don't
   conflict with already granted ones are released too.
 - **Traffic lights**: movement conflict graph from conflict zones; phases = greedy maximal
   compatible sets seeded by the most opposite approaches; protected left phase when the
-  opposing through flow > 300 veh/sim-h; min green 8 s, max 30 s, yellow 3 s, all-red 1.5 s;
+  opposing through flow > 300 veh/sim-h — enabled only after `signal_permissive_left_gap_acceptance`
+  passes in M9, protected left always until then (S-T ran protected lefts); min green 8 s, max 30 s, yellow 3 s, all-red 1.5 s;
   actuated early end after min green if the phase has no demand and others do. Yellow: stop if
   `d_stop(b_max = 4 m/s²) < distance`, and no grant if the vehicle can't clear before all-red
   ends. Tests: no conflicting greens on T, X, Y, 5- and 6-way; every movement green in ≥ 1 phase.
 - **Background traffic** reduces grant rate: minimum headway per approach
   `h = 1.8 s × (1 + V_bg / C)`.
 - **Roundabouts**: detected rings (ADR-0063) — ring approaches Priority, entries Yield; entry
-  denied while ring occupancy > 80 %.
+  denied while ring occupancy > 70 % (vehicles on ring lanes, on connectors into ring links and
+  granted entries, × (length + s0), over ring lane + ring→ring connector length). S-T: 6-entry
+  r = 30 m single-lane ring 1 572 veh/sim-h, 0 despawns saturated.
 - **Visual pedestrians** cross a crosswalk only if no granted connector intersects the
   crosswalk capsule within the next 3 s; they never block vehicles.
 
@@ -342,26 +356,35 @@ Vehicles: parametric profiles (hatchback, sedan, van, pickup, SUV, truck variant
 ambulance, police, garbage truck, bus 12 m, tram 3 sections), 8-sided wheels, emissive light
 faces, color index via `MeshTag`.
 
-## 12. Pathfinding — `cb_traffic::router`, `cb_traffic::route_cache` (ADR-0048)
+## 12. Pathfinding — `cb_traffic::router`, `cb_traffic::route_cache` (ADR-0067)
 
 - **Graph**: links per (segment, direction, mode set); turn edges from connectors; ~10–16k
   links for a large city; mode views car, truck, bus (bus-lane preference), tram, service.
 - **Cost** (integer ms): `len / v_eff + turn (right 2 s, straight 0, left 5 s, U 20 s) + class
   preference (dirt +20 %) + lane-plan penalty (+30 s for ≥ 2 changes within 60 m)`;
-  `v_eff = v_free × congestion factor` snapshotted per epoch (1 game hour = 120 sim s).
+  `v_eff = v_free × congestion factor` snapshotted per epoch (15 game minutes = 300 ticks =
+  30 sim s; measured mean link speed clamped to `[0.2, 1] × v_free`).
 - **Variants**: `+0…+20 %` per link from `hash(link, variant, epoch)`; `variant =
   hash(household_or_citizen, purpose) % 4`.
-- **Search**: A* with ALT (16 landmarks on free-flow costs; tick-sliced recompute with a
-  deterministic swap; `euclid / v_max` fallback between edge additions and the swap); ties by
-  `(f, −g, LinkId)`.
+- **Search**: A* with ALT (16 landmarks on free-flow costs, 4 active per query; tick-sliced
+  recompute with a deterministic swap; `euclid / v_max` fallback between edge additions and the
+  swap); ties by `(f, −g, LinkId)`. Layout: CSR adjacency, one 24-byte scratch record per link,
+  landmark distances interleaved per link. Searches are **resumable**.
 - **Cache**: LRU 32 768 `(origin, dest, mode, variant)` entries tagged `(graph_version, epoch)`;
   only current-epoch entries hit; removed links evict entries via a reverse index; saved.
-- **Budget**: 50 000 cost units per tick (≈ 0.65 ms, calibrated in S-T) (1 unit per settled node, 1 per cache hit); FIFO
-  overflow; parallel over 64 partitions, results in request order.
+- **Budget** (ADR-0067): 8 search slots, each advancing 1 200 settled nodes per tick, slots in
+  parallel; finished results delivered in slot order (deterministic for any thread count).
+  Reroutes first, then trip requests FIFO; cache hits resolve immediately up to 4 000 hit units
+  per tick (hit 1 unit + path/8 if revalidated; computing a missing lane plan = route length).
+  A settled node costs ≈ 130 ns single-threaded in the container. S-T: p99 0.70 ms/tick and a
+  latency of p50 1 / p99 7 ticks. Lane plans are cached in the route entry.
 - **Failures**: negative cache per `(origin, dest, mode, graph_version)`; SCC one-way traps flag
   buildings `Problems::NoRoute`.
 - **Reroutes**: vehicles whose next 3 links have congestion > 0.7, ≤ 20 per tick; a vehicle whose
-  next link was removed continues to the next junction and requests a new route there.
+  next link was removed continues to the next junction and requests a new route there; a
+  vehicle that missed its mandatory change waits 20 sim s at the line and then reroutes.
+  Reroutes are asynchronous multi-source searches from the current lane's exits through the
+  same slots; the new plan always admits the current lane on the first link.
 - **Pedestrian distances**: undirected segment graph (sidewalks + crossings), bounded Dijkstra
   ≤ 800 m.
 - **Transit**: `TransitGraph` nodes per (stop, line) and per stop; ride edges from frozen leg
@@ -370,7 +393,7 @@ faces, color index via `MeshTag`.
   destination stops; cache keyed by sorted stop sets with walk times, invalidated per transit
   edit.
 
-## 13. Traffic flow & congestion — `cb_traffic` (ADR-0047)
+## 13. Traffic flow & congestion — `cb_traffic` (ADR-0066)
 
 - **Agents** (20 Hz at default pace, 1D lane state, all agents): IDM `a = a_max [1 − (v/v0)^4 −
   (s*/s)²]`, `s* = s0 + vT + vΔv / (2√(a_max b))`; car `a_max 1.6, b 2.5, T 1.2 s, s0 2 m`;
@@ -384,8 +407,13 @@ faces, color index via `MeshTag`.
   ≥ 40 m runway per change; mandatory changes start at the first link of the runway with rising
   urgency; discretionary MOBIL-lite (gain > 0.3 m/s², safe gaps). If a mandatory change fails
   15 m before the stop line: stop and wait; after 20 sim s reroute.
-- **Parallel step**: 64 lane partitions read the previous-tick snapshot; the sequential pass
-  (lane transfers, grants, lane changes) runs in VehicleId order.
+- **Parallel step** (ADR-0066): phase 1 — IDM per occupied lane/connector (partition
+  `id % 64`, read-only) plus per-vehicle flags (crossed end, holds zones/reservation, arrived,
+  slow + legitimate-wait, discretionary-change pre-filter); phase 2 — each partition writes its
+  own vehicles' kinematics/timers and lane speed sums; sequential — merge lists in partition
+  order, transfers/releases/lane changes only for flagged vehicles; then the parallel junction
+  prepass (§6), sequential grants, signals, spawning, stuck despawns, routing. S-T, 5 000
+  agents, 4 threads: vehicle step p95 0.58 ms (sequential 0.19 ms), junctions 0.29 ms.
 - **Spawning**: per access point queue; spawn when gap ≥ length + s0 and upstream TTC > 2 s;
   after 30 sim s waiting, the trip completes as macro.
 - **Admission & sampling**: every trip is routed; it becomes an agent with probability `p`
@@ -399,9 +427,10 @@ faces, color index via `MeshTag`.
   happiness, dispatch ETAs, noise.
 - **Traffic disabled**: `p = 0` for cars/trucks; transit/service vehicles in ghost mode
   (kinematic along route at `v_eff`, no interactions).
-- **Gridlock**: stuck (`v < 0.5 m/s` > 90 sim s, excluding red light/stop/queue-with-moving-head)
-  → despawn, trip completes as macro with penalty, structured debug log; wait-for graph over
-  vehicles stuck > 20 s (edges: zone holder, exit-space blocker, queue leader), DFS every 10 sim s
+- **Gridlock**: stuck (`v < 0.5 m/s` > 90 sim s, excluding red light/stop/queue-with-moving-head/
+  node that granted within 10 sim s) → despawn, trip completes as macro with penalty, structured
+  debug log; wait-for graph over vehicles slow > 20 s (raw `wait_s`, legitimate waits included;
+  edges: zone holder, exit-space blocker, queue leader), DFS every 10 sim s
   (sliced), break cycles by despawning the latest trip start; > 20 despawns per game hour in a
   256 m bucket → "traffic jam" notification at the centroid.
 

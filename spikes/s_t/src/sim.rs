@@ -19,6 +19,8 @@ const T_HW: f32 = 1.2;
 const S0: f32 = 2.0;
 const CAR_LEN: f32 = 4.5;
 const GAP: f32 = 2.0;
+/// Ring entry metering threshold (occupied fraction of the ring path).
+const RING_METER: f32 = 0.7;
 /// Cache-hit units per tick (hits cost 1 unit + path length / 8 under Revalidate).
 pub const ROUTE_BUDGET: u64 = 4_000;
 /// Settled nodes per running search slot per tick (BATCH slots advance in parallel).
@@ -174,6 +176,13 @@ pub struct Stats {
     pub route_q_len: Vec<u32>,
     /// Ticks from request to result (trip searches and reroutes).
     pub route_lat: Vec<u32>,
+    /// Planned demand per (game hour, link): trips whose route uses the link.
+    pub demand: BTreeMap<(u32, u32), u32>,
+    /// Links stuck vehicles wanted to enter (their connector's target link).
+    pub stuck_targets: Vec<u32>,
+    pub node_demand: BTreeMap<(u32, u32), u32>,
+    /// (node of the stuck vehicle's connector, downstream node of its target link)
+    pub stuck_nodes: Vec<(u32, u32)>,
     pub reroute_lat: Vec<u32>,
 }
 
@@ -205,6 +214,8 @@ pub struct Sim {
     outs: Vec<Mutex<PartOut>>,
     /// Ring links per ring node (whole cycle), for metering.
     ring_of: Vec<Vec<u32>>,
+    ring_conns: Vec<Vec<u32>>,
+    ring_cap: Vec<f32>,
     /// Tick of the last grant per node (a junction that serves traffic is not a jam).
     pub last_grant: Vec<u64>,
     /// Vehicles asking to merge into each lane (mandatory change; cooperative followers yield).
@@ -227,6 +238,11 @@ pub struct Sim {
     cross_c: Vec<u32>,
     req_l: Vec<Req>,
     sig_nodes: Vec<u32>,
+    /// Ring occupancy per ring node (same value for every node of a ring), per tick.
+    ring_occ: Vec<f32>,
+    /// Routing epoch length in ticks (ADR-0048 had 1 game hour = 1 200; the spike uses 15 game
+    /// minutes = 300: congestion builds faster than an hour at the peak).
+    pub epoch_ticks: u64,
     /// Diagnostic: re-evaluate every vehicle every tick.
     pub full_lanes: bool,
     t_jc: f32,
@@ -268,6 +284,8 @@ impl Sim {
             pool: Pool::new(threads.max(1)),
             outs: (0..PARTS).map(|_| Mutex::new(PartOut::default())).collect(),
             ring_of: Vec::new(),
+            ring_conns: Vec::new(),
+            ring_cap: Vec::new(),
             last_grant: vec![0; nn],
             merge_req: vec![Vec::new(); nl],
             act_lanes: Vec::new(),
@@ -285,6 +303,8 @@ impl Sim {
             cross_c: Vec::new(),
             req_l: Vec::new(),
             sig_nodes: Vec::new(),
+            ring_occ: Vec::new(),
+            epoch_ticks: std::env::var("ST_EPOCH").ok().and_then(|v| v.parse().ok()).unwrap_or(300),
             full_lanes: std::env::var("ST_FULL").is_ok(),
             t_jc: 0.0,
         }
@@ -314,6 +334,8 @@ impl Sim {
         self.control_lists();
         let n = self.net.nodes.len();
         self.ring_of = vec![Vec::new(); n];
+        self.ring_conns = vec![Vec::new(); n];
+        self.ring_cap = vec![0.0; n];
         for node in 0..n {
             let Some(&start) = self.net.nodes[node].inc.iter().find(|l| self.net.links[**l as usize].ring) else { continue };
             let mut cyc = vec![start];
@@ -327,6 +349,26 @@ impl Sim {
                 cyc.push(nx);
                 cur = nx;
             }
+            // Connectors into ring links (ring→ring and entries); path length = ring lanes +
+            // ring→ring connectors.
+            let mut conns = Vec::new();
+            let mut cap = 0.0;
+            for &l in &cyc {
+                let lk = &self.net.links[l as usize];
+                for i in 0..lk.lanes {
+                    cap += self.net.lanes[(lk.lane0 + u32::from(i)) as usize].len;
+                }
+            }
+            for (c, cn) in self.net.conns.iter().enumerate() {
+                if cyc.contains(&cn.to_link) {
+                    conns.push(c as u32);
+                    if self.net.links[cn.from_link as usize].ring {
+                        cap += cn.len;
+                    }
+                }
+            }
+            self.ring_conns[node] = conns;
+            self.ring_cap[node] = cap;
             self.ring_of[node] = cyc;
         }
         self
@@ -1099,13 +1141,23 @@ impl Sim {
     fn gap_ok(&self, c: u32, links: &[u32], crit: f32) -> bool {
         for &p in links {
             let len = self.net.links[p as usize].len;
+            let my_target = self.net.conns[c as usize].to_lane;
             for x in self.approaching(p, 100.0) {
-                if x.granted || x.v < 0.5 {
+                if x.granted {
+                    continue;
+                }
+                let in_range = len - x.s <= x.v * x.v / (2.0 * B_COMF) + 10.0;
+                // A priority vehicle at the line waiting for the same target-lane space goes
+                // first (else entries steal its space and rings/merges lock up).
+                if in_range && x.want != NONE && self.net.conns[x.want as usize].to_lane == my_target {
+                    return false;
+                }
+                if x.v < 0.5 {
                     continue;
                 }
                 // In request range but not granted: it is blocked (priority requests are
                 // processed first), so it will not enter now.
-                if len - x.s <= x.v * x.v / (2.0 * B_COMF) + 10.0 {
+                if in_range {
                     continue;
                 }
                 let conflict = x.want == NONE || self.net.conflicts[c as usize].binary_search(&x.want).is_ok();
@@ -1183,8 +1235,54 @@ impl Sim {
         self.pool.run(&work);
     }
 
+    /// Ring occupancy: vehicles on ring lanes, ring→ring connectors and granted / driving
+    /// entry connectors, × (length + s0), over the ring path length.
+    fn update_ring_occ(&mut self) {
+        let n = self.net.nodes.len();
+        if self.ring_occ.len() != n {
+            self.ring_occ = vec![0.0; n];
+        }
+        for node in 0..n {
+            let ring = &self.ring_of[node];
+            if ring.is_empty() {
+                continue;
+            }
+            let mut occ = 0.0f32;
+            for &l in ring {
+                let lk = &self.net.links[l as usize];
+                for i in 0..lk.lanes {
+                    let lane = lk.lane0 + u32::from(i);
+                    occ += self.lane_q[lane as usize].iter().map(|v| self.veh[*v as usize].len + S0).sum::<f32>();
+                }
+            }
+            for &c in &self.ring_conns[node] {
+                occ += self.conn_q[c as usize].iter().map(|v| self.veh[*v as usize].len + S0).sum::<f32>();
+            }
+            // Granted entries still on their approach lane.
+            for &l in ring {
+                let nd = self.net.links[l as usize].to as usize;
+                for &inc in &self.net.nodes[nd].inc {
+                    let lk = &self.net.links[inc as usize];
+                    if lk.ring {
+                        continue;
+                    }
+                    for i in 0..lk.lanes {
+                        let lane = lk.lane0 + u32::from(i);
+                        for &f in self.lane_q[lane as usize].iter().take(3) {
+                            if self.veh[f as usize].granted {
+                                occ += self.veh[f as usize].len + S0;
+                            }
+                        }
+                    }
+                }
+            }
+            self.ring_occ[node] = if self.ring_cap[node] > 0.0 { occ / self.ring_cap[node] } else { 0.0 };
+        }
+    }
+
     fn junctions(&mut self) {
         let tj0 = Instant::now();
+        self.update_ring_occ();
         self.junction_prepass();
         let mut req = std::mem::take(&mut self.req_l);
         req.clear();
@@ -1235,13 +1333,15 @@ impl Sim {
                     Allow::No => {}
                 }
             }
-            // Equal priority: if every waiting approach yields, grant the earliest arrival.
+            // Equal priority: if every waiting approach yields, grant the earliest arrival, then
+            // greedily every later one whose zones are still free (zone checks exclude
+            // conflicts with the vehicles just granted).
             if !granted_any && !rbl_only.is_empty() {
-                let first = rbl_only.iter().copied().min_by_key(|v| (self.veh[*v as usize].req_tick, *v));
-                if let Some(v) = first
-                    && self.try_grant(v, &claimed)
-                {
-                    granted_any = true;
+                rbl_only.sort_by_key(|v| (self.veh[*v as usize].req_tick, *v));
+                for &v in &rbl_only {
+                    if self.try_grant(v, &claimed) {
+                        granted_any = true;
+                    }
                 }
             }
             if granted_any {
@@ -1287,18 +1387,9 @@ impl Sim {
                 let mine = self.net.links[link as usize].approach;
                 let major = &self.majors[link as usize];
                 if nd.ctrl == NodeCtrl::Ring && mine == Approach::Yield {
-                    // Metering: ring occupancy ≤ 80 %.
-                    let (mut occ, mut cap) = (0.0, 0.0);
-                    for &l in &self.ring_of[node as usize] {
-                        {
-                            for i in 0..self.net.links[l as usize].lanes {
-                                let lane = self.net.links[l as usize].lane0 + u32::from(i);
-                                cap += self.net.lanes[lane as usize].len;
-                                occ += self.lane_q[lane as usize].iter().map(|v| self.veh[*v as usize].len + S0).sum::<f32>();
-                            }
-                        }
-                    }
-                    if cap > 0.0 && occ > 0.8 * cap {
+                    // Metering: ring occupancy (lanes + connectors, incl. granted entries)
+                    // ≤ RING_METER of the ring path length.
+                    if self.ring_occ[node as usize] > RING_METER {
                         return Allow::No;
                     }
                 }
@@ -1569,6 +1660,14 @@ impl Sim {
                         p
                     }
                 };
+                let hour = (self.tick / 1200) as u32;
+                for l in route.iter() {
+                    *self.stats.demand.entry((hour, *l)).or_default() += 1;
+                }
+                for w in route.windows(2) {
+                    let node = self.net.links[w[0] as usize].to;
+                    *self.stats.node_demand.entry((hour, node)).or_default() += 1;
+                }
                 self.spawn_q.entry(k.o).or_default().push_back(Trip { key: k, route, plan, queued_tick: self.tick });
             }
             None => self.stats.trips_no_route += 1,
@@ -1702,6 +1801,18 @@ impl Sim {
                 println!("stuck v{v} {cont} s={:.1}/{len:.1} v={:.2} want={} granted={} zconn={} resv_lane={} ri={}/{}{why}", x.s, x.v, x.want, x.granted, x.zconn, x.resv_lane, x.ri, x.route.len());
             }
             self.stats.despawn_stuck += 1;
+            let w = self.veh[v as usize].want;
+            if w != NONE {
+                let cn = &self.net.conns[w as usize];
+                self.stats.stuck_targets.push(cn.to_link);
+                self.stats.stuck_nodes.push((cn.node, self.net.links[cn.to_link as usize].to));
+            } else if let On::Lane(l) = self.veh[v as usize].on {
+                let n = self.net.links[self.net.lanes[l as usize].link as usize].to;
+                self.stats.stuck_nodes.push((n, n));
+            } else if let On::Conn(c) = self.veh[v as usize].on {
+                let cn = &self.net.conns[c as usize];
+                self.stats.stuck_nodes.push((cn.node, self.net.links[cn.to_link as usize].to));
+            }
             self.despawn(v);
         }
         self.kill_l = kill;
@@ -1806,7 +1917,7 @@ impl Sim {
 
     fn speeds(&mut self) {
         // New routing epoch every 1 game hour = 120 sim s.
-        if self.tick % 1200 == 0 {
+        if self.tick % self.epoch_ticks == 0 {
             let cost: Vec<u32> = (0..self.net.links.len())
                 .map(|l| {
                     let lk = &self.net.links[l];
@@ -1817,7 +1928,7 @@ impl Sim {
                 })
                 .collect();
             let cost = if std::env::var("ST_NOEPOCH").is_ok() { self.router.free.clone() } else { cost };
-            self.router.new_epoch(self.tick / 1200, cost);
+            self.router.new_epoch(self.tick / self.epoch_ticks, cost);
             self.v_sum.iter_mut().for_each(|v| *v = 0.0);
             self.v_cnt.iter_mut().for_each(|v| *v = 0);
         }

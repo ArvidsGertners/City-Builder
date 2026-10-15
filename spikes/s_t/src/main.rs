@@ -65,6 +65,47 @@ fn report_common(tag: &str, sim: &mut Sim) {
         let mut rl: Vec<f32> = st.route_lat.iter().map(|x| *x as f32).collect();
         let mut rr: Vec<f32> = st.reroute_lat.iter().map(|x| *x as f32).collect();
         println!("metric={tag}.route_latency_ticks trip_p50={:.0} trip_p99={:.0} trip_max={:.0} reroute_p99={:.0} reroute_max={:.0}", pct(&mut rl.clone(), 0.5), pct(&mut rl.clone(), 0.99), pct(&mut rl, 1.0), pct(&mut rr.clone(), 0.99), pct(&mut rr, 1.0));
+        {
+            // Planned V/C per link and game hour (capacity: street 1 600, avenue 1 800 veh/sim-h/lane;
+            // 1 game hour = 120 sim s, so demand per game hour × 30 = per sim-hour).
+            let cap = |l: u32| { let k = &sim.net.links[l as usize]; f32::from(k.lanes) * if k.class == net::Class::Avenue { 1800.0 } else { 1600.0 } };
+            let mut vc_max: std::collections::BTreeMap<u32, f32> = std::collections::BTreeMap::new();
+            for (&(_, l), &n) in &st.demand {
+                let vc = n as f32 * 30.0 / cap(l);
+                let e = vc_max.entry(l).or_insert(0.0);
+                *e = e.max(vc);
+            }
+            let over = vc_max.values().filter(|v| **v > 1.0).count();
+            let mut all: Vec<f32> = vc_max.values().copied().collect();
+            let mut at_stuck: Vec<f32> = st.stuck_targets.iter().map(|l| *vc_max.get(l).unwrap_or(&0.0)).collect();
+            let below = at_stuck.iter().filter(|v| **v <= 1.0).count();
+            println!("metric={tag}.demand_vc links_over_1={over} vc_p99={:.2} vc_max={:.2} stuck_target_vc_p50={:.2} stuck_with_target_vc_le_1={below}/{}", pct(&mut all.clone(), 0.99), pct(&mut all, 1.0), pct(&mut at_stuck.clone(), 0.5), at_stuck.len());
+            let _ = &mut at_stuck;
+            // Node V/C against capacities measured in cases 1, 2, 5 (veh/sim-h): equal 1 846 total,
+            // signal 457 per approach, ring 512 per ring node, priority: major links at link
+            // capacity + 400 per minor approach.
+            let ncap = |n: u32| -> f32 {
+                let nd = &sim.net.nodes[n as usize];
+                let inc: Vec<u32> = nd.inc.iter().copied().filter(|l| sim.net.links[*l as usize].alive).collect();
+                match nd.ctrl {
+                    net::NodeCtrl::None => f32::INFINITY,
+                    net::NodeCtrl::Equal => 1846.0,
+                    net::NodeCtrl::Signal => 457.0 * inc.len() as f32,
+                    net::NodeCtrl::Ring => 512.0,
+                    net::NodeCtrl::Priority => inc.iter().map(|l| if sim.net.links[*l as usize].approach == net::Approach::Priority { cap(*l) } else { 400.0 }).sum(),
+                }
+            };
+            let mut nvc: std::collections::BTreeMap<u32, f32> = std::collections::BTreeMap::new();
+            for (&(_, n), &d) in &st.node_demand {
+                let vc = d as f32 * 30.0 / ncap(n);
+                let e = nvc.entry(n).or_insert(0.0);
+                *e = e.max(vc);
+            }
+            let nover = nvc.values().filter(|v| **v > 1.0).count();
+            let feasible = st.stuck_nodes.iter().filter(|(a, b)| *nvc.get(a).unwrap_or(&0.0) <= 1.0 && *nvc.get(b).unwrap_or(&0.0) <= 1.0).count();
+            let trips = st.arrived + st.despawn_stuck + st.despawn_cycle;
+            println!("metric={tag}.node_vc nodes_over_1={nover}/{} despawns_at_feasible_nodes={feasible} per_1000_feasible={:.2} (gate < 1 at V/C ≤ 1.0)", nvc.len(), feasible as f64 * 1000.0 / trips.max(1) as f64);
+        }
         println!("metric={tag}.junction_detail req_per_tick_p95={:.0} reeval_per_tick={:.2} sort_p95_ms={:.3}", pct(&mut rn, 0.95), st.reeval as f64 / st.req_n.len().max(1) as f64, pct(&mut ts, 0.95));
     }
     println!(
@@ -654,9 +695,12 @@ fn main() {
         println!("metric=router.pool threads={threads} units={u2} wall_ns_per_unit={:.0}", el * 1e9 / u2 as f64);
     }
     if case == Some(61) {
-        case6(threads, 5000, days, CachePolicy::Revalidate, false, "case6_5000");
+        let cap: usize = std::env::args().skip_while(|a| a != "--cap").nth(1).and_then(|v| v.parse().ok()).unwrap_or(5000);
+        case6(threads, cap, days, CachePolicy::Revalidate, false, &format!("case6_{cap}"));
     }
     if want(6) {
+        // Feasible demand for the despawn gate (V/C ≤ 1.0 at almost every node).
+        case6(threads, 1500, days, CachePolicy::Revalidate, false, "case6_1500");
         case6(threads, 5000, days, CachePolicy::Epoch, false, "case6_epoch_5000");
         case6(threads, 5000, days, CachePolicy::Revalidate, false, "case6_5000");
         case6(threads, 8000, days, CachePolicy::Revalidate, false, "case6_8000");
