@@ -1,6 +1,6 @@
 # ADR-0030: Input and action mapping
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0039
 - **Date:** 2026-10-15
 - **Milestone:** M2
 

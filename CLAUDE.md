@@ -17,6 +17,43 @@ Instructions for any agent (or human) working in this repository.
    what was done, what is in progress, known bugs, and the *exact* next step
    (file/function level, so a cold start can resume without guessing).
 4. Commit per milestone and at meaningful checkpoints (see *Git* below).
+5. Finish every milestone with the `milestone-completion` skill (below); never mark a
+   milestone done by hand.
+
+## Skills (recurring procedures)
+
+- **When a multi-step procedure recurs** (e.g. finishing a milestone, adding a building
+  type, adding an overlay, adding a player command, writing an ADR), **create a Claude Code
+  skill** for it in `.claude/skills/<name>/SKILL.md` (YAML front matter `name` +
+  `description` saying when to use it, then numbered steps with exact commands and files)
+  and use that skill from then on. Rule of thumb: the second time you do the same
+  multi-step thing, write the skill before doing it a third time. Keep skills current when
+  the procedure changes.
+- Existing skills:
+  - `milestone-completion` — acceptance evidence, quality gates, visual verification, perf,
+    PROGRESS.md, commit, push, CI on all platforms.
+  - `write-adr` — new or superseding ADR with index and cross-reference updates.
+  - `visual-verification` — screenshot suite render, self-review, save to `docs/screenshots/`.
+- Candidates to create on first recurrence: `add-building-type`, `add-overlay`,
+  `add-player-command`, `add-service-type`, `add-l10n-strings`, `run-spike`.
+
+## Visual verification (mandatory for visual output)
+
+- After any milestone with visual output (and after any change to shaders, lighting,
+  palettes or procgen), render the milestone's screenshot suite from several camera angles —
+  from M11 also times of day, from M12 also weather — using the `visual-verification`
+  skill, **open and check every image yourself** against `docs/ART_DIRECTION.md` and the
+  milestone's must-be-visible list, fix problems, and only then mark the milestone done.
+- Save the images and a short review (`index.md`) in `docs/screenshots/<milestone>/` (e.g.
+  `docs/screenshots/M2/`) and commit them so the user can review them too.
+
+## Risk spikes
+
+- The five highest-risk systems are proven by throwaway spikes (phase **S**, right after M1)
+  before the real system is built on top of them. Spikes live in `spikes/<name>/` (outside
+  the workspace default members), have written pass/fail criteria in `docs/PROGRESS.md`,
+  and their outcome is recorded there (and in an ADR if the approach changes). Spike code is
+  never promoted into `crates/` as-is; the real implementation is written fresh with tests.
 
 ## Decisions and ADRs
 
@@ -31,10 +68,16 @@ Instructions for any agent (or human) working in this repository.
 ## Build, test, run
 
 Toolchain is pinned in `rust-toolchain.toml` (stable, edition 2024).
+**Required platforms** (ADR-0037): Windows 10/11 x86-64, Linux x86-64 (X11 + Wayland),
+**macOS 14+ on Apple Silicon** (`aarch64-apple-darwin`, Metal). Every change must build and
+pass tests on all three (CI runs all three).
 
 ```bash
 # Linux system deps (Ubuntu/Debian)
 sudo apt-get install -y pkg-config libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+# macOS: Xcode command line tools only
+xcode-select --install
+# Windows: MSVC build tools (Visual Studio 2022 "Desktop development with C++")
 
 cargo run -p cb_game                         # run the game (dev profile, opt-level 1 + deps at 3)
 cargo run -p cb_game --features dev          # with debug tooling (perf overlay, inspector, stepping)
@@ -50,7 +93,10 @@ cargo test -p cb_geometry                    # one crate
 cargo test -p cb_sim --test traffic_multi_day -- --ignored   # slow headless soak tests
 
 cargo run -p cb_sim --release --example headless_bench -- --days 10 --city large
-scripts/screenshot.sh                        # Xvfb + lavapipe render smoke test + screenshots
+cargo run -p cb_game --release -- --benchmark bench_city   # 60 s scripted flythrough, writes perf report
+scripts/screenshot.sh M2                     # Xvfb + lavapipe: render screenshot suite M2
+scripts/check_sim_isolation.sh               # fails if cb_sim depends on rendering crates
+scripts/macos_bundle.sh                      # macOS: build CityBuilder.app (release profile `dist`)
 ```
 
 A milestone is only **done** when `cargo fmt --check`, `cargo clippy ... -D warnings`
@@ -73,6 +119,20 @@ and `cargo test --workspace` pass locally *and* in CI, its acceptance criteria i
 Full tree and responsibilities: `docs/ARCHITECTURE.md` §3.
 
 ## Hard rules
+
+### Platforms (ADR-0037, ADR-0039, ADR-0040, ADR-0041)
+- Platform-specific code only in `cb_game::platform` (paths, modifier mapping, gestures,
+  window quirks). No `#[cfg(target_os)]` elsewhere. Platform logic is a pure function of
+  injected inputs so it is tested on every OS.
+- **Never hard-code Ctrl.** Shortcuts use the virtual `Mods::PRIMARY` (Cmd on macOS, Ctrl
+  elsewhere); mnemonic letter shortcuts bind *logical* keys, positional controls (WASD,
+  Q/E) bind *physical* keys. Shortcut labels in UI come from the platform glyph formatter.
+- **Logical pixels** for all UI/input/tool math; physical pixels only for render targets.
+  Picking goes through `picking::cursor_ray` (DPI- and render-scale-aware).
+- Files go only to the per-OS locations from ADR-0040 (`AppPaths`), never next to the
+  executable or inside the `.app` bundle (except portable mode).
+- Trackpad parity: every camera action must be possible without a mouse (pinch, two-finger
+  scroll/rotate, ⌥/Alt-drag, Q/E).
 
 ### Architecture
 - **Simulation never depends on rendering.** `cb_sim` and the pure crates must not depend
@@ -160,10 +220,17 @@ Full tree and responsibilities: `docs/ARCHITECTURE.md` §3.
 
 ## Debugging help
 
-- Logs: `<data_dir>/logs/city-builder.log` (rotating). Crash reports:
-  `<data_dir>/crashes/crash-<timestamp>.txt` — copy-paste friendly, include version,
-  git hash, OS, GPU adapter, settings summary, sim summary, backtrace, last 200 log lines.
-- `<data_dir>` = `$XDG_DATA_HOME/city-builder` (Linux), `%APPDATA%\CityBuilder` (Windows),
-  `~/Library/Application Support/CityBuilder` (macOS); or `./userdata` if a `portable.txt`
-  file sits next to the executable.
+- Locations (ADR-0040):
+
+  | | Windows | Linux | macOS |
+  |---|---|---|---|
+  | Settings | `%APPDATA%\CityBuilder\settings.ron` | `~/.config/city-builder/settings.ron` | `~/Library/Application Support/CityBuilder/settings.ron` |
+  | Saves | `%APPDATA%\CityBuilder\saves\` | `~/.local/share/city-builder/saves/` | `~/Library/Application Support/CityBuilder/saves/` |
+  | Logs | `%LOCALAPPDATA%\CityBuilder\logs\` | `~/.local/state/city-builder/logs/` | `~/Library/Logs/CityBuilder/` |
+  | Crash reports | `%LOCALAPPDATA%\CityBuilder\crashes\` | `~/.local/state/city-builder/crashes/` | `~/Library/Logs/CityBuilder/crashes/` |
+
+  (Linux paths honor `XDG_*_HOME`.) Portable mode: `portable.txt` next to the executable
+  (macOS: next to the `.app`) → `./userdata/`. Dev/test override: `CB_USERDATA=<dir>`.
+- Crash reports (`crash-<timestamp>.txt`) are copy-paste friendly: version, git hash,
+  OS + arch, GPU adapter/backend, settings summary, sim summary, backtrace, last 200 log lines.
 - `RUST_LOG`-style filters: `--log "info,cb_traffic=debug"` or `CB_LOG` env var.

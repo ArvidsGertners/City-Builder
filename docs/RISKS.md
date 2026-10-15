@@ -22,6 +22,10 @@ answered. Likelihood/Impact: L/M/H.
 | R13 | **Determinism drift** from ECS iteration order, HashMap iteration, float accumulation order | M | M | Rules in CLAUDE.md; state hash tests incl. save/load continuation and shuffled schedules from M5 | M5 determinism tests |
 | R14 | **Save compatibility** breaks silently | L | H | Versioned header, Value-tree migrations, golden fixtures per version, CI test | From M5 |
 | R15 | **Scope** (16 milestones, one developer agent) — polish suffers | H | H | Milestone acceptance criteria, depth over breadth, explicit out-of-scope list, defer stretch (music, real point lamps) | Every milestone |
+| R17 | **macOS/Metal differences** (shader translation to MSL, storage-buffer limits, timestamp queries, unified-memory pressure) only visible on Apple hardware; GitHub's Apple Silicon runners have no reliable GPU | M | H | Only cross-backend wgpu features; GPU-free shader validation incl. MSL (spike S6); informational macOS smoke job; user runs `--smoke-test`/`--screenshot-suite`/`--benchmark` on the M4 at M2, M4, M9, M11, M16; crash reports include adapter/backend | M2 first M4 run |
+| R18 | **Retina fill rate** on base M4 misses 60 FPS | M | M | Render scale Auto (≤ 3.7 MP), half-res SSAO on Medium, fewer bloom mips, LOD scale; benchmark on M4 | M2/M4 M4 benchmark |
+| R19 | **Trackpad gesture conflicts** (pixel-scroll from Magic Mouse vs. trackpad, pinch vs. scroll, gestures swallowed by egui) | M | M | Scroll-unit policy + setting (ADR-0039), egui hover suppression, synthetic-event unit tests, user test on M4 at M2 | M2 user feedback |
+| R20 | **Unsigned macOS app** blocked by Gatekeeper | H | L | Ad-hoc signing, README first-launch instructions; notarization once a Developer ID is available (assumption A-P3) | first release |
 | R16 | **Build times** with full Bevy slow iteration | M | L | Workspace split (pure crates test without Bevy), dev profile opt-level 1 for own code / 3 for deps, optional `dynamic_linking` feature locally (not in CI), mold/lld documented | M1 |
 
 ## 2. Open questions (with the default I will use unless you decide otherwise)
@@ -34,7 +38,7 @@ answered. Likelihood/Impact: L/M/H.
 | Q4 | Day length default (24 real minutes) and season length (4 days)? | As stated; both configurable in settings. |
 | Q5 | Currency display | en: `$1,234`; de: `1.234 €` — purely a localized label for the same in-game currency. |
 | Q6 | Font | egui's bundled default fonts (no font files added to the repo). An OFL font could improve the look; adding one would need your OK because it is an asset file. |
-| Q7 | macOS | Best effort: no CI job, no code that excludes it; builds if the toolchain is available. |
+| Q7 | macOS | **Resolved:** macOS 14+ on Apple Silicon is a required platform (ADR-0037/0038/0039/0040/0041). |
 | Q8 | License for the repository | Not decided — no LICENSE file is added until you choose. |
 | Q9 | Grade-separated overpasses via manual elevation (PgUp/PgDn) are included; tunnels are out of scope. | Included as designed (ALGORITHMS §1–3). |
 | Q10 | Should the save/load *core* land early (M5) even though save UI is M15? | **Yes** — needed for roundtrip/determinism tests; menus/autosave/slots remain in M15. Same for the localization pipeline (M1) and the input map (M2). |

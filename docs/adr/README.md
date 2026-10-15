@@ -34,13 +34,18 @@ supersede it with a new one and update this index.
 | [0027](0027-service-coverage.md) | Service coverage measured along the road network | Accepted |
 | [0028](0028-scalar-fields.md) | Scalar fields as internal rasters | Accepted |
 | [0029](0029-building-generation.md) | Procedural building generation approach | Accepted |
-| [0030](0030-input-mapping.md) | Input and action mapping | Accepted |
+| [0030](0030-input-mapping.md) | Input and action mapping | Superseded by 0039 |
 | [0031](0031-debug-tooling-and-inspector.md) | Debug tooling and inspector | Accepted |
-| [0032](0032-toolchain-and-ci.md) | Toolchain pinning and CI | Accepted |
+| [0032](0032-toolchain-and-ci.md) | Toolchain pinning and CI | Superseded by 0038 |
 | [0033](0033-coordinate-system-and-units.md) | Coordinate system and units | Accepted |
 | [0034](0034-picking.md) | Cursor picking | Accepted |
 | [0035](0035-public-transport-model.md) | Public transport model | Accepted |
 | [0036](0036-gameplay-data-catalog.md) | Gameplay data catalog in embedded RON | Accepted |
+| [0037](0037-platform-support.md) | Platform support — Windows, Linux, macOS on Apple Silicon | Accepted |
+| [0038](0038-ci-and-release-three-platforms.md) | CI and release on Windows, Linux and macOS | Accepted (supersedes 0032) |
+| [0039](0039-input-mapping-v2.md) | Input and action mapping v2 — platform conventions and trackpads | Accepted (supersedes 0030) |
+| [0040](0040-per-os-file-locations.md) | Per-OS file locations | Accepted |
+| [0041](0041-high-dpi-and-render-scale.md) | High-DPI displays and render scale | Accepted |
 
 Mapping to the brief's required topics: engine (0001), rendering (0003), lighting (0004),
 sim/render separation (0005), fixed timestep (0006), road spline type (0007), lane model
@@ -48,4 +53,5 @@ sim/render separation (0005), fixed timestep (0006), road spline type (0007), la
 (0010), pathfinding & caching (0011), terrain (0012), spatial index (0013), plot
 subdivision (0014), undo/redo (0015), citizen granularity (0016), procgen determinism
 (0017), weather & day/night sim effects (0018), audio (0019), save format & migration
-(0020), localization (0021), logging (0022), crate selection (0023).
+(0020), localization (0021), logging (0022), crate selection (0023). Platforms: support
+(0037), CI/release (0038), input conventions (0039), file locations (0040), high-DPI (0041).

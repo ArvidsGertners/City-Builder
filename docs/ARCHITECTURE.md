@@ -25,7 +25,11 @@ Topic documents:
 - Simulation separated from rendering, runnable and testable headless, deterministic for a
   given seed + command stream on the same platform.
 - 10k+ buildings, 50k+ citizens, 5k+ simultaneously simulated vehicles at 60 FPS on a
-  ~2019 mid-range GPU (GTX 1660 Super / RX 5600 XT class) and a 6-core CPU.
+  ~2019 mid-range GPU (GTX 1660 Super / RX 5600 XT class) and a 6-core CPU, **and on an
+  Apple M4** (base, 10-core GPU) at the Retina display's auto render scale.
+- Required platforms: Windows 10/11 x86-64, Linux x86-64, macOS 14+ on Apple Silicon
+  (ADR-0037), with native input conventions (ADR-0039), per-OS file locations (ADR-0040)
+  and high-DPI handling (ADR-0041).
 - Stylized low-poly look (Townscaper/Islanders spirit), readable at any time and weather.
 - Playable with traffic agents disabled (aggregate fallback).
 - Architecture must not block: metro, trains, ferries, airports, tunnels, parking sim,
@@ -68,18 +72,25 @@ Topic documents:
 ```
 City-Builder/
 ├── Cargo.toml                  Workspace: members, [workspace.dependencies], [workspace.lints], profiles
-├── rust-toolchain.toml         Pinned stable toolchain + rustfmt/clippy (ADR-0032)
+├── rust-toolchain.toml         Pinned stable toolchain + rustfmt/clippy (ADR-0038)
 ├── rustfmt.toml                Formatting rules
 ├── clippy.toml                 Clippy config (msrv, thresholds)
 ├── .cargo/config.toml          Aliases (`cargo bench-sim`, `cargo gallery`), optional fast linker
 ├── .github/workflows/
-│   ├── ci.yml                  fmt, clippy -D warnings, test (Linux + Windows), sim-only build, render smoke
-│   └── release.yml             Tagged builds → zipped Windows/Linux artifacts on GitHub Releases
+│   ├── ci.yml                  fmt, clippy -D warnings, test on Linux + Windows + macOS (Apple Silicon),
+│   │                           sim-isolation, render smoke (Linux blocking, macOS informational)
+│   ├── nightly.yml             soak tests + informational benches on all three OS
+│   └── release.yml             Tagged builds → Linux tar.gz, Windows zip, macOS arm64 .app zip (ADR-0038)
+├── .claude/skills/             Claude Code skills: milestone-completion, write-adr, visual-verification, …
+├── packaging/macos/Info.plist  App bundle metadata (bundle id, NSHighResolutionCapable, min macOS 14)
 ├── scripts/
-│   └── screenshot.sh           Xvfb + lavapipe: run N frames, capture screenshots for art review
+│   ├── screenshot.sh           Xvfb + lavapipe: render a milestone screenshot suite into docs/screenshots/<M>/
+│   ├── check_sim_isolation.sh  Fails if cb_sim (transitively) depends on rendering/window/audio crates
+│   └── macos_bundle.sh         Build CityBuilder.app (+ ad-hoc codesign) from the dist profile
+├── spikes/                     Throwaway risk spikes S1–S6 (not workspace default members; deleted after use)
 ├── CLAUDE.md                   Agent/dev conventions (read first)
 ├── README.md                   Build, run, controls
-├── docs/                       This documentation set, ADRs in docs/adr/
+├── docs/                       This documentation set, ADRs in docs/adr/, screenshots in docs/screenshots/<M>/
 └── crates/
     ├── cb_core/                Foundation types (no Bevy)
     │   └── src/
@@ -216,13 +227,17 @@ City-Builder/
             ├── main.rs         CLI parsing, bootstrap (paths → logging → crash hook → App)
             ├── app.rs          Plugin assembly; headless/sim vs presentation plugins
             ├── states.rs       AppState, InGameMenu, transitions
-            ├── bootstrap/      paths.rs, logging.rs (file + ring buffer), crash.rs (panic hook, reports), cli.rs
+            ├── platform/       paths.rs (per-OS AppPaths, ADR-0040), modifiers.rs (PRIMARY = Cmd/Ctrl, glyphs),
+            │                   gestures.rs (pinch/rotate/pan, scroll-unit policy), window.rs (fullscreen,
+            │                   DPI, frame cap), open.rs (open folder/URL) — the only cfg(target_os) code
+            ├── bootstrap/      logging.rs (file + ring buffer), crash.rs (panic hook, reports), cli.rs
             ├── settings/       mod.rs (Settings resource), graphics.rs (presets → camera/render),
             │                   persist.rs (RON, versioned), apply.rs
             ├── input/          actions.rs (Action enum), bindings.rs (InputMap), contexts.rs
             ├── camera/         controller.rs (orbit/pan/zoom/snap), follow.rs, bounds.rs
-            ├── picking.rs      Cursor ray → terrain hit → object queries (ADR-0034)
+            ├── picking.rs      Cursor ray (logical px → NDC → render-scaled target, ADR-0041) → terrain hit → objects (ADR-0034)
             ├── render/
+            │   ├── setup.rs    World camera, offscreen render-scale target + composite pass, post FX presets
             │   ├── materials/  world.rs, terrain.rs, water.rs, road.rs, sky.rs, precipitation.rs,
             │   │               light_pool.rs, overlay.rs, billboard.rs (ExtendedMaterial + WESL)
             │   ├── shaders/    *.wesl (embedded via embedded_asset!)
@@ -536,14 +551,16 @@ Details: ADR-0020.
 ## 14. Settings and input
 
 - `Settings` resource (graphics, display, audio, input bindings, language, accessibility,
-  gameplay toggles, autosave) persisted as versioned RON in `<data_dir>/settings.ron`;
+  gameplay toggles, autosave) persisted as versioned RON at `AppPaths::settings_file`
+  (per-OS location, ADR-0040);
   invalid/missing fields fall back to defaults with a logged warning (never a crash).
 - Gameplay toggles that change sim behavior (traffic agents on/off, weather on/off,
   day length, season length) are copied into the sim's `SimConfig` resource and saved with
   the city; purely visual toggles (lock time-of-day visuals, reduce flashes) stay
   presentation-side.
 - Input: one `InputMap` (`Action → Vec<Binding>`), contexts (Global, Camera, Tool, Ui),
-  remappable in settings, conflict detection, defaults in `input/bindings.rs`. ADR-0030.
+  remappable in settings, conflict detection, defaults in `input/bindings.rs`; virtual
+  `PRIMARY` modifier (Cmd/Ctrl), logical-key mnemonics, trackpad gestures. ADR-0039.
 
 ## 15. Coding patterns (quick reference)
 

@@ -74,8 +74,11 @@ Acceptance:
       next start shows "last session crashed" notice with the path.
 - [ ] Headless test runs 1 000 `SimTick`s; speeds and step-once work in the driver.
 - [ ] l10n: en + de bundles; key coverage test; `cb_l10n::format` tests for numbers/money/dates.
-- [ ] CI: fmt, clippy, test on ubuntu-latest + windows-latest with rust-cache; render smoke
-      job on Linux (lavapipe); release workflow builds zipped artifacts on `v*` tags.
+- [ ] CI: fmt, clippy, test on Linux, Windows and macOS (Apple Silicon) with rust-cache;
+      render smoke job on Linux (lavapipe), informational on macOS; release workflow builds
+      Linux tar.gz, Windows zip and macOS arm64 `.app` zip on `v*` tags (ADR-0038).
+- [ ] Per-OS file locations (ADR-0040) with unit tests for all three OS; portable mode;
+      `CB_USERDATA` override.
 - [ ] Dev tooling: perf overlay, sim controls panel, log console, inspector stub, feature `dev`.
 
 ### M2 — Vertical slice (must look good before moving on)

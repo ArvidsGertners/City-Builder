@@ -18,12 +18,15 @@ Status: **Accepted (Phase 1 plan)**.
 
 | Level | Where | Runs in CI | Typical time |
 |---|---|---|---|
-| Unit | `#[cfg(test)]` modules in every crate | yes (Linux + Windows) | seconds |
+| Unit | `#[cfg(test)]` modules in every crate | yes (Linux, Windows, macOS Apple Silicon) | seconds |
 | Golden/snapshot | pure crates: procgen hashes, junction geometry snapshots (RON in `tests/snapshots/`) | yes | seconds |
 | Integration (headless sim) | `crates/cb_sim/tests/*.rs` using `cb_sim::testing::Scenario` | yes | < 2 min |
 | Soak (multi-day, large) | `#[ignore]` tests in `cb_sim/tests/` | nightly workflow + before milestones | 5–15 min |
 | Schedule property | sim schedules built with shuffled order (`shuffle_seed`) + single-threaded executor, state hash compared | yes (3 seeds) | < 1 min |
-| Render smoke | `cb_game --smoke-test 300` under Xvfb + lavapipe (Linux job) | yes (Linux) | ~3 min |
+| Shader validation | compose every WESL shader and translate to SPIR-V/HLSL/MSL with naga, no GPU (if spike S6 succeeds) | yes (all three OS) | seconds |
+| Render smoke | `cb_game --smoke-test 300` under Xvfb + lavapipe (Linux job); macOS job informational | yes (Linux blocking, macOS non-blocking) | ~3 min |
+| Platform | paths (ADR-0040) for all three OS from injected env; `PRIMARY` modifier mapping; gesture/scroll-unit policy; DPI cursor-ray mapping (ADR-0041) | yes (all OS, pure functions) | seconds |
+| Real-hardware runs | `--smoke-test`, `--screenshot-suite`, `--benchmark` on the user's GPU PC and Apple M4 | requested at M2, M4, M9, M11, M16 | minutes |
 | Screenshot review | `scripts/screenshot.sh` → PNGs for manual/agent review | on demand, per art-relevant milestone | ~5 min |
 | Bench | `headless_bench` | on demand + CI informational | minutes |
 
@@ -79,7 +82,8 @@ snapshot (the canonical sorted representation), so it is independent of ECS iter
    hidden ordering dependencies).
 4. Traffic enabled with different presentation settings (max visible vehicles) → equal
    hashes (proves presentation never affects sim).
-Cross-platform equality is **not** asserted (ADR-0017); CI runs each test per platform.
+Cross-platform equality is **not** asserted (ADR-0017); CI runs each test per platform
+(x86-64 Linux/Windows and aarch64 macOS).
 
 ## 6. Render smoke & screenshots
 

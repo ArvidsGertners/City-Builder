@@ -1,6 +1,6 @@
 # ADR-0032: Toolchain pinning and CI
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0038
 - **Date:** 2026-10-15
 - **Milestone:** M1
 

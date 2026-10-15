@@ -11,8 +11,10 @@ Status: **Accepted (Phase 1 plan)**.
 | Citizens | ≥ 50 000 (≈ 20 000 households) |
 | Simulated vehicles | ≥ 5 000 simultaneous agents (default cap 5 000; High 8 000, Ultra 12 000) |
 | Frame rate | 60 FPS at 1080p, "High" preset, 1× speed; ≥ 50 FPS at 4× |
-| Reference HW | GTX 1660 Super / RX 5600 XT, 6-core CPU (i5-9600K / Ryzen 5 3600), 16 GB RAM, SSD |
-| Memory | ≤ 3 GB RAM, ≤ 2.5 GB VRAM at max city |
+| Reference HW (PC) | GTX 1660 Super / RX 5600 XT, 6-core CPU (i5-9600K / Ryzen 5 3600), 16 GB RAM, SSD, 1080p |
+| Reference HW (Mac) | Apple M4 (4P + 6E CPU cores, 10-core GPU), 16 GB unified memory, built-in Retina display at Auto render scale (ADR-0041; ≈ 85 % on 13–14"), UI native; external 1440p at 100 % |
+| Memory | PC: ≤ 3 GB RAM, ≤ 2.5 GB VRAM at max city; Apple Silicon: ≤ 3.5 GB total (unified) |
+| Thermals | Mac targets hold after 10 min of sustained play (fanless MacBook Air throttles); measured warm |
 | Load | New map ≤ 6 s; load max-size save ≤ 10 s; autosave hitch ≤ 30 ms |
 | Input latency | Tool preview update ≤ 1 frame; road commit visible ≤ 100 ms |
 
@@ -91,9 +93,27 @@ Triangle budget visible: ≤ 4 M (LOD0 near ~2 M, LOD1/LOD2 rest); draw calls �
 | Anti-aliasing | FXAA | SMAA | SMAA | SMAA / TAA |
 | Bloom | off | on | on | on |
 
-## 5. Measurement
+## 5. Apple Silicon specifics
+
+- Fill rate is the main risk on Retina (≈ 4.3–5.9 MP physical): handled by render scale
+  Auto (ADR-0041) — the GPU budget table above applies to ≤ 3.7 MP rendered pixels.
+- Tile-based GPU: avoid unnecessary full-screen passes and render-target switches; SSAO at
+  half resolution on Medium; bloom mip count reduced on Medium/High.
+- Heterogeneous cores: intra-system partitions ≥ 4 × core count so efficiency cores don't
+  straggle (ADR-0037).
+- ProMotion: frame cap default 60; 120 allowed; budgets are defined for 60.
+- Verified with `--benchmark bench_city` on the user's M4 at M2, M4, M9, M11, M16 (report
+  pasted back into PROGRESS.md).
+
+## 6. Measurement
 
 - `tracing` spans on every sim set and heavy system; `--features trace_tracy` for Tracy.
+- `cargo run -p cb_game --release -- --benchmark bench_city`: loads the benchmark save,
+  flies a scripted 60 s camera path (overview → zoom into dense center → street level →
+  pan across industry → night/rain variants from M11/M12), writes
+  `benchmark-<timestamp>.txt` (frame time p50/p95/p99/max, per-set CPU timings, GPU pass
+  timings where timestamp queries are supported, agents, triangles, memory, render scale,
+  adapter) to the logs folder and prints it — copy-paste friendly like crash reports.
 - In-game perf overlay (feature `dev`): frame time graph, CPU set timings, sim tick time,
   routing searches/cache hit rate, agents (total/visible), entity counts, triangles drawn,
   GPU timings (wgpu timestamp queries where supported).
