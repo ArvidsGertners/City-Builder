@@ -1,6 +1,6 @@
 # ADR-0045: Junction geometry and traffic control v2
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0063
 - **Date:** 2026-10-15
 - **Milestone:** M3 (geometry, controls data, roundabouts), M9 (behavior); validated by spikes S-J and S-T
 - **Supersedes:** ADR-0009 (keeps node-based generation, cut-backs, fillets, connectors,

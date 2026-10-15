@@ -39,7 +39,7 @@ samples by length) with binary search + linear interpolation for `t(s)`.
 - *Freehand*: samples every ≥ 2 m while dragging, Chaikin ×2, Schneider fitting (max error
   0.75 m, G1 at splits); pieces become segments with continuation nodes.
 - *Roundabout preset*: click center, drag radius (15–60 m) → ring of 4 one-way arcs; entries
-  are created where existing roads cross the ring (ADR-0045 ring detection applies).
+  are created where existing roads cross the ring (ADR-0063 ring detection applies).
 - Long curves are split **evenly** into `ceil(len / 120 m)` pieces, also if turning > 90°;
   never below 6 m.
 
@@ -83,7 +83,7 @@ style/type copied; dependents re-pointed by arc-length position.
 this road's own* → `g[i]`; endpoint heights fixed (existing node) or terrain + player
 elevation offset (new node). Minimize `Σ w_i (h_i − g_i)² + λ Σ (h_{i+1} − 2h_i + h_{i−1})²`
 subject to `|h_{i+1} − h_i| ≤ grade_max × 4 m` and the **landing constraint** (grade ≤ 4 % on
-`[0, cut_back + 4 m]` from each junction node, ADR-0045). Iteration: Gauss–Seidel smoothing pass
+`[0, cut_back + 4 m]` from each junction node, ADR-0063). Iteration: Gauss–Seidel smoothing pass
 + forward/backward grade clamping from fixed points; stop when `max |Δh| < 0.01 m` or after 30
 passes; if any step still exceeds `grade × 4 m + 1 mm` → invalid "too steep at s = …"
 (unit tests with infeasible endpoints). Evaluation: monotone cubic Hermite (Fritsch–Carlson).
@@ -130,16 +130,19 @@ integrated during stamping (`cost += m³ × 1.5`). Road meshes sit on the profil
 6. Lanes are regenerated on segment change; agents re-project by `(segment, dir, index, s/len)`
    or reroute.
 
-## 5. Intersection geometry — `cb_network::junction`, `cb_network::conflicts` (ADR-0045)
+## 5. Intersection geometry — `cb_network::junction`, `cb_network::conflicts` (ADR-0063)
 
 1. Order approaches by tangent angle.
-2. **Cut-back**: for adjacent approaches intersect A's left edge with B's right edge (untrimmed
-   offset curves); `cut(A) = max(neighbors' requirements, half the widest crossing width) +
-   corner radius` (street 6 m, avenue 9 m; tram-carrying approaches grow to fit 20 m tram
-   connectors). Cap 45 % of segment length → else invalid "intersection too close" (min node
-   spacing guide shown).
-3. **Polygon**: approach end cross-sections + corner fillets (cubic arcs tangent to edges);
-   repair with i_overlay union; simplify.
+2. **Cut-back** (validated by spike S-J): `cut(A) = max(kerb-crossing requirement from both
+   neighbours over the whole segment, ½ widest other approach) + min(r, r / tan(α/2))` for the
+   corner's interior angle α (r: street 6 m, avenue 9 m, dirt 4 m). Then **grow** the involved
+   approaches by 2 m (≤ 40 iterations) while a connector exceeds its curvature limit, a
+   connector leaves the polygon by > 0.3 m, or the polygon is not simple. Beyond 45 % of the
+   segment → `TooClose`; out of iterations → `ConnectorTooSharp`. The road tool shows the live
+   minimum segment length computed by this builder (no static table).
+3. **Polygon**: approach cut lines (a vertex every ≤ 1 m for camber) + corners: quadratic fillet
+   through the kerb-line intersection on convex corners; on reflex corners follow both curved
+   kerbs to their meeting point; must be simple (validated, else growth).
 4. **Surface heights per vertex**: cut-line vertices take their approach profile height;
    interior vertices by mean-value coordinates; triangulated with these heights. Combined with
    the landing constraint (§2) steps at cut lines are ≤ 2 cm.
@@ -147,19 +150,22 @@ integrated during stamping (`cost += m³ × 1.5`). Road meshes sit on the profil
    the crosswalk**; none on continuation nodes.
 6. **Connectors**: cubic Bézier from incoming lane end to outgoing lane start, handles 0.4 ×
    chord, curvature limited by lane kind (car 1/5 m, bus 1/8 m, tram 1/20 m); sampled polylines.
-7. **Turn rules**: signed angle classes (straight ±30°); rightmost lane → right, leftmost →
-   left, middle → straight; single lane shares all; merges allow ≤ 2 source lanes per target;
-   if a movement would get no connector under these rules, it is assigned to the nearest
-   lane (test: every allowed movement has a connector). Same-approach connectors never cross.
+7. **Turn rules**: movements deflecting > 135° get no connector. Per incoming approach, targets
+   ordered from sharpest right to sharpest left take source lanes monotonically (right targets
+   from right lanes; rightmost target uses the outgoing rightmost lane, leftmost the leftmost);
+   merges allow ≤ 2 source lanes per target. If connectors from different lanes of one
+   approach still cross, the second is re-sourced from the first one's lane (test: every
+   allowed movement has a connector; different lanes never cross). Connectors from the same
+   lane are alternatives and may cross.
 8. **Conflict zones**: pairwise capsule intersection (width 2.0 m) of connectors from different
-   approaches + merge zones at shared target lanes; zones within 2 m merge.
+   approaches and of crossing same-lane alternatives + merge zones at shared target lanes; zones within 2 m merge.
 9. **Taper** on width-changing continuation nodes: length `max(8 m, 6 × Δhalf_width)`; lane
    drops/adds at the taper start with a mandatory lane-change zone.
 10. **Corners for plots**: the sidewalk outer edge including the fillet arc is a valid
     frontage (`FrontageRef::Corner`).
 11. Lane-graph patching is atomic per node in `EditSet::Lanes`.
 
-## 6. Intersection traffic control — `cb_traffic::junction_ctl`, `cb_traffic::reservations` (ADR-0045)
+## 6. Intersection traffic control — `cb_traffic::junction_ctl`, `cb_traffic::reservations` (ADR-0063)
 
 Vehicles within braking distance + 10 m of the stop line request their connector each tick.
 
@@ -190,7 +196,7 @@ release : zone when v's rear passes its exit s; reservation when v's rear is len
   ends. Tests: no conflicting greens on T, X, Y, 5- and 6-way; every movement green in ≥ 1 phase.
 - **Background traffic** reduces grant rate: minimum headway per approach
   `h = 1.8 s × (1 + V_bg / C)`.
-- **Roundabouts**: detected rings (ADR-0045) — ring approaches Priority, entries Yield; entry
+- **Roundabouts**: detected rings (ADR-0063) — ring approaches Priority, entries Yield; entry
   denied while ring occupancy > 80 %.
 - **Visual pedestrians** cross a crosswalk only if no granted connector intersects the
   crosswalk capsule within the next 3 s; they never block vehicles.

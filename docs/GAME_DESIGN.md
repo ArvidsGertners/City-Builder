@@ -50,13 +50,11 @@ earthwork 1.5/m³, bridge × 4 per m + 1 200 per pier + 40 per m pier height, tr
 plot area/buildings (preview lists them). Snow raises road upkeep up to +60 % (no plow service
 is modeled; tooltip says "snow clearing costs").
 
-**Minimum node spacing** (center to center, shown as a guide while drawing):
-
-| | Dirt | Street | Avenue |
-|---|---|---|---|
-| Dirt | 14 m | 18 m | 26 m |
-| Street | 18 m | 22 m | 32 m |
-| Avenue | 26 m | 32 m | 42 m |
+**Minimum node spacing** is computed live by the junction builder for the actual junctions at both
+ends and shown while drawing (ADR-0063). Typical values (center to center, 90° X-junctions of the
+same type at both ends): dirt 16 m, street 27 m, one-way avenue 38 m, avenue 45 m, avenue with
+tram 51 m; a street ending at an avenue needs ≈ 38 m; acute angles need more (two streets at
+40° ≈ 50 m). Turns sharper than 135° are not possible at a junction.
 
 **Roundabouts**: preset radius 15–60 m (street-type ring, one-way), yield on entry, metered at
 80 % ring occupancy.

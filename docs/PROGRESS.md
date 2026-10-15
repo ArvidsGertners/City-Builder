@@ -13,12 +13,12 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**Phase S, spike S-J — junction geometry** (definition below; S-Render and S-Time done).
-First action: read the S-J definition and ALGORITHMS §8–9 (junctions), then create
-`spikes/s_j/` as a standalone crate (own empty `[workspace]`, path dependency on
-`crates/cb_core`, glam, no Bevy) implementing the cut-back / connector / conflict-zone
-generator on random junctions, with the pass metrics printed as `metric=` lines and an SVG
-dump of failing cases under `target/spikes/s_j/`.
+**Phase S, spike S-P — plots → lots → buildings** (definition below; S-Render, S-Time, S-J done).
+First action: read the S-P definition and ALGORITHMS §9–11, then create `spikes/s_p/` as a
+standalone crate (own empty `[workspace]`, path dependency on `crates/cb_core`, glam) with the
+frontage subdivision, lot matching and building-fitting pipeline on random plots, printing the
+pass metrics as `metric=` lines and dumping SVGs (render with headless Chromium:
+`/opt/pw-browsers/chromium-1194/chrome-linux/chrome --headless=new --screenshot`).
 
 ## Process conventions (ADR-0058)
 
@@ -43,7 +43,7 @@ dump of failing cases under `target/spikes/s_j/`.
 |---|---|---|---|---|
 | 0 | Phase 1 planning package + independent review | 2 | 2 | ☑ |
 | 1 | Project setup | 4 | 1 | ☑ |
-| S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | | ◐ (S-Render ☑, S-Time ☑ fallback) |
+| S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | | ◐ (S-Render ☑, S-Time ☑ fallback, S-J ☑ ADR-0063) |
 | 2 | Vertical slice | 12 | | ☐ |
 | 3 | Full road system | 12 | | ☐ |
 | 4 | All zone types, special buildings, leveling visuals | 10 | | ☐ |
@@ -203,7 +203,25 @@ fallbacks require a superseding ADR.
   junction.
 - Fallback: degree ≤ 4 and min angle 40°; parameterized T/X templates; flat 6 m landings; tram
   turns only at dedicated wide junctions.
-- Outcome: _pending_
+- Outcome (2026-10-15, actual 0.5 day): **PASS with rule changes (ADR-0063 supersedes
+  ADR-0045 geometry)**; fallback (degree ≤ 4, templates) not needed. Code `spikes/s_j/`
+  (deterministic; `cargo run --release -- --svg DIR`); evidence `docs/screenshots/S/S-J-*`.
+  - Canonical: T, X, 5-way, avenue×street, avenue×avenue, one-way pair, junctions 30 m apart,
+    8 % slope, tram straight, tram turn on the avenue median, roundabout ring node → all valid,
+    0 violations, cut-line step 0.0 mm; Y-30 at 60 m → `TooClose` (needs ≈ 63 m; guide shows it).
+  - 0 panics in 40 000 random junctions; 100 % valid geometry or typed error; 0 invalid polygons.
+  - Rejections: realistic layouts with the live spacing guide **0.65 %** ✓ (harsher guided set
+    1.18 % ✓); with fixed 30–60 m segments 72 % → static spacing table replaced by the live guide.
+  - Realistic set: every allowed movement has a connector ✓; different lanes never cross ✓;
+    curvature limits ✓; connectors within the polygon ✓ (growth); step ≤ 2 cm ✓.
+    Harsher set: 4 crossings + 1 curvature case in 9 882 (0.05 %) → M3 regression cases.
+  - Timing ✗: p50 0.17 ms, p99 1.4 ms (target 0.4 ms) → M3: angle-aware initial cut-back,
+    per-approach incremental growth; fallback async rebuild (ADR-0063 consequences).
+  - Rule changes: movements > 135° not allowed; corner allowance `min(r, r/tan(α/2))`;
+    iterative growth for curvature / containment / simplicity; quadratic convex fillets and
+    kerb-following reflex corners; monotone lane assignment with re-sourcing; same-lane
+    alternatives may cross (conflict zone between them).
+
 
 **S-P — plots → lots → buildings (4 days)**
 - Build: frontage generators (straight; convex r 30–300 m; concave r 25–300 m; S-curve; corner
@@ -586,3 +604,6 @@ None open. Known gaps (planned):
 - 2026-10-15 — User decisions: realistic number of visible cars (→ ADR-0062 amendment: trip scale
   6 kept and calibrated to 4–7 % of the population on the road at peak); Mac = MacBook Pro 14"
   M4 base, 16 GB (PERFORMANCE §1, Auto render scale 3/5).
+- 2026-10-15 — S-J done (ADR-0063 supersedes ADR-0045): junction rules validated on 40 000 random
+  + 12 canonical junctions; live spacing guide replaces the static table; p99 timing (1.4 ms vs
+  0.4 ms) carried into M3.

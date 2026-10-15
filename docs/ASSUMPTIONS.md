@@ -12,7 +12,7 @@ blocks M1.
 | B2 | Day length options change only pacing, not results | DS | ADR-0042 (16/24/32/48 min) | resolved by design |
 | B3 | "Lock time of day" freezes lighting only; the calendar and schedules continue | DS | presentation-only | **confirmed by user**: lighting only, clock keeps running |
 | B4 | Right-hand traffic, right-before-left at equal priority | DS | RHT; `DrivingSide` kept as a catalog constant so LHT can be added | ❓ confirm RHT |
-| B5 | Per-approach stop/yield signs plus all-way stops and lights | DS | ADR-0045 | resolved |
+| B5 | Per-approach stop/yield signs plus all-way stops and lights | DS | ADR-0063 | resolved |
 | B6 | Road geometry can be edited (move node, drag control point) | DS | `EditRoadGeometry` (ADR-0055) | resolved |
 | B7 | Utilities run implicitly along every road; no power lines | DS | ADR-0026 | ❓ confirm (disconnected road networks need their own plants/pumps) |
 | B8 | One vehicle trip represents 6 citizens' trips (ADR-0062); beyond `agent_cap` trips are statistically sampled (camera-independent) rather than "aggregate when off-screen" | DS | ADR-0062/0047; at 50k all trips are agents (≈ 3 100 at peak = 6 % of population, a real town's rush-hour level) | **user requirement: realistic number of visible cars** → calibrated, see ADR-0062 amendment |
@@ -37,7 +37,7 @@ blocks M1.
 | B27 | Progression thresholds and unlock contents | T | GAME_DESIGN §8 | default |
 | B28 | Undo depth 100, 1-game-day window, refund decaying 100 → 25 % | T | ADR-0055 | default |
 | B29 | Demolish refund 25 % within one game day | T | GAME_DESIGN §9 | default |
-| B30 | Junction limits: min angle 25°, no junctions on bridges, min node spacing table | DS | ADR-0045 | default |
+| B30 | Junction limits: min angle 25°, no junctions on bridges, live minimum spacing guide, no turns > 135° | DS | ADR-0063 (S-J) | default |
 | B31 | Grade separation only via manual elevation (≥ 5.5 m) with an "auto overpass" quick fix; no interchange ramps tool; no tunnels | T | ALGORITHMS §1 | default |
 | B32 | Water bodies immutable (no land reclamation or dams) | DS | ADR-0046 | default |
 | B33 | Terrain resolution 2 m | DS | ADR-0046 (+ carve/shoulder rules) | default |

@@ -30,7 +30,9 @@ in the PROGRESS.md log. Values live in code consts or `crates/cb_sim/data/*.ron`
 | Perceived time factor | 0.1 min per sim s | `commute_p50_balance` | p50 12–25 perceived min |
 | Corridor carve / shoulder | 0.15 m / 3.5 m | `road_above_terrain_all_lods` | terrain ≤ road − 0.03 m under carriageway |
 | Landing grade | 4 % | `junction_surface_continuous_8pct` | cut-line step ≤ 2 cm |
-| Cut-back cap | 45 % of segment | `junction_rejection_rate_standard` | ≤ 3 % rejections on standard junctions |
+| Cut-back cap | 45 % of segment | `junction_rejection_rate_standard` | ≤ 3 % rejections on realistic layouts with the live guide (S-J: 0.65 %) |
+| Max junction turn | 135° deflection (ADR-0063) | `junction_random_10k_valid_or_typed_error` | every allowed movement has a connector; no growth runaway |
+| Cut-back growth step | 2 m, ≤ 40 iterations | `junction_generation_p99` | p99 ≤ 0.4 ms (S-J: 1.4 ms, M3 optimization) |
 | Ray de-crossing | 8 × 5° | `subdivide_random_10k_invariants` | no crossing rays; ≤ 3 % merged lots |
 | Rectangularity min | 0.55 | `subdivide_random_10k_invariants` | ≥ 95 % of lots pass before merging |
 | Lot match overlap | 0.6 | `lot_ids_stable_under_small_drags` | ≥ 90 % IDs kept for ≤ 1 m drags |

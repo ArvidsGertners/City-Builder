@@ -100,7 +100,7 @@ Scatter is not saved (regenerated from seed + exclusion); placed props are saved
 #[derive(Component)] struct JunctionGeometry {   // derived, rebuilt when dirty
     approaches: SmallVec<[Approach; 4]>,  // per incident segment: cut distance, edge points, priority class
     polygon: Polygon2,
-    surface_vertices: SmallVec<[Vec3; 24]>, surface_indices: SmallVec<[u16; 72]>, // per-vertex heights (ADR-0045)
+    surface_vertices: SmallVec<[Vec3; 24]>, surface_indices: SmallVec<[u16; 72]>, // per-vertex heights (ADR-0063)
     is_ring_member: bool,                 // roundabout detection
     crosswalks: SmallVec<[Crosswalk; 4]>, stop_lines: SmallVec<[StopLine; 8]>,
     connectors: SmallVec<[ConnectorId; 16]>, conflict_zones: SmallVec<[ConflictZoneId; 16]>,

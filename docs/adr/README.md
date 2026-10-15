@@ -69,10 +69,11 @@ has since been superseded should be read as references to its successor (follow 
 | [0060](0060-ci-macos-cadence.md) | CI v4 — macOS on main, nightly and manual dispatch | Accepted (supersedes 0054) |
 | [0061](0061-sim-single-threaded-executor.md) | Single-threaded executor for the sim schedules | Accepted |
 | [0062](0062-trip-scale.md) | Trip scale — one vehicle trip per six citizens' trips | Accepted |
+| [0063](0063-junction-geometry-v3.md) | Junction geometry v3 (validated by spike S-J) | Accepted (supersedes 0045) |
 
 Current decision per required topic (superseded ADRs remain for history): engine (0001),
 rendering (0049), lighting (0050), sim/render separation (0005), fixed timestep & time model
-(0042), road spline type (0007), lane model (0008), intersections (0045), traffic model incl.
+(0042), road spline type (0007), lane model (0008), intersections (0063), traffic model incl.
 agent count, LOD and trip generation (0047), pathfinding & caching (0048), terrain (0046),
 spatial index (0013), plot subdivision (0014), undo/redo (0055), citizen granularity (0016),
 procgen determinism (0043), weather & day/night sim effects (0018), audio (0019), save format &
