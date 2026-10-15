@@ -57,14 +57,16 @@ has since been superseded should be read as references to its successor (follow 
 | [0048](0048-routing-v2.md) | Pathfinding and route caching v2 | Accepted (supersedes 0011) |
 | [0049](0049-rendering-v2.md) | Rendering approach v2 — memory and entity budgets | Accepted (supersedes 0003) |
 | [0050](0050-lighting-v2.md) | Lighting pipeline v2 | Accepted (supersedes 0004) |
-| [0051](0051-ui-framework-v2.md) | UI framework v2 — egui scheduling, glyphs, structural tooltips | Accepted (supersedes 0024) |
+| [0051](0051-ui-framework-v2.md) | UI framework v2 — egui scheduling, glyphs, structural tooltips | Accepted (supersedes 0024; font/glyph clauses superseded by 0059) |
 | [0052](0052-input-v3.md) | Input and action mapping v3 | Accepted (supersedes 0039) |
 | [0053](0053-high-dpi-v2.md) | High-DPI displays and render scale v2 | Accepted (supersedes 0041) |
-| [0054](0054-ci-v3.md) | CI and release v3 — feature matrix, fast smoke, cross-OS determinism | Accepted (supersedes 0038) |
+| [0054](0054-ci-v3.md) | CI and release v3 — feature matrix, fast smoke, cross-OS determinism | Superseded by 0060 |
 | [0055](0055-undo-redo-v2.md) | Command pattern and undo/redo v2 | Accepted (supersedes 0015) |
 | [0056](0056-service-coverage-v2.md) | Service coverage v2 — incremental reach, global allocation | Accepted (supersedes 0027) |
 | [0057](0057-goods-economy.md) | Goods economy and delivery trips | Accepted |
 | [0058](0058-verification-process.md) | Verification process for a single GPU-less agent | Accepted |
+| [0059](0059-licence-and-ui-font.md) | Licence (proprietary) and UI font (Inter, SIL OFL) | Accepted (supersedes font clauses of 0051) |
+| [0060](0060-ci-macos-cadence.md) | CI v4 — macOS on main, nightly and manual dispatch | Accepted (supersedes 0054) |
 
 Current decision per required topic (superseded ADRs remain for history): engine (0001),
 rendering (0049), lighting (0050), sim/render separation (0005), fixed timestep & time model
@@ -73,8 +75,8 @@ agent count, LOD and trip generation (0047), pathfinding & caching (0048), terra
 spatial index (0013), plot subdivision (0014), undo/redo (0055), citizen granularity (0016),
 procgen determinism (0043), weather & day/night sim effects (0018), audio (0019), save format &
 migration (0044), localization (0021), logging (0022), crate selection (0023). Platforms:
-support (0037), CI/release (0054), input (0052), file locations (0040), high-DPI (0053). Also:
-UI (0051), coverage (0056), goods economy (0057), verification process (0058).
+support (0037), CI/release (0060), input (0052), file locations (0040), high-DPI (0053). Also:
+UI (0051, font 0059), licence (0059), coverage (0056), goods economy (0057), verification process (0058).
 
 ADRs carrying an **Amendments** section (clarifications from the 2026-10-15 plan review that
 do not change the decision): 0001, 0007, 0014, 0016, 0019, 0022, 0023, 0025, 0028, 0029, 0031,

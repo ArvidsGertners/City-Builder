@@ -92,11 +92,13 @@ plus the attribution trailer lines required by the current session instructions.
 
 ## 9. Confirm CI
 Check the workflow run for the pushed commit (GitHub MCP tools: list workflow runs / get
-job logs). Blocking jobs: `check` on ubuntu, windows and macos-15 (default + dev features),
-`sim-isolation`, `render-smoke` (Linux), `cross-os-determinism` (from M5). `render-smoke-macos`
-is informational. If red: diagnose, fix, re-run steps 3, 7–9. If a runner is unavailable or
+job logs). Blocking jobs in `ci.yml`: `check` on ubuntu and windows (default + dev features),
+`sim-isolation`, `render-smoke` (Linux), `cross-os-determinism` (Linux + Windows, from M5).
+Then **dispatch `nightly.yml` on the working branch once** (GitHub MCP `actions_run_trigger`)
+and require its macOS `check` jobs and the 3-OS determinism comparison to be green
+(ADR-0060); `render-smoke-macos` is informational. If red: diagnose, fix, re-run steps 3, 7–9. If a runner is unavailable or
 queued > 60 min, mark the milestone "☑ CI-pending" and re-check at the next session and before
-completing the next milestone (ADR-0054). Record the CI run URL in the PROGRESS.md log.
+completing the next milestone (ADR-0060). Record the CI run URL in the PROGRESS.md log.
 
 ## 10. Continue
 Start the next milestone at the "Next step" you just wrote (no pause for approval unless

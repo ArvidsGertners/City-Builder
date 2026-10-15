@@ -95,7 +95,7 @@ cargo run -p cb_game -- --seed 1234 --sandbox              # new game with seed,
 cargo fmt --all                              # format
 cargo fmt --all -- --check                   # CI format check
 cargo clippy --workspace --all-targets -- -D warnings                  # default features
-cargo clippy --workspace --all-targets --features dev -- -D warnings   # debug tooling (never --all-features, ADR-0054)
+cargo clippy --workspace --all-targets --features dev -- -D warnings   # debug tooling (never --all-features, ADR-0060)
 cargo test --workspace                       # all tests (pure crates are fast; cb_sim is headless)
 cargo test --workspace --features dev
 cargo test -p cb_geometry                    # one crate
@@ -219,6 +219,12 @@ Full tree and responsibilities: `docs/ARCHITECTURE.md` §3.
 - No new dependency without updating ADR-0023 (crate selection) in the same commit.
 - Constants with stability/balance impact get a row in `docs/CONSTANTS.md` (owning test +
   target metric).
+
+### Licence and assets (ADR-0059)
+- The project is **proprietary, all rights reserved** (`LICENSE`); crates are `publish = false`.
+- The **only** asset files allowed are the Inter font (SIL OFL) in `crates/cb_game/assets/fonts/`
+  with its `OFL.txt`. Everything else visual or audible is generated at runtime. New third-party
+  material needs the user's approval and an entry in `THIRD_PARTY_NOTICES.md`.
 
 ### Localization (ADR-0021)
 - **No user-facing string literals in code.** Every string shown to the player goes

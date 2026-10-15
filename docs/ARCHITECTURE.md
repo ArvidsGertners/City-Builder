@@ -75,15 +75,17 @@ Topic documents:
 ```
 City-Builder/
 ├── Cargo.toml                  Workspace: members, [workspace.dependencies], [workspace.lints], profiles
-├── rust-toolchain.toml         Pinned stable toolchain + rustfmt/clippy (ADR-0054)
+├── rust-toolchain.toml         Pinned stable toolchain + rustfmt/clippy (ADR-0060)
 ├── rustfmt.toml                Formatting rules
 ├── clippy.toml                 Clippy config (msrv, thresholds)
 ├── .cargo/config.toml          Aliases (`cargo bench-sim`, `cargo gallery`), optional fast linker
 ├── .github/workflows/
-│   ├── ci.yml                  fmt, clippy -D warnings, test on Linux + Windows + macOS (Apple Silicon),
-│   │                           sim-isolation, render smoke (Linux blocking, macOS informational)
-│   ├── nightly.yml             soak tests + informational benches on all three OS
-│   └── release.yml             Tagged builds → Linux tar.gz, Windows zip, macOS arm64 .app zip (ADR-0054)
+│   ├── ci.yml                  push/PR: fmt, clippy -D warnings, test on Linux + Windows; macOS only on main;
+│   │                           sim-isolation, render smoke (Linux), cross-OS determinism (Linux + Windows)
+│   ├── nightly.yml             schedule + manual dispatch: macOS check/smoke, 3-OS determinism, soak, benches
+│   └── release.yml             Tagged builds → Linux tar.gz, Windows zip, macOS arm64 .app zip (ADR-0060)
+├── LICENSE                     Proprietary, all rights reserved (ADR-0059)
+├── THIRD_PARTY_NOTICES.md      Font licence (Inter, SIL OFL) and later crate licences
 ├── .claude/skills/             Claude Code skills: milestone-completion, write-adr, visual-verification, …
 ├── packaging/macos/Info.plist  App bundle metadata (bundle id, NSHighResolutionCapable, min macOS 14)
 ├── scripts/
@@ -233,6 +235,7 @@ City-Builder/
     │   └── examples/           headless_bench.rs (citygen city, per-system timings, --balance),
     │                           determinism_probe.rs (worldgen + scenario hashes for the cross-OS CI job)
     └── cb_game/                Game binary (full Bevy + bevy_egui)
+        ├── assets/fonts/     Inter-Regular.ttf, Inter-SemiBold.ttf, OFL.txt (the only asset files, ADR-0059)
         └── src/
             ├── main.rs         CLI parsing, bootstrap (paths → logging → crash hook → App)
             ├── app.rs          Plugin assembly; headless/sim vs presentation plugins
@@ -590,6 +593,6 @@ with `--no-audio` or no device), `SaveIoPlugin`, `TutorialPlugin`, `DebugPlugin`
 - Errors: `thiserror` enums per crate; systems return `Result` and use Bevy's error
   handler (configured to log + count; release builds never abort on a system error).
 - Feature flags: `dev` (debug tooling), `inspector` (bevy-inspector-egui when available,
-  ADR-0031), `trace_tracy` (profiling, nightly only). CI never uses `--all-features` (ADR-0054).
+  ADR-0031), `trace_tracy` (profiling, nightly only). CI never uses `--all-features` (ADR-0060).
 - Math in sim-affecting code via `cb_core::math` (libm); no glam SIMD types; maps via
   `LookupMap`/`BTreeMap` (ADR-0043).

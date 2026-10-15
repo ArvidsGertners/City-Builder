@@ -13,16 +13,16 @@ Budgets are for the **worst frame**, not averages: players see hitches, not mean
 | Citizens | ≥ 50 000 (≈ 20 000 households) |
 | Simulated vehicles | ≥ 5 000 simultaneous agents (`SimConfig::agent_cap`, default 5 000, new-game option 2 000–12 000) |
 | Frame rate | 60 FPS at 1× **and 4×** (day length 24 min), max city, p95 frame ≤ 16.6 ms, p99.9 ≤ 33 ms |
-| Reference PC | GTX 1660 Super / RX 5600 XT, 6-core/6-thread CPU (i5-9600K class) or better, 16 GB, SSD, 1080p, "High" preset |
-| Reference Mac | Apple M4 (4P + 6E cores, 10-core GPU), 16 GB unified, built-in Retina at Auto render scale (≤ 2.2 MP rendered, ADR-0053), "Medium" preset, measured after 10 min warm (MacBook Air throttles) |
+| Reference PC = **minimum spec** (user's machine) | AMD Ryzen 5 7500F (6C/12T Zen 4), GTX 1660 Ti (6 GB), 16 GB DDR5-6000 **single stick (single-channel, ≈ 48 GB/s)**, 1080p, "High" preset |
+| Reference Mac | MacBook Air 13" M4 (assumed, to be confirmed; 4P + 6E cores, 10-core GPU, fanless), 16 GB unified, built-in 2560 × 1664 Retina at Auto render scale (2/3 → 1.89 MP rendered, ADR-0053), "Medium" preset, measured after 10 min warm |
 | Memory | PC: ≤ 2 GB RAM, ≤ 1.5 GB VRAM; Mac: ≤ 3.5 GB unified total |
 | Load | New map ≤ 6 s; load max save ≤ 10 s |
 | Hitches | autosave snapshot ≤ 10 ms on the main thread; edit frames (large bulldoze/commit) ≤ 20 ms; no frame > 33 ms at p99.9 in the 60 s benchmark |
 | Latency | input → preview mesh in the main world ≤ 1 frame (photon latency ≈ 2–3 frames with pipelined rendering); UI-issued commands apply next frame (ADR-0051) |
 
-The user's actual PC GPU and Mac model are unconfirmed (assumptions B11, B12). If the PC GPU
-is faster than the reference, GPU results are scaled by the published FP32/bandwidth ratio and
-reported as such.
+The PC above is both the user's machine and the minimum spec, so its measurements gate directly.
+Single-channel DDR5 halves memory bandwidth: SoA hot loops (traffic, fields) and chunk merges are
+profiled for bandwidth, not just instruction count. The Mac model is assumed (B12).
 
 ## 2. Frame model
 

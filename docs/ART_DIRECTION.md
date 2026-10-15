@@ -194,11 +194,12 @@ Icons: no road (road with slash), no power (bolt), no water (drop), sewage (pipe
   positive `#4E8C55`, negative `#B5534A`.
 - **Dark/high-contrast theme**: panels `#1E2124`, text `#FFFFFF`, accents saturated +20 %,
   borders 2 px `#FFFFFF` at 60 %.
-- **Typography**: egui default proportional font (Ubuntu-Light) for body at 15 logical px
+- **Typography**: Inter Regular for body at 15 logical px
   (UI scale 1.0), headings 19–22 px; monospace (Hack) only in debug tools. UI scale
   75–200 % on top of the OS scale factor (Retina 2.0 renders text at native sharpness,
-  ADR-0053). Shortcut hints use platform glyphs (⌘ ⌥ ⇧ on macOS) drawn as procedural icons
-  (`shortcut_chip`), never font glyphs (ADR-0051).
+  ADR-0053). Shortcut hints use platform glyphs (⌘ ⌥ ⇧ ⌃ ⌫ on macOS) rendered with Inter.
+- **Font**: Inter 4.001 (SIL OFL) — Regular for body, SemiBold for headings and numbers in the top
+  bar; egui defaults as fallback; Hack monospace for debug views (ADR-0059).
   German strings are ~30 % longer: layouts use wrap/flex, no fixed-width labels.
 - **Iconography**: one procedural line-icon set (2 px stroke at 24 px, rounded caps), the
   same atlas as world icons. Toolbar buttons 44 × 44 px with icon + tooltip

@@ -1,6 +1,6 @@
 # ADR-0051: UI framework v2 — egui scheduling, glyphs, structural tooltips
 
-- **Status:** Accepted
+- **Status:** Accepted (font/glyph clauses superseded by ADR-0059)
 - **Date:** 2026-10-15
 - **Milestone:** M2 (foundation), M8 (full UI)
 - **Supersedes:** ADR-0024 (keeps egui via bevy_egui 0.43 for all UI, custom theme and widgets,

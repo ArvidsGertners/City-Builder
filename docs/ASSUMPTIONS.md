@@ -8,9 +8,9 @@ blocks M1.
 
 | ID | Assumption | Tag | Default (current plan) | Status |
 |---|---|---|---|---|
-| B1 | Time model: 1 game minute = 2 sim s; vehicles move at nominal speed in sim time, i.e. visibly **2× real speed** at the default 24-minute day ("diorama pace"); commutes span ~1–2 game hours on the clock; UI shows perceived minutes | DS | ADR-0042, validated by spike S-Time | ❓ needs your input: is a visibly fast "diorama" traffic pace OK? |
+| B1 | Time model: 1 game minute = 2 sim s; vehicles move at nominal speed in sim time, i.e. visibly **2× real speed** at the default 24-minute day ("diorama pace"); commutes span ~1–2 game hours on the clock; UI shows perceived minutes | DS | ADR-0042, validated by spike S-Time | **confirmed by user** (2026-10-15) |
 | B2 | Day length options change only pacing, not results | DS | ADR-0042 (16/24/32/48 min) | resolved by design |
-| B3 | "Lock time of day" freezes lighting only; the calendar and schedules continue | DS | presentation-only | ❓ needs your input (alternative: freeze the clock too) |
+| B3 | "Lock time of day" freezes lighting only; the calendar and schedules continue | DS | presentation-only | **confirmed by user**: lighting only, clock keeps running |
 | B4 | Right-hand traffic, right-before-left at equal priority | DS | RHT; `DrivingSide` kept as a catalog constant so LHT can be added | ❓ confirm RHT |
 | B5 | Per-approach stop/yield signs plus all-way stops and lights | DS | ADR-0045 | resolved |
 | B6 | Road geometry can be edited (move node, drag control point) | DS | `EditRoadGeometry` (ADR-0055) | resolved |
@@ -18,20 +18,20 @@ blocks M1.
 | B8 | Beyond `agent_cap`, trips are statistically sampled (camera-independent) rather than "aggregate when off-screen" | DS | ADR-0047; ≥ 40 % of peak trips visible at 50k | ❓ confirm the interpretation of "aggregate off-screen" |
 | B9 | Routing on a segment-direction link graph with local lane choice (lane plans), not a lane-level graph | DS | ADR-0048 | default |
 | B10 | Pedestrians are visual near the camera, spawned from stop queues and access points | T | ADR-0047 | default |
-| B11 | Reference PC = GTX 1660 Super / RX 5600 XT, 6-core, 16 GB, 1080p | DS | PERFORMANCE §1 | ❓ tell me your PC's GPU/CPU (UV-0) |
-| B12 | Apple M4 = base chip with 10-core GPU, 16 GB, built-in Retina display | DS | PERFORMANCE §1 | ❓ tell me the exact Mac model and display (UV-0) |
+| B11 | Reference PC | DS | Ryzen 5 7500F, GTX 1660 Ti, 16 GB DDR5-6000 single-channel = minimum spec (PERFORMANCE §1) | **confirmed by user** |
+| B12 | Mac = MacBook Air 13" M4, built-in display | DS | PERFORMANCE §1 | assumed (user's answer contained the template text); ❓ please confirm |
 | B13 | You run occasional real-hardware checks (smoke, screenshots, benchmark, trackpad, listening) — non-blocking | DS | User verification queue | ❓ confirm you're OK with occasional batched requests |
 | B14 | 60 FPS also at 4× | T | yes (PERFORMANCE §1) | resolved |
 | B15 | "60 FPS" means 1080p High on PC, Auto render scale Medium on M4 | T | PERFORMANCE §1 | default |
 | B16 | Agent cap is a new-game sim option, not a graphics preset | T | ADR-0047 | resolved |
 | B17 | Minimum OS: Windows 10 22H2, glibc 2.35 (Ubuntu 22.04), macOS 14 | T | ADR-0037 | default |
 | B18 | macOS bundle ID `org.citybuilder.CityBuilder`; no notarization (needs an Apple Developer ID) | T | ADR-0037 | ❓ provide a bundle ID / Developer ID if you want notarized builds |
-| B19 | Repository license undecided; tagged releases are built anyway (egui font licenses ship in a `THIRD_PARTY_LICENSES` file) | T | no LICENSE file | ❓ choose a license |
-| B20 | GitHub macOS runner minutes are acceptable (10× multiplier on private repos) | T | macOS in every push's CI | ❓ confirm (alternative: macOS only on main + nightly) |
+| B19 | Repository licence | T | proprietary, all rights reserved (ADR-0059) | **confirmed by user** |
+| B20 | macOS CI cadence | T | macOS on main, nightly and one dispatch per milestone (ADR-0060) | **decided by user** |
 | B21 | Currency label `$` (en) / `€` (de) for the same in-game money | T | ADR-0021 | default |
 | B22 | 24 h clock in both locales; calendar "Year 3, Spring, Day 2" | T | ADR-0021 | default |
 | B23 | Art direction: Townscaper/Islanders softness with central-European proportions | DS | ART_DIRECTION; M2 screenshots are the checkpoint | default (you review `docs/screenshots/M2/`) |
-| B24 | No font assets; egui default fonts + procedural shortcut glyph icons | DS | ADR-0051 | ❓ an OFL font would look better — allow one font file? |
+| B24 | UI font | DS | Inter 4.001 (SIL OFL) Regular + SemiBold (ADR-0059) | **decided by user** |
 | B25 | No hard game over | T | GAME_DESIGN §1 | default |
 | B26 | Start: 2–3 pre-built outside road stubs, town hall auto-placed (movable once) | T | GAME_DESIGN §5 | default |
 | B27 | Progression thresholds and unlock contents | T | GAME_DESIGN §8 | default |

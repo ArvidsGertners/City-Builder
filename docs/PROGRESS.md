@@ -97,11 +97,14 @@ Includes enabling work moved forward: settings persistence (from M15), Phase S d
 - [ ] Dev tooling (`--features dev`): perf overlay shows frame time p50/p95, sim tick time,
       entity count; sim controls pause/step/speed/day length; log console; inspector lists ≥ 1 sim
       entity kind with Reflect fields.
-- [ ] CI: `ci.yml` (3-OS matrix × {default, dev}, sim-isolation, render-smoke Linux blocking,
-      macOS smoke informational, cross-OS determinism informational), `nightly.yml`,
+- [ ] CI: `ci.yml` (Linux + Windows × {default, dev}; macOS only on main; sim-isolation,
+      render-smoke Linux, cross-OS determinism Linux + Windows), `nightly.yml` (schedule +
+      dispatch: macOS check × {default, dev}, macOS smoke informational, 3-OS determinism),
       `release.yml` (validated via `workflow_dispatch` with `publish: false` producing all three
       artifacts); full pipeline ≤ 25 min.
 - [ ] `scripts/screenshot.sh M1` renders one test shot to `docs/screenshots/M1/` (pipeline proof).
+- [ ] `LICENSE` (proprietary), `THIRD_PARTY_NOTICES.md`, Inter font embedded with
+      `font_covers_required_glyphs` test (ADR-0059).
 - [ ] README build/run/controls; PROGRESS updated.
 
 ### Phase S — Risk spikes (estimate 22; order as listed)
@@ -462,7 +465,7 @@ Includes: agent state saved, garbage trucks replace analytic collection, vehicle
 
 | ID | Milestone | Request | Exact command / action | Expected | Status |
 |---|---|---|---|---|---|
-| UV-0 | M0 | Identify hardware | Tell me the PC GPU/CPU model and the exact Mac model + display (assumptions B11, B12) | — | open |
+| UV-0 | M0 | Identify hardware | PC answered (Ryzen 5 7500F, GTX 1660 Ti, 16 GB single-channel); **Mac model still to confirm** (assumed MacBook Air 13" M4) | — | partially answered |
 | UV-1 | M1 | Real-GPU smoke | `cargo run -p cb_game --release -- --smoke-test 300` on Windows and on the M4 | exit 0, `validation_errors=0` | planned |
 | UV-2 | M2 | Screenshots on real GPUs | `scripts/screenshot.sh M2` (or `cb_game --screenshot-suite M2 --out shots/`) on PC and M4 | images comparable to `docs/screenshots/M2/` | planned |
 | UV-3 | M2 | Benchmark | `cb_game --release -- --benchmark m2_slice` on PC and M4; paste report | GPU p95 ≤ 12 ms | planned |
@@ -494,6 +497,10 @@ None yet.
   sources.
 - 2026-10-15 — Skills (milestone-completion, write-adr, visual-verification); macOS on Apple
   Silicon made a required platform (ADR-0037, 0040; CI/input/DPI ADRs later superseded).
+- 2026-10-15 — Plan approved. User decisions: diorama pace OK; PC = minimum spec (Ryzen 5
+  7500F, GTX 1660 Ti, 16 GB single-channel DDR5-6000); Mac model to confirm (assumed MBA 13" M4);
+  proprietary licence; Inter font (OFL) allowed; macOS CI on main/nightly only (+ one dispatch per
+  milestone); lock time-of-day = lighting only. ADR-0059, ADR-0060.
 - 2026-10-15 — Independent review by a separate agent (≈ 310 findings,
   `docs/review/2026-10-15-independent-review.md`); resolutions in `docs/PLAN_REVIEW.md`;
   ADRs 0042–0058 supersede/extend 15 ADRs; PERFORMANCE, ALGORITHMS, GAME_DESIGN, DATA_MODEL,

@@ -89,7 +89,7 @@ explicitly, and exposes query helpers. `cb_sim::testing::citygen` builds large o
 5. Presentation independence: vary window size, frame rate (tick distribution per frame),
    graphics preset, `max_visible_vehicles`, camera path and day-length pacing → equal hashes.
 6. **Cross-OS**: `determinism_probe` (5 worldgen seeds + 2-game-day scenario with traffic) on
-   Linux, Windows and macOS; a CI job compares hashes (blocking from M5, ADR-0054).
+   Linux, Windows and macOS; a CI job compares hashes (blocking from M5; macOS hashes on main/nightly/dispatch, ADR-0060).
 7. `replay_command_log_reproduces_hash` (commands applied at recorded `apply_tick`s).
 
 ## 6. Rendering checks
