@@ -11,6 +11,9 @@ authors.workspace = true
 [dependencies]
 cb_core.workspace = true
 glam.workspace = true
+i_overlay.workspace = true
+serde.workspace = true
+smallvec.workspace = true
 
 [lints]
 workspace = true

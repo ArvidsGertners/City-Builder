@@ -31,6 +31,9 @@ bevy_egui = { version = "0.43", default-features = false, features = ["render", 
 glam = { version = "0.33", features = ["libm", "serde"] }
 libm = "0.2"
 
+# Geometry (ADR-0023)
+i_overlay = "9"
+
 # Data, errors, logging, localization (ADR-0023)
 serde = { version = "1", features = ["derive"] }
 ron = "0.12"
