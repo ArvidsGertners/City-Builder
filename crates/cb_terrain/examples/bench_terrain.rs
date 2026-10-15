@@ -10,9 +10,9 @@ use cb_terrain::stamps::{Stamp, StampShape, priority};
 use cb_terrain::{Terrain, WorldGenParams, generate};
 use glam::{Vec2, Vec3};
 
-fn main() {
+fn main() -> Result<(), cb_terrain::TerrainError> {
     let t0 = Instant::now();
-    let world = generate(&WorldGenParams::default(), 1234).expect("valid params");
+    let world = generate(&WorldGenParams::default(), 1234)?;
     let gen_ms = t0.elapsed().as_secs_f64() * 1e3;
     let t1 = Instant::now();
     let mut t = Terrain::from_world(world);
@@ -92,4 +92,5 @@ fn main() {
         "10 000 raycasts: {hits} hits in {:.1} ms",
         s.elapsed().as_secs_f64() * 1e3
     );
+    Ok(())
 }
