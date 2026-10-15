@@ -36,3 +36,11 @@ sprites/bevy_ui disabled.
 ## Consequences
 
 - Achievable GPU budgets on Apple Silicon; frame caps that work; defined composite mechanism.
+
+## Amendments
+
+- 2026-10-15 (spike S-Render): `MainPassResolutionOverride` is a render-world hook for
+  upscalers (it shrinks the main-pass viewport; post-processing stays full size) and rendered
+  bit-identical to native without an upscale node. The **offscreen target + composite camera**
+  is confirmed as the render-scale implementation; `cursor_ray` works in logical pixels and is
+  independent of scale factor and render scale (test `cursor_ray_dpi_render_scale`).

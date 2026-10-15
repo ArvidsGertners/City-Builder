@@ -35,3 +35,9 @@ had no measurable target.
 
 - Distant landscape fades without hiding the city; foam is deterministic and cheap; lighting
   quality is checkable by the agent without human review.
+
+## Amendments
+
+- 2026-10-15 (spike S-Render): focus fog is applied after `apply_pbr_lighting`, whose output is
+  pre-exposed scene luminance; the fog colour is therefore specified as scene luminance
+  (≈ albedo × illuminance / π) and multiplied by `view.exposure`, never as a 0–1 display colour.

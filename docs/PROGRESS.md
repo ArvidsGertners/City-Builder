@@ -13,14 +13,15 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**Phase S, spike S-Render** (definition below). First action: create `spikes/s_render/` as a
-standalone crate (own empty `[workspace]` table so it stays out of the main workspace; path
-dependency on `crates/cb_core`; Bevy 0.20 with the cb_game feature list from
-`crates/cb_game/Cargo.toml`), with `src/main.rs` defining `WorldMaterial =
-ExtendedMaterial<StandardMaterial, WorldExt>` and a WESL vertex/fragment pair using the
-ADR-0049 vertex layout (pos f32x3, color unorm8x4, packed u32) with derivative flat normals in
-forward + prepass. Reuse `cb_game::debug::screenshot_metrics` (copy, not depend) for the pass
-metrics; render via `scripts/screenshot.sh`-style Xvfb + lavapipe.
+**Phase S, spike S-Time** (definition below; S-Render passed). First action: create
+`spikes/s_time/` as a standalone crate (own empty `[workspace]`, path dependency on
+`crates/cb_core` for `SimRng`/`derive_seed`/time constants, no Bevy) with `src/main.rs`
+generating the synthetic 50k-citizen city: clustered homes and jobs on 4 × 4 km, a coarse road
+graph (grid of arterials + local links, road speeds 50/30 km/h), trip durations from network
+distance + 20 % junction delay, ADR-0042 schedules (shift starts N(08:30, σ 90) commercial,
+N(07:00, σ 60) industry, schools 08:00 ± 20), a point-queue link model for congestion feedback;
+print the S-Time measurements as `metric=` lines and assert identical results for day lengths
+16/24/48.
 
 ## Process conventions (ADR-0058)
 
@@ -45,7 +46,7 @@ metrics; render via `scripts/screenshot.sh`-style Xvfb + lavapipe.
 |---|---|---|---|---|
 | 0 | Phase 1 planning package + independent review | 2 | 2 | ☑ |
 | 1 | Project setup | 4 | 1 | ☑ |
-| S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | | ☐ |
+| S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | | ◐ (S-Render ☑) |
 | 2 | Vertical slice | 12 | | ☐ |
 | 3 | Full road system | 12 | | ☐ |
 | 4 | All zone types, special buildings, leveling visuals | 10 | | ☐ |
@@ -138,7 +139,31 @@ fallbacks require a superseding ADR.
   shader validation translates all spike shaders to MSL/HLSL/SPIR-V (or is documented infeasible).
 - Fallback: standard Bevy layout with normals (duplicated vertices) + tighter residency; offscreen
   composite if the override fails; validation via smoke tests only.
-- Outcome: _pending_
+- Outcome (2026-10-15, actual 0.5 day): **PASS, no fallback.** Evidence in
+  `docs/screenshots/S/` (index.md) and `spikes/s_render/` (kept as M2 reference; tag
+  `spike/s-render` and delete once M2's `WorldMaterial` lands).
+  - 0 wgpu validation/shader errors on lavapipe; faceted shading from derivatives in forward
+    **and** prepass (within-face normal variance 0.00019 ≤ 0.02); SSAO without black artifacts
+    (0 % pure black); CSM shadows from custom-layout meshes; per-slot `ShaderBuffer` lookup works.
+  - Memory: 1 000-triangle building = 605 shared vertices × 20 B + 3 000 u16 indices = 17.7 KiB
+    (≤ 25 KB; excludes allocator slab rounding).
+  - `cursor_ray_dpi_render_scale` passes for scale factors {1, 2} × render scales {1, 2/3}.
+  - Render scale: offscreen target + composite works; `MainPassResolutionOverride` is an
+    upscaler hook (render world only) and has no effect alone → **composite** (ADR-0053 amendment).
+  - GPU-free shader validation **feasible**: record pipeline variants (shader + defs) in
+    `specialize`, compose them with Bevy's own `ShaderCache<(), ()>` (WESL → WGSL; add the
+    `AVAILABLE_STORAGE_BUFFER_BINDINGS*` globals Bevy splices in later), then naga →
+    SPIR-V + MSL + HLSL: 5 variants → 3 modules, 0 failures. For the game: commit a variant
+    manifest (shader path + defs) captured by the lavapipe smoke run, and a test that composes
+    and translates it on every OS (`naga` as a dev-dependency, ADR-0023 row at M2).
+  - Findings for M2: push `VERTEX_COLORS` in `specialize` so Bevy's `VertexOutput` carries the
+    color; linearize sRGB albedo on the CPU before packing unorm8; multiply AO into rgb in the
+    vertex stage; the forward `VertexOutput` has no free field for per-fragment flags (carry them
+    via the `uv` slot with `VERTEX_UVS_A` if needed); the prepass `FragmentOutput` only exists
+    under `PREPASS_FRAGMENT` (guard the import); fog colour must be pre-exposure scene luminance
+    (≈ albedo × E / π), not a display colour (ADR-0050 amendment); Bevy logs a harmless
+    "default normal prepass expects vertex normals" warning for the custom material.
+
 
 **S-Time — time model and trip scale (2 days)**
 - Build: headless synthetic 50k-citizen city (clustered homes/jobs on 4 × 4 km), trip durations

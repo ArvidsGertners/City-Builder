@@ -42,3 +42,11 @@ crossfade bands double draw cost.
 - ≈ 5× less vertex memory than ADR-0003's approach; GPU budgets hold on both reference machines
   (to be measured). Spike S-Render proves derivative normals + custom vertex layout work with
   Bevy 0.20's prepass/shadow pipelines on Vulkan (lavapipe) and through MSL translation.
+
+## Amendments
+
+- 2026-10-15 (spike S-Render): validated on lavapipe. Locations: position 0, color 5
+  (`Unorm8x4`, albedo linearized on the CPU, AO in alpha multiplied into rgb in the vertex
+  stage), packed 8 (`Uint32`). `specialize` sets the vertex buffer layout and pushes
+  `VERTEX_COLORS` so Bevy's `VertexOutput` carries the color; slot lookups happen in the vertex
+  stage. 1 000 triangles ≈ 17.7 KiB.
