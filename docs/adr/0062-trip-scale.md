@@ -54,3 +54,14 @@ cap. Realism alone (households sharing cars, transit and walking, students) expl
   window; over 10:00–13:00 it is 4.6. Night share (00–04) is 2.7 % (gate ≤ 10 %).
 - Revisit if M9 traffic with agents shows unrealistic emptiness or density, or if the user
   prefers a different pace (option 3).
+
+## Amendments
+
+- 2026-10-15 (user decision): the user wants a **realistic number of visible cars**. Trip scale 6
+  is kept because it is what produces a realistic count: a 50k city peaks at ≈ 3 100 vehicles
+  (6.2 % of the population on the road at once, comparable to a real town's rush hour), and
+  busy arterials run near capacity at the peak, so on-screen density looks like rush-hour
+  traffic. One car trip per citizen would put ≈ 45 000 cars (90 % of residents) on the road
+  simultaneously. Calibration target (owned by `trip_scale_50k_peak`, M5/M9): peak concurrent
+  vehicles 4–7 % of population and arterial V/C 0.8–1.2 at the morning peak on a reasonable
+  network; `TRIP_SCALE` is data and is retuned against this target, never to "thin out" traffic.

@@ -513,7 +513,7 @@ Includes: agent state saved, garbage trucks replace analytic collection, vehicle
 
 | ID | Milestone | Request | Exact command / action | Expected | Status |
 |---|---|---|---|---|---|
-| UV-0 | M0 | Identify hardware | PC answered (Ryzen 5 7500F, GTX 1660 Ti, 16 GB single-channel); **Mac model still to confirm** (assumed MacBook Air 13" M4) | — | partially answered |
+| UV-0 | M0 | Identify hardware | PC: Ryzen 5 7500F, GTX 1660 Ti, 16 GB single-channel; Mac: MacBook Pro 14" M4 base, 16 GB | — | answered |
 | UV-1 | M1 | Real-GPU smoke | `cargo run -p cb_game --release -- --smoke-test 300` on Windows and on the M4 (also look at the window title and, after `cargo run -p cb_game --features dev`, the F1/F2 windows) | exit 0, prints `frames=300 validation_errors=0` | **open — please run when convenient** |
 | UV-2 | M2 | Screenshots on real GPUs | `scripts/screenshot.sh M2` (or `cb_game --screenshot-suite M2 --out shots/`) on PC and M4 | images comparable to `docs/screenshots/M2/` | planned |
 | UV-3 | M2 | Benchmark | `cb_game --release -- --benchmark m2_slice` on PC and M4; paste report | GPU p95 ≤ 12 ms | planned |
@@ -583,3 +583,6 @@ None open. Known gaps (planned):
   https://github.com/ArvidsGertners/City-Builder/actions/runs/38771854627
   Known issue: CI wall time 32.6 min > 25 min target; the Windows debug test build dominates
   (~23 min). Plan: revisit caching/profile for Windows tests during S-Render (logged, not blocking).
+- 2026-10-15 — User decisions: realistic number of visible cars (→ ADR-0062 amendment: trip scale
+  6 kept and calibrated to 4–7 % of the population on the road at peak); Mac = MacBook Pro 14"
+  M4 base, 16 GB (PERFORMANCE §1, Auto render scale 3/5).

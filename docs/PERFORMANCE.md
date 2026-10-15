@@ -14,7 +14,7 @@ Budgets are for the **worst frame**, not averages: players see hitches, not mean
 | Simulated vehicles | ≥ 5 000 simultaneous agents (`SimConfig::agent_cap`, default 5 000, new-game option 2 000–12 000) |
 | Frame rate | 60 FPS at 1× **and 4×** (day length 24 min), max city, p95 frame ≤ 16.6 ms, p99.9 ≤ 33 ms |
 | Reference PC = **minimum spec** (user's machine) | AMD Ryzen 5 7500F (6C/12T Zen 4), GTX 1660 Ti (6 GB), 16 GB DDR5-6000 **single stick (single-channel, ≈ 48 GB/s)**, 1080p, "High" preset |
-| Reference Mac | MacBook Air 13" M4 (assumed, to be confirmed; 4P + 6E cores, 10-core GPU, fanless), 16 GB unified, built-in 2560 × 1664 Retina at Auto render scale (2/3 → 1.89 MP rendered, ADR-0053), "Medium" preset, measured after 10 min warm |
+| Reference Mac | **MacBook Pro 14" M4 base** (user's machine, confirmed 2026-10-15; 4P + 6E cores, 10-core GPU, active cooling), 16 GB unified, built-in 3024 × 1964 Liquid Retina XDR (5.94 MP, ProMotion up to 120 Hz) at Auto render scale (3/5 → 2.14 MP rendered, ADR-0053), "Medium" preset, frame cap 60, measured after 10 min warm |
 | Memory | PC: ≤ 2 GB RAM, ≤ 1.5 GB VRAM; Mac: ≤ 3.5 GB unified total |
 | Load | New map ≤ 6 s; load max save ≤ 10 s |
 | Hitches | autosave snapshot ≤ 10 ms on the main thread; edit frames (large bulldoze/commit) ≤ 20 ms; no frame > 33 ms at p99.9 in the 60 s benchmark |

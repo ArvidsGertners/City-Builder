@@ -15,11 +15,11 @@ blocks M1.
 | B5 | Per-approach stop/yield signs plus all-way stops and lights | DS | ADR-0045 | resolved |
 | B6 | Road geometry can be edited (move node, drag control point) | DS | `EditRoadGeometry` (ADR-0055) | resolved |
 | B7 | Utilities run implicitly along every road; no power lines | DS | ADR-0026 | ❓ confirm (disconnected road networks need their own plants/pumps) |
-| B8 | One vehicle trip represents 6 citizens' trips (ADR-0062); beyond `agent_cap` trips are statistically sampled (camera-independent) rather than "aggregate when off-screen" | DS | ADR-0062/0047; at 50k all trips are agents (≈ 3 100 at peak) | ❓ confirm (S-Time showed 1 car per citizen cannot work with the approved pace) |
+| B8 | One vehicle trip represents 6 citizens' trips (ADR-0062); beyond `agent_cap` trips are statistically sampled (camera-independent) rather than "aggregate when off-screen" | DS | ADR-0062/0047; at 50k all trips are agents (≈ 3 100 at peak = 6 % of population, a real town's rush-hour level) | **user requirement: realistic number of visible cars** → calibrated, see ADR-0062 amendment |
 | B9 | Routing on a segment-direction link graph with local lane choice (lane plans), not a lane-level graph | DS | ADR-0048 | default |
 | B10 | Pedestrians are visual near the camera, spawned from stop queues and access points | T | ADR-0047 | default |
 | B11 | Reference PC | DS | Ryzen 5 7500F, GTX 1660 Ti, 16 GB DDR5-6000 single-channel = minimum spec (PERFORMANCE §1) | **confirmed by user** |
-| B12 | Mac = MacBook Air 13" M4, built-in display | DS | PERFORMANCE §1 | assumed (user's answer contained the template text); ❓ please confirm |
+| B12 | Mac = MacBook Pro 14" M4 base, 16 GB, built-in display | DS | PERFORMANCE §1 | **confirmed by user** (2026-10-15) |
 | B13 | You run occasional real-hardware checks (smoke, screenshots, benchmark, trackpad, listening) — non-blocking | DS | User verification queue | ❓ confirm you're OK with occasional batched requests |
 | B14 | 60 FPS also at 4× | T | yes (PERFORMANCE §1) | resolved |
 | B15 | "60 FPS" means 1080p High on PC, Auto render scale Medium on M4 | T | PERFORMANCE §1 | default |
