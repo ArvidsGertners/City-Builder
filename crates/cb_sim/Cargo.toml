@@ -16,6 +16,7 @@ debug_schedule = ["bevy/debug"]
 
 [dependencies]
 cb_core.workspace = true
+cb_terrain.workspace = true
 bevy = { workspace = true, features = ["std", "async_executor", "multi_threaded", "bevy_state"] }
 serde.workspace = true
 thiserror.workspace = true

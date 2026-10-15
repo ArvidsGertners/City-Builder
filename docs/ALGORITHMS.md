@@ -225,22 +225,41 @@ release : zone when v's rear passes its exit s; reservation when v's rear is len
 
 ## 7. Terrain generation & deformation — `cb_terrain` (ADR-0065)
 
-**Generation** (deterministic, portable math; ~2–4 s, parallel over 64 row partitions):
-1. Macro fBm (4 octaves, 2.5 km) + domain-warped valley axis; height 0–180 m; edge falloff.
-2. Ridged hills (3 octaves, 600 m) masked by macro elevation.
-3. Detail fBm (2 octaves, 120 m, 2–4 m amplitude).
-4. Rivers (1–2): sources on high ground, steepest descent with momentum + meander noise to the
-   edge/basin; channel 18–40 m wide, 3–5 m deep, 30 m banks; monotonic water surface.
-5. Lakes (1–3): priority-flood depression filling (ties by sample index); basins > 0.05 km²;
-   level = spill − 0.5 m.
-6. Thermal erosion ×6 (talus 35°).
-7. Lowland flattening 20 % toward a smoothed version where slope < 8 %.
-8. Outside connections (2–3) along low-slope paths from the edge into the lowland.
-9. **Constraints** (re-roll the affected sub-stream up to 8 times, else relax): ≥ 3 km² buildable
-   lowland (slope < 8 %); ≥ 1 shoreline with depth ≥ 1.5 m within 400 m (network distance) of
-   an outside connection's end (tutorial step 4); 1–2 rivers; 1–3 lakes.
-10. Derived: materials, forest mask, min-max quadtree. Base heights, water and forest mask are
-    saved (ADR-0044).
+**Generation** (`cb_terrain::generate`, deterministic, portable math; 1.2–1.8 s in the container,
+noise passes parallel over 64 fixed row bands; every sub-stream seeded by
+`derive_seed(seed, Domain::{Terrain|River|Lake|OutsideConnection}, attempt, k)`):
+1. Macro fBm (4 octaves, 2.5 km) on a domain-warped position + a warped valley axis (−60 %);
+   `12 + 120 m · m^1.5`; edge falloff of hills/detail within 300 m of the border.
+2. Hills (≤ 115 m): 60 % ridged² (2 octaves, 650 m) + 40 % rounded fBm² (520 m), masked by
+   macro elevation (pure ridged noise gave scalloped cliff bands).
+3. Detail fBm (2 octaves, 120 m, ±3 m).
+4. Thermal erosion ×6 (talus 35°, Jacobi, mass-conserving) and lowland flattening (20 % toward a
+   33-sample box blur where slope < 8 %, faded 6–8 %) — both **before** water, so neither
+   alters carved channels or lake basins.
+5. Rivers (1–2): river 1 enters at the highest of 48 edge points and leaves by an edge ≥ 2.5 km
+   away; an optional tributary starts on inner high ground and ends at an edge or joins
+   existing water. Route = least cost on a 16 m grid (`len · noise wobble · (1 + 2·slope) +
+   150 · climb`, ×5 near the map margin), Chaikin-smoothed, meandered (±60 m, 450 m), resampled
+   every 8 m. Water level = running minimum of `terrain − 1 m` (monotonic). Channel 18–40 m wide,
+   3–5 m deep (25 % at the source, full after 400 m); banks 30 m + 2.5 m per metre of cut.
+   (Momentum steepest-descent tracing circled in basins and was replaced.)
+6. Lakes (1–3): lowland sites (below the 40th height percentile, slope < 6 %, ≥ radius + 150 m
+   from water); dig a noise-warped bowl (r 180–320 m, 6–10 m deep); priority flood (ties by
+   sample index) in a window of r·1.35 + 500 m; level = spill − 0.5 m; lake = connected samples
+   below the level; rejected if < 0.05 km², shallower than 2.5 m at the site, or touching the
+   window or other water.
+7. Base heights are quantized to 1/256 m (the saved `u16`, ADR-0044).
+8. Outside connections (2–3): a hub = lowland point 40–300 m from water with ≥ 1.5 m deep water
+   within 400 m, closest to an edge; connections from the nearest edges by A* on a 16 m grid
+   (`len · (1 + 40 slope²)`, ×8 above 8 %), dry first, bridged (water ×30) only if fewer than two
+   connect; Chaikin-smoothed; the first ends at the hub, the others 400 m into the map.
+9. **Constraints** (re-roll the affected sub-stream up to 8 times, else relax and report):
+   ≥ 3 km² buildable lowland (dry, slope < 8 %); ≥ 1 shore with depth ≥ 1.5 m within 400 m of the
+   primary connection's end (tutorial step 4); 1–2 rivers; 1–3 lakes. Seeds 1–20: no relaxation,
+   buildable 3.7–9.7 km².
+10. Derived: water-distance transform (chamfer 3-4), forest mask (8 m: fBm 700 m patches thinned
+    on slopes > 35 %, above 130 m and within 30 m of water), materials (§8); min-max quadtree
+    with the raycast (M2.2). Base heights, water and forest mask are saved (ADR-0044).
 
 **Height sampling** uses the render triangulation. **Deformation**: `H = composite(base,
 stamps)` per ADR-0065 (cores override with highest priority; elsewhere `base + max fills +
