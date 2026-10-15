@@ -1,6 +1,6 @@
 # ADR-0015: Command pattern and undo/redo
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0055
 - **Date:** 2026-10-15
 - **Milestone:** M3 (roads/plots), later milestones add commands for their actions
 

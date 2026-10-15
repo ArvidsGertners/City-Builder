@@ -48,3 +48,11 @@ to decide between synthesized audio and a small set of royalty-free files.
 - No assets, deterministic sounds, small repo. Quality depends on careful DSP tuning; a
   listening pass by the user is requested in M13 (RISKS R11). If insufficient, a
   superseding ADR may introduce a curated CC0 sample set.
+
+## Amendments
+
+- 2026-10-15 (plan review): the bank is synthesized lazily per category on first use and
+  cached on disk in `AppPaths::cache` keyed by `(bank_version, seed)` (a runtime-generated
+  cache, not an asset). Objective audio QA tests are defined in ADR-0058. With no audio device
+  (CI, container) or `--no-audio`, the audio plugin is not added. Generative music is not part
+  of M13 acceptance (brief: music optional).

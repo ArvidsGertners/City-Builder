@@ -1,6 +1,6 @@
 # ADR-0038: CI and release on Windows, Linux and macOS (Apple Silicon)
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0054
 - **Date:** 2026-10-15
 - **Milestone:** M1
 - **Supersedes:** ADR-0032 (adds the macOS runner and the aarch64-apple-darwin release;

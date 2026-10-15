@@ -12,13 +12,17 @@ Instructions for any agent (or human) working in this repository.
 2. Read the topic docs relevant to the task before touching that area:
    `docs/DATA_MODEL.md`, `docs/ALGORITHMS.md`, `docs/GAME_DESIGN.md`,
    `docs/ART_DIRECTION.md`, `docs/PERFORMANCE.md`, `docs/TESTING.md`, `docs/RISKS.md`,
-   and the ADRs in `docs/adr/` that cover it (index in `docs/adr/README.md`).
+   `docs/CONSTANTS.md`, `docs/ASSUMPTIONS.md`, and the ADRs in `docs/adr/` that cover it
+   (index in `docs/adr/README.md`; follow "Superseded by" links to the current ADR).
+   `docs/PLAN_REVIEW.md` explains why the plan looks the way it does.
 3. **After every milestone and before ending any session**, update `docs/PROGRESS.md`:
    what was done, what is in progress, known bugs, and the *exact* next step
    (file/function level, so a cold start can resume without guessing).
 4. Commit per milestone and at meaningful checkpoints (see *Git* below).
 5. Finish every milestone with the `milestone-completion` skill (below); never mark a
-   milestone done by hand.
+   milestone done by hand. Status `☑ᵤ` (done, pending user verification) never blocks
+   progress: queue requests in the PROGRESS.md *User verification queue* and continue
+   (ADR-0058). Track estimate vs actual; over 1.5× apply the scope-cut ladder.
 
 ## Skills (recurring procedures)
 
@@ -47,13 +51,16 @@ Instructions for any agent (or human) working in this repository.
 - Save the images and a short review (`index.md`) in `docs/screenshots/<milestone>/` (e.g.
   `docs/screenshots/M2/`) and commit them so the user can review them too.
 
-## Risk spikes
+## Risk spikes (Phase S, right after M1 — ADR-0058)
 
-- The five highest-risk systems are proven by throwaway spikes (phase **S**, right after M1)
-  before the real system is built on top of them. Spikes live in `spikes/<name>/` (outside
-  the workspace default members), have written pass/fail criteria in `docs/PROGRESS.md`,
-  and their outcome is recorded there (and in an ADR if the approach changes). Spike code is
-  never promoted into `crates/` as-is; the real implementation is written fresh with tests.
+- The highest-risk systems are proven by throwaway spikes before the real system is built:
+  **S-Render** (material pipeline/vertex format/render scale/shader validation), **S-Time**
+  (time model, trip scale), **S-J** (junction geometry), **S-P** (plots → lots → buildings),
+  **S-G** (road–terrain interface incl. bridges), **S-T** (traffic at scale). Scope, cases,
+  pass/fail numbers, time-box and fallback are in `docs/PROGRESS.md` (Phase S).
+- Spikes live in `spikes/<name>/` (not workspace default members); tag `spike/<name>` before
+  removing the code; record the outcome in PROGRESS.md and write a superseding ADR if a
+  fallback is taken. Spike code is never promoted into `crates/` as-is.
 
 ## Decisions and ADRs
 
@@ -87,21 +94,27 @@ cargo run -p cb_game -- --seed 1234 --sandbox              # new game with seed,
 
 cargo fmt --all                              # format
 cargo fmt --all -- --check                   # CI format check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings                  # default features
+cargo clippy --workspace --all-targets --features dev -- -D warnings   # debug tooling (never --all-features, ADR-0054)
 cargo test --workspace                       # all tests (pure crates are fast; cb_sim is headless)
+cargo test --workspace --features dev
 cargo test -p cb_geometry                    # one crate
 cargo test -p cb_sim --test traffic_multi_day -- --ignored   # slow headless soak tests
 
 cargo run -p cb_sim --release --example headless_bench -- --days 10 --city large
-cargo run -p cb_game --release -- --benchmark bench_city   # 60 s scripted flythrough, writes perf report
+cargo run -p cb_sim --release --example determinism_probe           # hashes compared across OSes in CI
+cargo run -p cb_game --release -- --benchmark bench_city             # 60 s flythrough, perf report (real GPU)
+cargo run -p cb_game --release -- --benchmark bench_city --no-gpu-work  # CPU budgets in the container
+cargo run -p cb_game --release -- --smoke-test 60 --resolution 640x360
 scripts/screenshot.sh M2                     # Xvfb + lavapipe: render screenshot suite M2
 scripts/check_sim_isolation.sh               # fails if cb_sim depends on rendering crates
 scripts/macos_bundle.sh                      # macOS: build CityBuilder.app (release profile `dist`)
 ```
 
-A milestone is only **done** when `cargo fmt --check`, `cargo clippy ... -D warnings`
-and `cargo test --workspace` pass locally *and* in CI, its acceptance criteria in
-`docs/PROGRESS.md` are met, and `PROGRESS.md` is updated.
+A milestone is only **done** when fmt check, both clippy runs and both test runs pass
+locally *and* in CI on all three OSes, its acceptance criteria in `docs/PROGRESS.md` have
+evidence, visual verification is done (if visual), and `PROGRESS.md` is updated in the same
+commit.
 
 ## Repository layout (short)
 
@@ -120,7 +133,7 @@ Full tree and responsibilities: `docs/ARCHITECTURE.md` §3.
 
 ## Hard rules
 
-### Platforms (ADR-0037, ADR-0039, ADR-0040, ADR-0041)
+### Platforms (ADR-0037, ADR-0052, ADR-0040, ADR-0053)
 - Platform-specific code only in `cb_game::platform` (paths, modifier mapping, gestures,
   window quirks). No `#[cfg(target_os)]` elsewhere. Platform logic is a pure function of
   injected inputs so it is tested on every OS.
@@ -138,7 +151,7 @@ Full tree and responsibilities: `docs/ARCHITECTURE.md` §3.
 - **Simulation never depends on rendering.** `cb_sim` and the pure crates must not depend
   on `bevy_render`, `bevy_pbr`, `bevy_ui`, `bevy_egui`, windowing or audio. CI builds
   `cb_sim` alone to enforce it.
-- **All world mutations go through `PlayerCommand`s** (see ADR-0015). Presentation code
+- **All world mutations go through `PlayerCommand`s** (see ADR-0055). Presentation code
   reads sim state and emits commands; it never writes sim components or resources. Sim
   types keep fields `pub(crate)` with `pub` read accessors so this is compiler-enforced
   (ADR-0005).
@@ -155,17 +168,29 @@ Full tree and responsibilities: `docs/ARCHITECTURE.md` §3.
 - Incremental updates only: regenerate meshes, terrain, coverage, routes and connectivity
   for changed areas (dirty sets / change detection), never "rebuild everything" in steady state.
 
-### Determinism (ADR-0017)
-- Seeds are derived with `cb_core::hash::derive_seed(world_seed, Domain::X, id, extra)`.
-  Never use `std::collections::hash_map::RandomState`, `rand::thread_rng`, time-based seeds
-  or pointer addresses for anything that affects sim state or generated content.
-- Never let `HashMap`/`HashSet` iteration order affect results. Use `BTreeMap`, sorted
-  vectors, or collect-and-sort by stable ID. ECS query iteration order is **not** stable
-  across save/load: sort by stable ID whenever order matters (RNG draws, allocation,
-  float accumulation).
-- Sim randomness uses counter-based RNG: `SimRng::for_event(stream, tick, id)`.
-- Sim code must not read wall-clock time, frame time, camera, or settings that are not part
-  of the saved sim configuration.
+### Determinism (ADR-0043) — sim state must be bit-identical on Windows, Linux and macOS
+- Seeds: `cb_core::hash::derive_seed(world_seed, Domain::X, id, extra)` (sequential
+  absorption). Zoned buildings seed from `LotId`. Never `RandomState`, `rand::thread_rng`,
+  time-based seeds or pointer addresses.
+- Event randomness: `SimRng::for_event(stream, purpose, tick_or_day, id)` — every call site
+  has its own `purpose`.
+- **Maps**: std `HashMap`/`HashSet` are disallowed in sim crates (clippy). Use `LookupMap`
+  (no iteration), `BTreeMap`, or dense `Vec`s; iterate sorted by stable ID wherever order
+  matters (ECS query order is not stable across save/load).
+- **Math**: transcendental functions only via `cb_core::math` (libm); no `glam`
+  `Vec3A/Vec4/Mat4/Quat/Affine3A` and no `mul_add` in pure crates or `cb_sim`
+  (clippy-enforced).
+- **Parallelism**: `SIM_PARTITIONS = 64` fixed partitions, reductions in partition order —
+  never partition by core count.
+- Sim code never reads wall-clock time, frame time, camera, window, graphics settings or the
+  day-length pacing setting.
+- Structural `SimEdit` work completes before the next tick (never split across frames);
+  commands record `apply_tick`.
+
+### Units (ADR-0042)
+- Tick `dt = 0.1 sim s`; 1 game minute = 2 sim s. Traffic flows/capacities in veh per
+  **sim-hour**; EMAs, epochs, timeouts in **sim seconds**; economy/demand/incidents per **game**
+  hour/day. Put the unit in the name (`_per_sim_h`, `_sim_s`, `_game_h`).
 
 ### Error handling
 - **No `unwrap()`/`expect()` in game or sim logic.** Allowed only in tests, in `const`/startup
@@ -192,6 +217,8 @@ Full tree and responsibilities: `docs/ARCHITECTURE.md` §3.
   (reuse buffers stored in `Local<>` or resources).
 - `#[must_use]` on pure functions returning values; `#[inline]` only with a benchmark.
 - No new dependency without updating ADR-0023 (crate selection) in the same commit.
+- Constants with stability/balance impact get a row in `docs/CONSTANTS.md` (owning test +
+  target metric).
 
 ### Localization (ADR-0021)
 - **No user-facing string literals in code.** Every string shown to the player goes

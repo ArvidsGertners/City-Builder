@@ -1,6 +1,6 @@
 # ADR-0017: Procedural generation determinism and seeds
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0043
 - **Date:** 2026-10-15
 - **Milestone:** M1 (core utilities), all later milestones
 

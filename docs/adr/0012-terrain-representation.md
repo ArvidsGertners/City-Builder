@@ -1,6 +1,6 @@
 # ADR-0012: Terrain representation
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0046
 - **Date:** 2026-10-15
 - **Milestone:** M2
 

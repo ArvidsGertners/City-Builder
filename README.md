@@ -42,19 +42,20 @@ cargo test --workspace                    # tests
 
 | Action | Windows / Linux | macOS |
 |---|---|---|
-| Pan | WASD / arrows / left-drag on empty ground | same, plus two-finger scroll on a trackpad |
+| Pan | WASD / arrows · left-drag on empty ground (no tool active) · Space + left-drag | same, plus two-finger scroll on a trackpad |
 | Zoom | Mouse wheel | Mouse wheel / pinch |
-| Rotate (free) | Middle-drag · Alt+left-drag · right-drag | Middle-drag · ⌥+left-drag · right-drag · two-finger rotate |
-| Rotate (90° steps) | Q / E | Q / E |
+| Rotate (free) | Middle-drag · right-drag · Alt + left-drag | Middle-drag · right-drag · ⌥ + left-drag · two-finger rotate |
+| Rotate (90° steps / continuous) | tap Q / E · hold Q / E | tap Q / E · hold Q / E |
 | Pause / speeds | Space · 1 / 2 / 3 | Space · 1 / 2 / 3 |
 | Undo / redo | Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) | ⌘Z / ⌘⇧Z |
 | Quick save | Ctrl+S | ⌘S |
 | Road tool / plot tool / bulldoze | R / Z / B | R / Z / B |
 | Road mode (straight, curved, freehand) | Tab | Tab |
-| Road elevation | Page Up / Page Down or ] / [ | ] / [ |
+| Road elevation | Alt + wheel · , / . · Page Up / Page Down | ⌥ + wheel · , / . |
+| Angle snap / length snap | hold Shift / toggle L | hold ⇧ / toggle L |
 | Delete selection | Delete | ⌫ |
 | Follow selected vehicle | F | F |
-| Cancel / menu | Esc (right-click cancels tools) | Esc (right-click cancels tools) |
+| Cancel | Esc or right-click | Esc or right-click (two-finger click) |
 | Screenshot | F12 | ⌘⇧2 |
 
 Letter shortcuts follow the key label on your keyboard layout (e.g. German QWERTZ);

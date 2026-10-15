@@ -43,3 +43,10 @@ work (WESL shader changes, API renames).
 - Debug inspector is in-house until bevy-inspector-egui supports 0.20 (ADR-0031).
 - Early-release bugs are possible; R9 in RISKS.md tracks them. We verify shadows, SSAO,
   storage buffers and egui on lavapipe in M1 and ask for a real-GPU check on Windows in M2.
+
+## Amendments
+
+- 2026-10-15 (plan review): `cb_sim`'s dev-dependency on `bevy` enables `debug` (needed for
+  `ScheduleBuildSettings::shuffle_seed`, ADR-0043). `cb_game` additionally enables `gestures`
+  (trackpad pinch/rotate, ADR-0052). bevy_egui feature selection is in ADR-0051. "No push
+  constants" (ADR-0037) applies to *our* shaders; Bevy's own GPU preprocessing may use them.

@@ -1,6 +1,6 @@
 # ADR-0027: Service coverage measured along the road network
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0056
 - **Date:** 2026-10-15
 - **Milestone:** M6
 

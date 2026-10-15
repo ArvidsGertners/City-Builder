@@ -31,6 +31,12 @@ New file: `docs/adr/NNNN-kebab-case-title.md` (next number, 4 digits), copied fr
 - If it supersedes: add `- **Supersedes:** ADR-XXXX` under Status and state what changes
   and what stays.
 
+## 3b. Clarification instead of a new decision?
+If the decision itself stands and you only add precision (numbers, edge-case rules, renamed
+helper), append to the ADR's `## Amendments` section (`- YYYY-MM-DD (context): …`) and list
+the ADR in the index's amendments paragraph. Anything that changes what was decided →
+supersede (step 4).
+
 ## 4. Superseding an old ADR
 - In the old ADR change **only** the status line to
   `- **Status:** Superseded by ADR-NNNN` (decision text stays as history).

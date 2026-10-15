@@ -1,6 +1,6 @@
 # ADR-0020: Save format, settings persistence and migration
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0044
 - **Date:** 2026-10-15
 - **Milestone:** M5 (core), M15 (UI, autosave)
 

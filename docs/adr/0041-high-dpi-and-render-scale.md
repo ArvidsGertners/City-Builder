@@ -1,6 +1,6 @@
 # ADR-0041: High-DPI displays and render scale
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0053
 - **Date:** 2026-10-15
 - **Milestone:** M1 (spike), M2 (implementation), M15 (settings UI)
 

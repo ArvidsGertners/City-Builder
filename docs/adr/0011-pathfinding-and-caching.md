@@ -1,6 +1,6 @@
 # ADR-0011: Pathfinding algorithm and route caching
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0048
 - **Date:** 2026-10-15
 - **Milestone:** M5 (macro trips), M9 (agents)
 

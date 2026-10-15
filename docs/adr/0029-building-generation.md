@@ -41,3 +41,13 @@ sides, LOD, engine-independent `generate(lot_polygon, params, seed) -> BuildingM
 - Fully debuggable Rust; easy to extend with new families; deterministic.
 - Roof variety on very irregular polygons is limited to flat styles (acceptable: those are
   mostly commercial/apartment lots). A straight skeleton may be added later via a new ADR.
+
+## Amendments
+
+- 2026-10-15 (plan review): zoned buildings are seeded from `LotId` (+ level + regrowth counter)
+  as the brief requires; façade edges shorter than 2.4 m are blank walls and reflex corners get a
+  column module (no window quad crosses an edge end); per-type triangle budgets from
+  ART_DIRECTION §2 are asserted in tests. Signature silhouettes are checked by an LOD1 mask IoU
+  test (≤ 0.6 between types). Generator sets: A (police, fire, clinic, school, diesel, coal,
+  pump, outlet, landfill) in M4; set B (the rest) may land with the milestone that introduces
+  the system (M6/M10).

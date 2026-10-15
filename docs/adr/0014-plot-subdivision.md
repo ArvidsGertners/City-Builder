@@ -36,3 +36,14 @@ matching by frontage-interval overlap. Corner plots get a wider corner lot.
 - Deep plots produce large backyards rather than rear lots (by design).
 - Enclosed blocks are formed by multiple plots along each road rather than one block
   polygon; a block-fill helper may be added later on top of the same algorithm.
+
+## Amendments
+
+- 2026-10-15 (plan review): ray de-crossing runs at most 8 iterations of 5°; if rays still
+  cross, the split is removed (lots merge) and a debug log is written. Plot back edges are an
+  i_overlay offset of the frontage polyline by the depth (round joins), side edges straight;
+  on concave frontage depth ≤ 0.8 × inner radius. A building "still fits" an edited lot iff
+  its footprint ⊆ inset(new lot, setbacks − 0.5 m), its access point moved ≤ 3 m and its slope
+  class is unchanged; otherwise it is removed (no refund, households to `homeless_queue`) and
+  the plot preview lists it. Corner frontages follow the junction fillet
+  (`FrontageRef::Corner`, ADR-0045). Validated by spike S-P.

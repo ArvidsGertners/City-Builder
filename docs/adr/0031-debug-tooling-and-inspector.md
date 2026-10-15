@@ -39,3 +39,10 @@ spatial index, plot subdivision. As of 2026-10-15, bevy-inspector-egui's latest 
 ## Consequences
 
 - The debug requirement is met without waiting on the ecosystem; slightly more code.
+
+## Amendments
+
+- 2026-10-15 (plan review): pure-crate resources (`TrafficWorld`, `Population`, `LaneGraph`,
+  `Fields`) cannot derive `Reflect`; the inspector uses a `DebugView` trait implemented in
+  `cb_game::debug` (paged egui tables + lookup by ID). LaneGraph view lands in M3, TrafficWorld
+  view in M9. Debug overlays and tooling are excluded from release budgets.

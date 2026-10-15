@@ -1,251 +1,500 @@
 # Progress
 
-Read at the start of every session (after CLAUDE.md and ARCHITECTURE.md). Update after
-every milestone and before ending a session.
+Read at the start of every session (after CLAUDE.md and ARCHITECTURE.md). Update after every
+milestone and before ending a session (skill `milestone-completion`).
 
 ## Current status
 
-- **Phase:** Phase 1 (planning) — **complete, awaiting approval**.
+- **Phase:** Phase 1 (planning) — **complete after independent review, awaiting approval**.
 - **Last updated:** 2026-10-15
-- **Engine/toolchain verified available:** Bevy 0.20.0 (2026-10-08), bevy_egui 0.43.1
-  (Bevy 0.20), rustc 1.97.0. `bevy-inspector-egui` latest (0.37) targets Bevy 0.19 → see ADR-0031.
+- **Verified environment:** Bevy 0.20.0 (2026-10-08), bevy_egui 0.43.1 (Bevy 0.20), rustc 1.97.0;
+  `bevy-inspector-egui` 0.37 targets Bevy 0.19 (ADR-0031); `mesa-vulkan-drivers` (lavapipe) and
+  Xvfb installable in the container for rendering without a GPU.
 
 ## Next step
 
-**Wait for approval of the Phase 1 plan.** After approval, start **M1 Project setup**:
-1. Create `Cargo.toml` workspace with the 10 crates from ARCHITECTURE.md §3 (empty modules
-   with `//!` docs), workspace lints (`unwrap_used`, `expect_used` deny outside tests),
-   profiles, `rust-toolchain.toml` (1.97), `rustfmt.toml`, `clippy.toml`.
-2. `cb_game::bootstrap`: paths (portable mode), logging (tracing + file appender + ring
-   buffer layer via Bevy `LogPlugin::custom_layer`), crash hook + report writer + "last run
-   crashed" detection.
-3. `cb_l10n` with en/de bundles and the key-coverage test; `t!` usage in the first window title.
-4. `cb_sim` skeleton: `SimPlugins`, `SimEdit`/`SimTick` schedules with ambiguity detection,
-   driver with speeds and step-once, headless test that runs 1 000 ticks.
-5. Debug tooling skeleton (feature `dev`): perf overlay (egui), sim controls (pause/step/
-   speed), log console, in-house inspector stub.
-6. CI workflows (ci.yml, release.yml) and `scripts/screenshot.sh` (Xvfb + lavapipe) with
-   `--smoke-test`.
-7. README (build/run/controls), update PROGRESS.md, commit `M1: …`.
+**Wait for approval of the Phase 1 plan.** Then start **M1 Project setup** with step 1:
+create the root `Cargo.toml` workspace (members = the 10 crates in ARCHITECTURE §3,
+`[workspace.dependencies]` per ADR-0023, `[workspace.lints]` denying `unwrap_used`/`expect_used`
+outside tests, profiles `dev`/`release`/`ci-release`/`dist` per ADR-0002/0054),
+`rust-toolchain.toml` (1.97 + rustfmt + clippy), `rustfmt.toml`, `clippy.toml` (determinism
+`disallowed-methods`/`disallowed-types`, ADR-0043), then `crates/cb_core` (`ids.rs`, `hash.rs`
+with sequential `derive_seed` + collision tests, `rng.rs`, `math.rs`, `collections.rs`).
+
+## Process conventions (ADR-0058)
+
+- Status: ☐ not started · ◐ in progress · ☑ done · **☑ᵤ done, pending user verification**
+  (never blocks) · **☑ CI-pending** (runner outage; re-check next session).
+- Every milestone/spike has an estimate (agent-days) and records the actual. Over 1.5× →
+  apply the **scope-cut ladder** (bottom of this file) and log it.
+- Requests to the user are batched in the **User verification queue**; reported
+  discrepancies become bugs in **Known bugs**.
+- Each visual milestone produces `docs/screenshots/<M>/` via `visual-verification`. Shots are
+  1600 × 900, UI hidden unless noted, deterministic suite `<M>` (seed + command script +
+  fast-forward tick) defined in `crates/cb_game/src/debug/screenshot_suites.ron`. "d" = camera
+  distance to focus, pitch from horizontal. Every suite also passes the metric gates: 0
+  magenta/NaN pixels; pure black (< 8/255) ≤ 0.5 % in daylight shots; semantic-pass assertions
+  listed per shot.
+- CPU budgets are measured in the container with `--benchmark <scene> --no-gpu-work`; GPU
+  budgets only from user runs (☑ᵤ).
 
 ## Milestones
 
-Status legend: ☐ not started · ◐ in progress · ☑ done
+| # | Milestone | Estimate (agent-days) | Actual | Status |
+|---|---|---|---|---|
+| 0 | Phase 1 planning package + independent review | 2 | 2 | ☑ (awaiting approval) |
+| 1 | Project setup | 4 | | ☐ |
+| S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | | ☐ |
+| 2 | Vertical slice | 12 | | ☐ |
+| 3 | Full road system | 12 | | ☐ |
+| 4 | All zone types, special buildings, leveling visuals | 10 | | ☐ |
+| 5 | Simulation core | 12 | | ☐ |
+| 6 | Services | 6 | | ☐ |
+| 7 | Progression | 3 | | ☐ |
+| 8 | UI, overlays, info views | 10 | | ☐ |
+| 9 | Traffic | 12 | | ☐ |
+| 10 | Public transport | 8 | | ☐ |
+| 11 | Day/night cycle | 5 | | ☐ |
+| 12 | Weather | 7 | | ☐ |
+| 13 | Audio | 5 | | ☐ |
+| 14 | Tutorial | 4 | | ☐ |
+| 15 | Menus, settings, accessibility, save/load, localization | 8 | | ☐ |
+| 16 | Polish, performance, bug fixing | 8 | | ☐ |
 
-| # | Milestone | Status |
-|---|---|---|
-| 0 | Phase 1 planning package | ☑ (awaiting approval) |
-| 1 | Project setup | ☐ |
-| 2 | Vertical slice | ☐ |
-| 3 | Full road system | ☐ |
-| 4 | All zone types, special buildings, leveling visuals | ☐ |
-| 5 | Simulation core | ☐ |
-| 6 | Services | ☐ |
-| 7 | Progression | ☐ |
-| 8 | UI, overlays, info views | ☐ |
-| 9 | Traffic | ☐ |
-| 10 | Public transport | ☐ |
-| 11 | Day/night cycle | ☐ |
-| 12 | Weather | ☐ |
-| 13 | Audio | ☐ |
-| 14 | Tutorial | ☐ |
-| 15 | Menus, settings, accessibility, save/load, localization | ☐ |
-| 16 | Polish, performance, bug fixing | ☐ |
+Every milestone additionally requires: fmt check, clippy `-D warnings` (default features and
+`--features dev`), `cargo test --workspace` green locally and in CI on Linux, Windows and macOS;
+docs updated; commit `M<N>: …`; the `milestone-completion` skill completed.
 
-Every milestone additionally requires: `cargo fmt --check`, `cargo clippy --workspace
---all-targets --all-features -- -D warnings`, `cargo test --workspace` green locally and in
-CI; docs updated; commit `M<N>: …`.
+---
 
 ### M0 — Phase 1 planning package ☑
-- CLAUDE.md, ARCHITECTURE.md (structure, schedules, data flow, states, events, commands),
-  DATA_MODEL.md, ALGORITHMS.md, GAME_DESIGN.md, ART_DIRECTION.md, PERFORMANCE.md,
-  TESTING.md, RISKS.md, PROGRESS.md, ADRs 0001–0036, README.md.
+CLAUDE.md, skills, ARCHITECTURE, DATA_MODEL, ALGORITHMS, GAME_DESIGN, ART_DIRECTION,
+PERFORMANCE, TESTING, RISKS, CONSTANTS, ASSUMPTIONS, PLAN_REVIEW (+ raw independent review in
+`docs/review/`), ADRs 0001–0058, README.
 
-### M1 — Project setup
-Acceptance:
-- [ ] Workspace with all crates compiles; `cb_sim` builds without any rendering crate
-      (CI job `cargo build -p cb_sim` + `cargo tree -p cb_sim` check for forbidden crates).
-- [ ] `cargo run -p cb_game` opens a window (localized title) with a clear-colored scene
-      and an FPS readout in `dev`.
-- [ ] Logs written to `<data_dir>/logs/`, level configurable via `--log`/`CB_LOG`; ring
-      buffer keeps the last 500 lines.
-- [ ] `--debug-panic` triggers a panic → crash report file with message, location,
-      backtrace, version + git hash, OS, adapter, settings summary, last 200 log lines;
-      next start shows "last session crashed" notice with the path.
-- [ ] Headless test runs 1 000 `SimTick`s; speeds and step-once work in the driver.
-- [ ] l10n: en + de bundles; key coverage test; `cb_l10n::format` tests for numbers/money/dates.
-- [ ] CI: fmt, clippy, test on Linux, Windows and macOS (Apple Silicon) with rust-cache;
-      render smoke job on Linux (lavapipe), informational on macOS; release workflow builds
-      Linux tar.gz, Windows zip and macOS arm64 `.app` zip on `v*` tags (ADR-0038).
-- [ ] Per-OS file locations (ADR-0040) with unit tests for all three OS; portable mode;
-      `CB_USERDATA` override.
-- [ ] Dev tooling: perf overlay, sim controls panel, log console, inspector stub, feature `dev`.
+### M1 — Project setup (estimate 4)
+Includes enabling work moved forward: settings persistence (from M15), Phase S definitions.
+- [ ] `cargo build --workspace --all-targets` on 3 OS; CI job `sim-isolation` runs
+      `scripts/check_sim_isolation.sh` (fails on `bevy_render|bevy_pbr|wgpu|bevy_winit|bevy_egui|bevy_audio` in `cargo tree -p cb_sim -e normal`).
+- [ ] `cb_core`: tests `derive_seed_no_collisions_1e6`, `derive_seed_order_sensitive`,
+      `rng_streams_reproducible`, `math_facade_reference_values`, `lookup_map_has_no_iteration`
+      (compile-fail doc test), `spatial_hash_matches_brute_force`, `gametime_from_tick`.
+- [ ] Paths: `paths_resolve_windows`, `paths_resolve_linux`, `paths_resolve_macos`,
+      `paths_portable_mode`, `paths_cb_userdata_override`, `paths_app_translocation_ignores_portable`.
+- [ ] Logging: `ring_buffer_keeps_last_500`; integration test `log_line_written_to_app_paths_logs`.
+- [ ] Crash: `crash_report_contains_all_sections` (subprocess with `--debug-panic`): summary,
+      message+location, thread, backtrace, version+git hash, OS/arch, adapter, settings summary,
+      sim summary, last 200 log lines; next start shows the "last session crashed" egui window.
+- [ ] Settings: `settings_roundtrip_all_fields`, `settings_invalid_field_falls_back`,
+      `settings_unknown_version_migrates_or_defaults`.
+- [ ] l10n: en + de bundles, `build.rs` key constants; `l10n_keys_complete_en_de`,
+      `l10n_placeholders_match`, `format_number_money_date_time_en_de`.
+- [ ] Sim skeleton: `driver_runs_1000_ticks_in_lt_100ms`, `driver_step_once_advances_exactly_one_tick`,
+      `driver_caps_ticks_per_frame`, `driver_day_length_is_pacing_only` (same hash for L = 16/24/48),
+      `schedule_shuffle_same_hash` (3 seeds, single-threaded), ambiguity detection = Error.
+- [ ] `cb_game --smoke-test 60 --resolution 640x360` exits 0 on lavapipe and logs
+      `frames=60 validation_errors=0`; window title localized.
+- [ ] Dev tooling (`--features dev`): perf overlay shows frame time p50/p95, sim tick time,
+      entity count; sim controls pause/step/speed/day length; log console; inspector lists ≥ 1 sim
+      entity kind with Reflect fields.
+- [ ] CI: `ci.yml` (3-OS matrix × {default, dev}, sim-isolation, render-smoke Linux blocking,
+      macOS smoke informational, cross-OS determinism informational), `nightly.yml`,
+      `release.yml` (validated via `workflow_dispatch` with `publish: false` producing all three
+      artifacts); full pipeline ≤ 25 min.
+- [ ] `scripts/screenshot.sh M1` renders one test shot to `docs/screenshots/M1/` (pipeline proof).
+- [ ] README build/run/controls; PROGRESS updated.
 
-### M2 — Vertical slice (must look good before moving on)
-Acceptance:
-- [ ] Seeded terrain: hills, valleys, 1–2 rivers, 1–3 lakes; materials grass/dirt/rock/sand/
-      forest; chunked LOD rendering with skirts; water with depth color, shoreline foam,
-      fresnel/sky reflection.
-- [ ] Trees, rocks, grass clumps scattered deterministically, removed under roads/plots/
-      buildings and restored on undo of those actions (undo arrives in M3; here: on removal).
-- [ ] Camera: WASD/arrows/left-drag pan (rotation-relative), wheel zoom (clamped), MMB
-      free rotate, Q/E 90° snaps, terrain-following focus, smoothing, bounds; bindings from
-      the `InputMap`.
-- [ ] Road tool: straight/curved/freehand street segments with snapping to nodes/segments,
-      elevation (PgUp/PgDn), vertical profile + grading (cut/fill embankments), simple
-      node joins (full junctions in M3), validity feedback (slope, curvature, overlap) and
-      live cost.
-- [ ] Residential plot tool (frontage drag + depth, vertex editing, sub-plot count);
-      subdivision into irregular lots; generated houses (L1–L3 styles) that fit lots, face
-      the road, adapt to slopes (pads/plinths/stilts) and fill yards.
-- [ ] Lighting & art style in place: procedural sky, sun with CSM soft shadows, SSAO + vertex
-      AO, fog, tonemapping, bloom; time-of-day presets selectable (morning/noon/sunset/night
-      preview) via debug panel.
-- [ ] Screenshot set (`scripts/screenshot.sh`) reviewed against ART_DIRECTION.md; 60 FPS with
-      500 houses on the dev machine profile.
-- [ ] Tests: splines, profile solver, grading stamps, subdivision suite, building procgen
-      determinism & containment, terrain determinism, raycast.
+### Phase S — Risk spikes (estimate 22; order as listed)
+Throwaway code in `spikes/<name>/`; tag `spike/<name>` before removal; outcome row filled in;
+fallbacks require a superseding ADR.
 
-### M3 — Full road system
-Acceptance:
-- [ ] Road hierarchy: dirt path, street, one-way street, avenue, one-way avenue;
-      upgrade/downgrade in place.
-- [ ] Lanes generated per cross-section, stored in `LaneGraph`; debug overlay shows lanes,
-      connectors, conflict zones.
-- [ ] Automatic junctions (cut-backs, fillets, crosswalks, stop lines, lane arrows,
-      connectors) for crossings and endpoint joins; grade separation by elevation.
-- [ ] Intersection tool: priority (auto), all-way stop, traffic lights (auto plan,
-      timing override).
-- [ ] Bridges over water/valleys with supports, railings, abutments, length-scaled cost.
-- [ ] Segment customization: surface, sidewalks, curbs, grass strips, tree rows, street
-      lamps with spacing; decorations follow curves/elevation.
-- [ ] Undo/redo (Ctrl+Z/Ctrl+Y) for all road and plot actions with refunds; history 100.
-- [ ] Bulldozing of segments/nodes/plots with dependency warning dialog (remove plots /
-      keep plots (lose access) / cancel).
-- [ ] Tests: lanes, junctions (randomized), connectivity, bridges, undo/redo roundtrips.
+**S-Render — material pipeline, vertex format, render scale, shader validation (3 days)**
+- Build: minimal Bevy 0.20 app with `WorldMaterial` (`ExtendedMaterial`, WESL) using the
+  ADR-0049 vertex layout (pos f32x3, color unorm8x4, packed u32), derivative flat normals in
+  forward + prepass, per-chunk `ShaderBuffer` slot lookup, CSM shadows, SSAO, SMAA, bloom,
+  TonyMcMapface; focus fog; offscreen render-scale target + composite vs
+  `MainPassResolutionOverride`; GPU-free shader validation (bevy_shader `ShaderCache` + naga
+  backends); screenshot capture with the settle rule, `--screenshot-metrics`, semantic pass.
+- Pass: lavapipe renders with 0 validation errors; faceted shading correct (per-face normal
+  variance from the prepass normal buffer ≤ 0.02); SSAO without black artifacts (pure black ≤
+  0.5 %); shadows with custom layout; ≤ 25 KB GPU memory per 1k-triangle building;
+  `cursor_ray_dpi_render_scale` unit test passes for scale factors {1, 2} × render scales {1, 2/3};
+  shader validation translates all spike shaders to MSL/HLSL/SPIR-V (or is documented infeasible).
+- Fallback: standard Bevy layout with normals (duplicated vertices) + tighter residency; offscreen
+  composite if the override fails; validation via smoke tests only.
+- Outcome: _pending_
 
-### M4 — All zone types, special buildings, building leveling
-Acceptance:
-- [ ] Commercial and industrial plots/lots/buildings with their generators and palettes.
-- [ ] Service, utility, transit and special building generators (signature silhouettes),
-      free placement with rotation and road-edge snapping, footprint validation.
-- [ ] Level variants R1–R5, C1–C3, I1–I3; construction animation; run-down/abandoned and
-      ruined visuals (shader + generator).
-- [ ] Procgen debug scene (`--procgen-gallery`): random lots × types × levels, vehicles per
-      type, regenerate/seed controls.
-- [ ] Building LOD1/LOD2 and chunk merging with per-building param buffer; 10k-building
-      synthetic scene renders within GPU budget.
+**S-Time — time model and trip scale (2 days)**
+- Build: headless synthetic 50k-citizen city (clustered homes/jobs on 4 × 4 km), trip durations
+  from network distance at road speeds + 20 % junction delay, ADR-0042 scheduler, point-queue
+  link model for congestion feedback.
+- Measure: commute duration (game min) p50/p95, departure histogram, concurrent trips over the day,
+  required `p` at cap 5 000, late arrivals, departures before 04:00, night (00–04) share,
+  peak/off-peak ratio.
+- Pass: p95 departure ≥ 04:30; ≥ 90 % arrive within ±30 game min of shift start; night share
+  ≤ 10 %; peak/off-peak ≥ 3; `p ≥ 0.4` at 50k; results identical for day lengths 16/24/48 (by
+  construction, asserted).
+- Fallback (by measurement): wider shift σ; commute cap in job matching; higher cap with meso
+  model (S-T fallback 2); as last resort a different sim/game ratio (superseding ADR-0042).
+- Outcome: _pending_
 
-### M5 — Simulation core
-Acceptance:
-- [ ] Clock/calendar/seasons; speeds pause/1×/2×/4×; fixed timestep driver with interpolation α.
-- [ ] Outside connections, immigration/emigration; households & citizens tables; jobs
-      matching; schedules (time wheel); trips (macro only, agents in M9).
-- [ ] RCI demand with breakdown; lot development by demand; leveling/decline/abandonment
-      logic driving M4 visuals.
-- [ ] Economy: taxes per zone, upkeep, construction costs, ledger, loans, bankruptcy warnings.
-- [ ] Utilities: power (plants incl. weather/day dependence hooks), water (shoreline pumps,
-      towers), sewage (outlets, treatment), garbage (analytic collection until M9).
-- [ ] Fields: pollution, noise, land value; happiness.
-- [ ] Save/load core (snapshot, MessagePack + LZ4, header, migration framework, fixture v1).
-- [ ] Tests: headless growth (3 days), determinism (incl. save/load continuation, shuffled
-      schedules), utilities, demand, leveling, economy.
+**S-J — junction geometry (4 days)**
+- Build: random junction generator (2–6 approaches, angles 25–180°, widths 6/12/16/22 m + tram,
+  curvature up to 1/r_min, segment lengths 6–60 m, grades to max in random directions); cut-back,
+  polygon, crosswalks, connectors (per-kind radii), conflict zones, per-vertex surface, approach
+  end strips; SVG/OBJ dumps.
+- Cases: 10 000 random; canonical T, X, Y-30°, 5-way, avenue×street, avenue×avenue, one-way pair,
+  two junctions 30 m apart, 8 % slope, tram straight + tram turn on avenue median, roundabout ring.
+- Pass: 0 panics; 100 % valid geometry or typed `ValidationError`; rejection ≤ 3 % on the
+  standard distribution (angles ≥ 40°, segments ≥ 30 m); simple polygons; every allowed movement
+  has a connector; same-approach connectors never cross; κ ≤ 1/5 m car, ≤ 1/20 m tram; connectors
+  within polygon ∪ approach strips (0.3 m); cut-line step ≤ 0.02 m at 8 %; p99 ≤ 0.4 ms per
+  junction.
+- Fallback: degree ≤ 4 and min angle 40°; parameterized T/X templates; flat 6 m landings; tram
+  turns only at dedicated wide junctions.
+- Outcome: _pending_
 
-### M6 — Services
-Acceptance:
-- [ ] Police, fire, health, education buildings with network-distance coverage, capacity and
-      budgets; incidents (crime, fire with spread/burning/ruins, sickness) and education
-      progression; service vehicles in ghost mode until M9.
-- [ ] Coverage incremental == full recompute (test); coverage feeds happiness/LV/leveling.
+**S-P — plots → lots → buildings (4 days)**
+- Build: frontage generators (straight; convex r 30–300 m; concave r 25–300 m; S-curve; corner
+  60–120°; two segments), depth 15–80 m, subdivider with N auto and N ± 3, rect_fit, L1–L3
+  massing; edit sequences (vertex drag 0.25/1/3 m, N ± 1, depth ± 5 m); SVG contact sheets.
+- Inputs: 10⁴ random plots + 24-plot showcase set.
+- Pass: 0 panics; 100 % lots touch frontage ≥ w_min; area conserved ±0.5 %; no overlaps; ≥ 95 %
+  rectangularity ≥ 0.55 before merging, ≤ 3 % merged; ≥ 90 % R lots fit an L1–L3 footprint
+  ≥ 50 m²; drags ≤ 1 m keep ≥ 90 % LotIds, N ± 1 keeps ≥ (N − 2)/N; p99 ≤ 2 ms per plot;
+  showcase sheet reviewed against: no fan > 25° between adjacent side edges, corner lots front
+  both roads.
+- Fallback: frontage-drag only; parallel side edges on concave curves; dedicated corner-lot
+  generator; polygon-extruded townhouse rows for lots failing rect_fit.
+- Outcome: _pending_
 
-### M7 — Progression
-Acceptance:
-- [ ] Population tiers and unlocks from `progression.ron`; locked tools shown with unlock
-      condition; milestone notification with summary; sandbox mode (all unlocked, unlimited money).
+**S-G — road–terrain interface incl. bridges (4 days)**
+- Build: seeded 2049² terrain; 150 random roads (cut/fill); 30 junctions on 4–10 % slopes; 5
+  parallel road pairs 8–20 m apart at different heights; 6 bridges (river, 30 m valley, overpass
+  over a street); ADR-0046 compositing vs the old max-weight variant; terrain chunk LOD0–3 with
+  skirts; automated sampler (road surface − rendered terrain at lane and edge samples ±0.5 m, at
+  every LOD visible at that distance); 12 lavapipe shots into `docs/screenshots/S/`.
+- Pass: under carriageway LOD0 terrain ≤ road − 0.03 m everywhere; LOD1 ≤ road for ≥ 99.9 % of
+  samples (rest hidden by skirts in shots); outside corridors adjacent-sample |Δh| ≤ tan(max side
+  slope) × 2 m + 0.05 m; junction and abutment steps ≤ 0.02 m; piers never inside corridors;
+  overpass leaves the lower corridor unchanged; stamp removal restores base bitwise; re-stamp +
+  LOD0 re-mesh of a 300 m road ≤ 25 ms async and ≤ 1.5 ms main thread.
+- Fallback: deeper carve + depth-biased road mesh with 0.6 m skirts; conservative LOD
+  downsampling everywhere near corridors; straight horizontal bridge spans with ramps.
+- Outcome: _pending_
 
-### M8 — UI, overlays, info views
-Acceptance:
-- [ ] Top bar, RCI bars, tool bar with flyouts, road customization panel, budget & tax
-      panel, info panels (building, road, vehicle placeholder, line placeholder),
-      notifications with jump-to, tooltips everywhere, all strings localized.
-- [ ] Overlays: traffic (placeholder data until M9), power, water, sewage, garbage, each
-      service coverage, land value, pollution, noise, happiness, demand, terrain slope —
-      with legends, CVD-safe palettes and redundant patterns.
-- [ ] Problem icons above buildings (billboards, clustering, fading).
+**S-T — traffic at scale (5 days)**
+- Build: synthetic 4 × 4 km network (6 000 segments; mixed T/X/Y/5-way; 4-lane avenues;
+  one-ways; a 6-entry ring), straight lanes + Bézier connectors, conflict zones, ADR-0045
+  admission with reservations, IDM, lane plans + MOBIL-lite, ALT A* with variants + LRU + cost
+  units, synthetic OD, stuck detection + cycle breaker.
+- Cases: (1) 4-way equal priority saturated 1 game h; (2) signalized avenue×avenue at V/C 0.9 and
+  1.2; (3) 25 m block between signals, 60 % need 2 lane changes; (4) 2→1 merge; (5) 6-entry ring
+  at V/C 1.0; (6) full network with 5 000 / 8 000 / 12 000 agents for 2 game days; (7) bulldoze a
+  central avenue mid-peak; (8) 1 / 4 / 8 threads.
+- Pass: vehicle step for 5 000 agents p95 ≤ 0.9 ms with sequential pass ≤ 0.35 ms (container,
+  4 threads); junction control ≤ 0.3 ms; routing ≤ 0.8 ms p99 per tick incl. case 7; 0 overlaps
+  and 0 conflicting zone occupancy; saturated signal discharge ≥ 1 500 veh/sim-h/lane of green;
+  case 1 never idle > 6 s while vehicles wait; despawns < 1 per 1 000 trips at V/C ≤ 1.0; case 2
+  at V/C 1.2 recovers within 180 sim s after demand drops; identical state hash for 1/4/8 threads;
+  route cache hit rate reported (target ≥ 80 % in case 6).
+- Fallback ladder: forced signals at ≥ 4-approach equal-class junctions + roundabout controller;
+  mesoscopic link-queue model for non-visible traffic; default cap 3 000.
+- Outcome: _pending_
 
-### M9 — Traffic
-Acceptance:
-- [ ] Vehicle agents (commuter cars, delivery trucks C↔I and outside, service vehicles,
-      garbage trucks) spawned from trips; despawn into buildings.
-- [ ] Routing (ALT A*, cache, variants, batching), lane following, lane changes, IDM,
-      slope/curve/weather speed, junction control (priority, stops, lights), no overlaps.
-- [ ] Congestion per segment feeding costs, commute times, demand, happiness, response
-      times; agent cap + sampling + macro background; traffic-disabled fallback verified.
-- [ ] Gridlock protection with logs; pedestrians (visual) near camera; follow-camera on vehicles.
-- [ ] Bench: 5 000 agents within budget; 10-day soak test green.
+### M2 — Vertical slice (estimate 12; must look good before moving on)
+Includes enabling work: command framework (ADR-0055), economy stub (money + construction ledger)
+and catalog for roads/zones, UI foundation (theme, widgets with structural tooltips, dialogs,
+toasts, minimal toolbar: road, plot, bulldoze), dev settings panel, citygen (500 houses) +
+`--benchmark` harness, instant-growth stub (`SimConfig::growth_mode = Debug`: empty lots grow
+L1–L3 after N ticks), static `LightingState` + keyframes, no-op shader uniforms for overlay/
+night/wetness/snow, chunk merging + slot buffer from the start, runtime render-scale change,
+worldgen constraints, input map v3.
+- [ ] Worldgen: `worldgen_features_seed_1_to_20` (rivers ∈ [1, 2], lakes ∈ [1, 3], buildable
+      lowland ≥ 3 km², shore within 400 m of an outside connection, generation ≤ 4 s);
+      `terrain_generation_deterministic`; `terrain_hash_cross_os` in the cross-OS job.
+- [ ] Terrain rendering: semantic-pass crack check at LOD boundaries (0 background pixels inside
+      the terrain silhouette in M2-14).
+- [ ] Scatter: `scatter_excluded_by_corridor_plus_2m`, `scatter_restored_after_stamp_removed`,
+      `tree_density_field_matches_exclusion`.
+- [ ] Camera: `camera_pan_rotation_relative`, `camera_zoom_clamped_25_2400`,
+      `camera_q_tap_snaps_to_next_90`, `camera_q_hold_rotates_continuously`,
+      `camera_focus_clamped_to_bounds`, `camera_never_below_terrain_plus_6m`,
+      `input_tool_drag_precedence`, `scroll_unit_policy_pixel_pans_line_zooms`,
+      `primary_modifier_maps_per_os`.
+- [ ] Road tool: straight/curved/freehand; each validation reason has a test returning its
+      `ValidationError` key (`road_invalid_too_steep`, `_too_sharp`, `_overlap`, `_too_short`,
+      `_water_no_bridge`, `_crossing_clearance`); `profile_solver_*` (incl. infeasible endpoints),
+      `grading_continuous_compositing`, `crossing_fixed_point_converges`.
+- [ ] Plot tool (residential): `subdivide_random_10k_invariants`, `building_footprint_within_lot_10k`,
+      `lot_ids_stable_under_small_drags`, `plot_clipped_by_new_corridor`, procgen golden hashes.
+- [ ] Lighting/art: calibration metrics of ADR-0050 on M2-02 (noon) and M2-11 (night).
+- [ ] Perf: container `--benchmark m2_slice --no-gpu-work`: main thread ≤ 8 ms p95, render thread
+      ≤ 8 ms p95. ☑ᵤ: GPU ≤ 12 ms p95 at 1080p on PC and at Auto on M4.
+- [ ] Shots (suite M2, seed 1234; scripted: curved street on an 8 % slope with fill embankment,
+      straight street in a 3 m cut, a street to a river shore, residential plots on convex,
+      concave and corner frontage, ~60 houses; noon clear unless noted):
 
-### M10 — Public transport
-Acceptance:
-- [ ] Buses: depot, stops, lines (create/edit/delete, color, vehicle count), bus lanes,
-      dwell/boarding, ridership stats, costs/income.
-- [ ] Trams: tracks in road (avenue/street option) and standalone tracks, stops, depot,
-      lines, articulated trams.
-- [ ] Mode choice uses transit; transit reduces car trips; land value near stops; line
-      management panel and transit overlay; info panel for lines.
+  | ID | Camera | Must be visible |
+  |---|---|---|
+  | M2-01 | overview d 2 000, pitch 60°, yaw 0 | ≥ 1 river, ≥ 1 lake, hills with rock on steep slopes, forest masses, sand banks; no chunk seams; distant fog without fog over the town |
+  | M2-02 | neighbourhood d 300, pitch 45°, zoning view on | curved street, three plots with lot lines, houses facing the frontage |
+  | M2-03/04/05 | d 120, pitch 35°, yaw 0/120/240, same block | backyards (fence, shed, garden, driveway); good from all sides; no house crossing a lot line; varied roofs |
+  | M2-06 | fill embankment d 40, pitch 20° | smooth embankment, no terrain through the road, skirts invisible, a house on a plinth or stilts |
+  | M2-07 | cut d 40, pitch 20° | cut face with dirt/rock material; clean road edges |
+  | M2-08 | shore d 80, pitch 30° | depth gradient, foam band, sky fresnel, sand |
+  | M2-09/10/11 | M2-02 framing at 08:30, 19:00, 23:00 (debug preset) | long soft morning shadows; warm sunset; blue night with ambient floor, houses readable |
+  | M2-12 | road tool d 150, UI on | invalid ghost (striped coral) with "too steep" label and live cost |
+  | M2-13 | plot tool editing d 120, UI on | vertex handles, depth handle, sub-plot ± control, subdivision lines |
+  | M2-14 | LOD band d 360 (crossfade zone) | no holes or popping artifacts |
 
-### M11 — Day/night cycle
-Acceptance:
-- [ ] Continuous sun/moon movement, sky transitions, sunrise/sunset tones per ART_DIRECTION
-      keyframes; configurable cycle length; lock time-of-day option.
-- [ ] Lit windows (deterministic per building), street lamps with light pools, headlights/
-      tail lights, lit transit vehicles and stops; night readable.
-- [ ] Commute peaks and commercial activity visibly follow the clock.
+### M3 — Full road system (estimate 12)
+Includes enabling work: `cb_sim::save::snapshot` types (for undo), bus/tram cross-section
+variants (UI hidden until M10) and tram connector radii, signal phase-plan generation with a stub
+phase clock for signal heads, ray–deck picking, LaneGraph `DebugView`, progression default "all
+unlocked" until M7.
+- [ ] Hierarchy + upgrade/downgrade: `upgrade_street_to_avenue_rebuilds_lanes`,
+      `upgrade_clips_plots_and_prices_demolition`, `downgrade_refund_zero`.
+- [ ] Lanes: `lanes_count_offsets_per_cross_section` (5 types × one-way × bus/tram variants).
+- [ ] Junctions (S-J metrics as tests): `junction_random_10k_valid_or_typed_error`,
+      `junction_connectors_cover_all_allowed_movements`, `junction_surface_continuous_8pct`,
+      `ring_detected_as_roundabout`.
+- [ ] Controls: `light_plan_no_conflicting_greens_{t,x,y,5way,6way}`,
+      `every_movement_green_in_some_phase`, `approach_control_persists_in_snapshot`.
+- [ ] Bridges: `bridge_cost_monotonic_in_length`, `bridge_piers_outside_corridors`,
+      `bridge_abutment_step_le_2cm`, `overpass_does_not_modify_lower_corridor`,
+      `bridge_classification_hysteresis`.
+- [ ] Decorations: `decor_spacing_within_5pct_on_curves`, `decor_height_matches_profile_1cm`.
+- [ ] Editing: `edit_road_geometry_regenerates_junctions`, `edit_road_geometry_repoints_dependents`.
+- [ ] Undo/redo: per command variant `undo_<cmd>_restores_state_hash`, `redo_<cmd>_equals_apply`;
+      `undo_depth_limit_100`, `undo_blocked_reports_reason`, `undo_refund_decays`,
+      `undo_after_window_rejected`, `replay_command_log_reproduces_hash`.
+- [ ] Bulldoze: `demolish_validate_lists_dependents`; dialog shot M3-12.
+- [ ] Shots (noon clear; d in m; pitch 40° unless noted):
 
-### M12 — Weather
-Acceptance:
-- [ ] Clear, cloudy, rain, thunderstorm, fog, snow; seasons with probabilities; forecast UI;
-      disable/lock options.
-- [ ] Visuals: rain/snow particles, wet roads and puddle darkening, snow on roofs/terrain/
-      trees, fog density, cloud shadows, lightning (respects reduce-flashes), seasonal
-      vegetation colors.
-- [ ] Sim effects: speeds, maintenance cost, lightning fires, happiness, solar/wind output.
+  | ID | Subject | Must be visible |
+  |---|---|---|
+  | M3-01 | T street×street d 60 | cut-back corners, fillets, crosswalks, stop lines behind crosswalks, lane arrows |
+  | M3-02 | X avenue×street with lights d 80 | median opening, signal heads, turn arrows |
+  | M3-03 | Y at 30° d 60 | no overlapping meshes, clean acute corner |
+  | M3-04 | 5-way d 80 | simple polygon, crosswalks on all arms |
+  | M3-05 | junction on 8 % slope d 40, pitch 15° | no steps between approaches and junction surface |
+  | M3-06 | river bridge with 3 piers d 200, pitch 25° | deck, railings, piers in water, abutments meeting embankments |
+  | M3-07 | valley bridge, piers > 25 m, d 250 | tapered tall piers, smooth deck profile |
+  | M3-08 | overpass over a street d 80, pitch 20° | lower road unaffected, clearance visible |
+  | M3-09 | decorated avenue (tree rows, lamps, grass strip, cobblestone) d 50 | even spacing on a curve; lamps upright on slope |
+  | M3-10 | lanes/connectors/conflicts debug overlay on the 5-way d 60, UI on | all connectors drawn, zones distinct |
+  | M3-11 | one-way pair + dirt path d 120 | arrows; dirt path material |
+  | M3-12 | bulldoze dialog, UI on | three choices, dependents highlighted |
+  | M3-13/14/15 | M3-02 at yaw 0/120/240 | consistent from all sides |
+  | M3-16 | roundabout d 80 | ring, yield markings on entries, splitter islands |
 
-### M13 — Audio
-Acceptance:
-- [ ] Synthesized bank: ambient beds (nature, traffic hum, industry, rain, wind, night
-      insects), thunder, UI sounds, construction/demolition, vehicles near camera, sirens.
-- [ ] Ambient director mixes by zoom, time, weather, on-screen content; channel volumes
-      (master, music, effects, ambient).
+### M4 — All zone types, special buildings, leveling visuals (estimate 10)
+Includes: citygen 10k scene, `DebugCommand::{SetBuildingLevel, SetCondition}`, free decoration
+tool (`PlaceProp`), town hall auto-placement, generator set A (police, fire, clinic, school,
+diesel, coal, pump, outlet, landfill); set B may land with its system (M6/M10).
+- [ ] `procgen_{r,c,i}_levels_within_lot_10k`, `procgen_triangle_budget_per_type`,
+      `facade_no_window_crosses_edge`.
+- [ ] Silhouettes: `silhouette_iou_between_service_types_le_0_6` (LOD1 masks, 4 yaws, 128²) and
+      vs zoned buildings of the same footprint ≤ 0.6.
+- [ ] Placement: `place_building_snaps_to_road_edge_within_2m`, `place_building_rejects_overlap`,
+      `place_prop_lv_effect`.
+- [ ] Condition: `condition_change_does_not_remesh` (counter).
+- [ ] Gallery: `--procgen-gallery --smoke-test 120` exits 0.
+- [ ] Perf: container CPU budgets (PERFORMANCE §3) with citygen 10k under `--no-gpu-work`; memory
+      within PERFORMANCE §8; ☑ᵤ GPU ≤ 12 ms p95 PC, ≤ 13 ms p95 M4.
+- [ ] Shots:
 
-### M14 — Tutorial
-Acceptance:
-- [ ] Guided steps: camera, draw road, draw plot, power & water, read demand; later
-      chapters when traffic/transit unlock; contextual first-use hints with toggle;
-      replay from main menu.
+  | ID | Subject | Must be visible |
+  |---|---|---|
+  | M4-01 | R L1–L5 row d 120, yaw 30° | cottage → apartment block typology progression |
+  | M4-02 | C L1–L3 + I L1–L3 rows d 150 | cool vs muted palettes; glass fronts, signs; halls, tanks, chimneys |
+  | M4-03/04 | all set-A services/utilities lineup d 200, yaw 0 / 180 | distinct silhouettes from both sides |
+  | M4-05 | construction at 50 % | scaffold + vertical reveal |
+  | M4-06 | active / declining / abandoned / ruined side by side | visibly run-down progression |
+  | M4-07 | procgen gallery grid, UI on | random lots × types × levels, vehicles per type |
+  | M4-08 | 10k city overview d 2 000, pitch 60° | dense city, LOD2 readable, no popping |
+  | M4-09 | 10k city mid d 400 | zones distinguishable at a glance |
+  | M4-10 | angled and L-shaped lots d 80 | footprints follow lot shapes |
 
-### M15 — Menus, settings, accessibility, save/load, autosave, localization
-Acceptance:
-- [ ] Main menu (new game with seed & sandbox, load, tutorial, settings, quit), pause menu.
-- [ ] Settings: graphics quality items, resolution, fullscreen, UI scale, key remapping,
-      audio volumes, language, accessibility (CVD modes, high contrast, reduce weather
-      effects/flashes, reduced motion), day/night & weather toggles, traffic toggle,
-      autosave interval.
-- [ ] Save/load UI with slots, metadata, autosave with rotating slots; migration fixtures.
-- [ ] German localization complete; locale formatting everywhere.
+### M5 — Simulation core (estimate 12)
+Includes enabling work: link graph + router + cache + batching + macro flow model (aggregate
+commute model), goods economy, save core per ADR-0044 (format v0) incl. placeholders for traffic
+state, happiness stubs, `SetSimConfig` + dev panel, cross-OS determinism job becomes blocking.
+- [ ] Calendar: `calendar_day_is_28800_ticks`, `season_changes_every_4_days`.
+- [ ] Growth: `growth_scenario_flat_3days` — pop ≥ 400 with 120 R lots + power + water;
+      unemployment ≤ 15 %; morning departure histogram peaks 05:30–07:30.
+- [ ] Demand: `demand_monotonic_responses`, `demand_breakdown_sums_to_value`.
+- [ ] Economy: `ledger_sum_equals_money_delta`, `bankruptcy_after_7_days_triggers_loan`,
+      `goods_units_conserved`, `deliveries_prefer_nearest_supplier`, `import_when_no_supplier`.
+- [ ] Utilities: `power_brownout_outer_first`, `pump_requires_depth_1_5m_within_15m`,
+      `disconnected_component_unserved`, `water_pollution_advects_downstream`.
+- [ ] Fields/happiness: `pollution_decays_0_97_per_hour`, `noise_line_and_point_attenuation`,
+      `happiness_factors_weights_sum_100`, `happiness_stub_replacement_keeps_formula`,
+      `fields_double_buffer_no_seams`.
+- [ ] Routing (macro): `astar_equals_dijkstra_random_graphs`, `alt_heuristic_admissible_with_variants`,
+      `route_cache_invalidation_on_removed_links`, `routing_budget_deterministic`,
+      `one_way_trap_flagged`.
+- [ ] Save: `save_roundtrip_hash_equal`, `save_load_continue_equals_continuous`,
+      `save_corrupt_returns_error`, `save_fuzz_no_panic`, `migration_v0_to_v1_synthetic`,
+      `struct_map_missing_field_defaults`.
+- [ ] Determinism: `same_seed_same_commands_same_hash_daily`, `results_identical_1_4_8_threads`,
+      cross-OS job green.
+- [ ] Perf: `headless_bench --city 50k --no-traffic` tick p95 ≤ 1.0 ms, p99.9 ≤ 2.5 ms;
+      `phase_table_nominal_le_0_6ms_per_tick`.
 
-### M16 — Polish, performance pass, bug fixing
-Acceptance:
-- [ ] Performance targets met on reference profile (bench + in-game); results recorded.
-- [ ] Bug backlog cleared to zero known crashers and no known gameplay blockers.
-- [ ] Final art pass via screenshot review; README/controls complete; docs current.
+### M6 — Services (estimate 6)
+Includes: `VehicleStore` + ghost kinematics + pooled vehicle view (instanced, α interpolation) so
+service vehicles are visible; fire/smoke VFX; set-B service generators as needed.
+- [ ] `coverage_river_without_bridge_uncovered`, `coverage_capacity_split_proportional`,
+      `coverage_incremental_reach_equals_full`.
+- [ ] `fire_spreads_within_6m`, `fire_resolved_when_truck_arrives`, `unresolved_fire_ruins_building`,
+      `fire_contained_with_station_within_reach`, `crime_rate_drops_with_coverage`,
+      `students_advance_one_level_per_season_with_capacity`, `ghost_vehicle_eta_matches_flow_model`.
+- [ ] Shots: M6-01 burning building with smoke column d 80 (day) — flames, smoke, nearby fire truck;
+      M6-02 same at 23:00 (debug preset) — fire glow readable at night; M6-03 ruined building;
+      M6-04 police coverage debug overlay d 600 — coverage follows roads, not circles.
+
+### M7 — Progression (estimate 3)
+- [ ] `progression_unlocks_at_thresholds` (table-driven from `progression.ron`),
+      `every_unlockable_in_exactly_one_tier`, `sandbox_money_unlimited_all_unlocked` (`--sandbox`),
+      `locked_tool_shows_unlock_condition` (UI anchor test).
+- [ ] Shots: M7-01 milestone toast with unlock list (UI on); M7-02 locked toolbar entry tooltip.
+
+### M8 — UI, overlays, info views (estimate 10)
+Includes: `ui::anchors` registry, CVD palette sets + switch (dev panel), high-contrast theme,
+`UiIntent::PlaySound` hooks.
+- [ ] `ui_no_string_literals`, `ui_tooltips_structural` (no raw egui buttons in `ui/`),
+      `l10n_keys_complete_en_de`, `ui_german_no_overflow_at_scale_1_and_1_5`.
+- [ ] `palette_cvd_separation` (Machado 2009 for deuteranopia/protanopia/tritanopia: good vs bad
+      ΔE00 ≥ 20; sequential adjacent steps ΔE00 ≥ 5).
+- [ ] `icons_cluster_when_gt3_in_48px`, info panel for building/road/vehicle placeholder.
+- [ ] Shots: M8-01 full HUD noon UI 1.0 (en); M8-02 same in German; M8-03 UI scale 1.5; M8-04
+      high-contrast theme; M8-05…M8-17 one per overlay (power, water, sewage, garbage, police, fire,
+      health, education, land value, pollution, noise, happiness, slope, traffic from flow model)
+      d 900, pitch 60°, legend visible; M8-18 land value in deuteranopia mode with contour/hatch
+      patterns; M8-19 problem-icon cluster; M8-20 budget panel with graphs.
+
+### M9 — Traffic (estimate 12)
+Includes: agent state saved, garbage trucks replace analytic collection, vehicle info panel.
+- [ ] Spawn counters in `traffic_multi_day` > 0 for cars, delivery trucks, service vehicles,
+      garbage trucks.
+- [ ] `idm_no_negative_speed_no_overlap_1e6_steps`, `junction_no_conflicting_occupancy`,
+      `no_vehicle_stops_inside_conflict_zone`, `equal_priority_4way_all_occupied_no_idle_gt_2s`,
+      `lane_plan_feasible_on_short_links`, `spawn_queue_never_overlaps`,
+      `idm_saturation_flow_matches_capacity`.
+- [ ] Feedback: `congestion_increases_commute_estimate`, `dispatch_eta_increases_with_congestion`,
+      `garbage_trucks_match_analytic_within_10pct`.
+- [ ] Disabled: `same_city_traffic_off_runs_10_days` (population within ±15 % of traffic-on, no
+      NaN costs).
+- [ ] Gridlock: `gridlock_cycle_detected_and_broken`, `stuck_despawn_logged`.
+- [ ] Save: `save_load_continue_equals_continuous_with_traffic`.
+- [ ] Perf: `headless_bench --city 50k`: vehicle step p95 ≤ 0.7 ms, routing p99 ≤ 0.8 ms, tick
+      p99 ≤ 3.0 ms (4 workers); soak `traffic_multi_day_large`: 10 game days, despawns < 1/1 000
+      trips, perceived commute p50 ∈ [12, 30] min and p95 < 60 min, population +20 %, no panic,
+      identical hash for 1 and 4 threads. ☑ᵤ GPU benchmark.
+- [ ] Shots: M9-01 signalized avenue junction at 07:30 peak d 60 (queues at red, platoon on green;
+      semantic vehicle pixels ≥ 1.5 %); M9-02 unsignalized T d 40 (minor car waiting for a gap);
+      M9-03 lane change on an avenue d 50; M9-04 congestion overlay d 1 200 with chevrons; M9-05
+      follow camera on a truck (UI on); M9-06 pedestrians at a crosswalk d 25; M9-07 M9-01 framing
+      at 03:00 (sparse traffic).
+
+### M10 — Public transport (estimate 8)
+- [ ] `bus_line_ridership_counts_match_boardings`, `line_cost_equals_vehicle_hours_times_rate`,
+      `transit_routing_transfers`, `stop_overflow_rechooses_mode`.
+- [ ] `tram_articulated_sections_stay_on_track_1cm`, `tram_turn_radius_ge_20m`.
+- [ ] `transit_line_reduces_car_trips` (car mode share −5 pp in catchment; LV up within 400 m).
+- [ ] Shots: M10-01 bus at a stop with waiting pedestrians d 30; M10-02 bus lane d 50; M10-03 tram
+      on avenue median turning at a junction d 60; M10-04 tram depot d 120; M10-05 line manager UI;
+      M10-06 transit overlay with line colors d 1 000.
+
+### M11 — Day/night cycle (estimate 5)
+- [ ] `lighting_state_matches_keyframes_at_key_times` (ΔE ≤ 1), `lock_time_freezes_lighting_only`,
+      `window_lighting_hash_stable_across_runs` (lit fraction at 23:00 ∈ [0.25, 0.55] for R),
+      night metrics of ADR-0050, `peak_hour_agents_ge_3x_02h`,
+      `commercial_customers_10_to_19_ge_70pct`.
+- [ ] Shots: M11-01…08 same framing (d 400, pitch 45°) at 05:00, 06:30, 08:30, 12:00, 16:30,
+      19:00, 20:00, 23:00; M11-09 night street d 30 (windows, lamp pools, headlights, tail lights);
+      M11-10 night tram stop d 30 (lit interior and stop); M11-11 night overview d 1 800 (city
+      readable, zones distinguishable).
+
+### M12 — Weather (estimate 7)
+- [ ] `weather_markov_matches_season_table_1000_days` (χ² p > 0.01), `forecast_matches_realized_48h`,
+      `rain_reduces_v0_by_15pct`, `snow_upkeep_up_to_60pct`, `lightning_ignites_30pct_unless_covered`,
+      `solar_wind_factors`, `lightning_flash_le_120ms_and_capped_when_reduced`.
+- [ ] Shots (d 300, pitch 45°): M12-01…06 clear, cloudy, rain, thunderstorm (with lightning), fog,
+      snow at 12:00; M12-07 rain 23:00; M12-08 snow 23:00; M12-09…12 spring/summer/autumn/winter
+      noon clear (foliage, grass tint); M12-13 wet road close-up d 25 (darkening, puddles); M12-14
+      snow close-up d 40 (roofs, trees, roads partly cleared); M12-15 rain with reduce-effects on.
+
+### M13 — Audio (estimate 5)
+- [ ] `audio_loudness_targets`, `audio_loops_seamless`, `audio_no_clipping_no_dc_no_nan`,
+      `audio_spectral_centroid_ranges`, `ambient_mixer_weights_deterministic` (±0.05 for given
+      camera/weather states), `no_audio_device_runs_headless`.
+- [ ] Spectrogram PNGs in `docs/screenshots/M13/` reviewed; listening pass ☑ᵤ. Music not required.
+
+### M14 — Tutorial (estimate 4)
+- [ ] `tutorial_scripted_run_completes` (synthetic input drives all chapter-1 steps in a windowless
+      app with the UI context), `hints_shown_once_per_tool`, `reset_hints_works`; replay from the
+      pause menu and `--tutorial`.
+- [ ] Shots: M14-01…06 one per chapter-1 step highlight (UI on).
+
+### M15 — Menus, settings, accessibility, save/load, localization (estimate 8)
+- [ ] `menu_new_game_with_seed_starts_ingame`, `menu_load_restores_hash`,
+      `keymap_conflict_detected_with_primary_per_os`, `autosave_rotates_3_slots`,
+      `autosave_hitch_le_10ms_snapshot` (bench), `settings_ui_covers_all_fields`.
+- [ ] German: 0 Fluent fallback lookups in a scripted UI walkthrough; overflow test green.
+- [ ] Save format v1 frozen with golden fixture; migration policy active from here.
+- [ ] Shots: M15-01 main menu (en); M15-02 main menu (de); M15-03 settings; M15-04 load dialog with
+      metadata; M15-05 overlay in tritanopia mode; M15-06 UI scale 2.0 + high contrast.
+
+### M16 — Polish, performance, bug fixing (estimate 8)
+- [ ] `bench_city` 60 s path: p95 per thread ≤ PERFORMANCE §3–5 tables and p99.9 frame ≤ 33 ms on
+      PC and M4 (☑ᵤ) plus container CPU numbers.
+- [ ] 2-hour scripted soak at 4×: 0 panics, memory growth ≤ 5 %.
+- [ ] Union of all screenshot suites re-rendered, metric gates green, diff list vs previous
+      milestones in `docs/screenshots/M16/index.md`.
+- [ ] Known bugs: 0 crashers, 0 gameplay blockers; balance targets (GAME_DESIGN §14) pass.
+
+---
+
+## User verification queue (batched, non-blocking)
+
+| ID | Milestone | Request | Exact command / action | Expected | Status |
+|---|---|---|---|---|---|
+| UV-0 | M0 | Identify hardware | Tell me the PC GPU/CPU model and the exact Mac model + display (assumptions B11, B12) | — | open |
+| UV-1 | M1 | Real-GPU smoke | `cargo run -p cb_game --release -- --smoke-test 300` on Windows and on the M4 | exit 0, `validation_errors=0` | planned |
+| UV-2 | M2 | Screenshots on real GPUs | `scripts/screenshot.sh M2` (or `cb_game --screenshot-suite M2 --out shots/`) on PC and M4 | images comparable to `docs/screenshots/M2/` | planned |
+| UV-3 | M2 | Benchmark | `cb_game --release -- --benchmark m2_slice` on PC and M4; paste report | GPU p95 ≤ 12 ms | planned |
+| UV-4 | M2 | Mac input | trackpad pinch, two-finger scroll/rotate, ⌥-drag, ⌘Z/⌘⇧Z, ⌘Q save prompt | as ADR-0052 | planned |
+| UV-5 | M4 | 10k benchmark | `--benchmark m4_city10k` on PC and M4 | PERFORMANCE §5 | planned |
+| UV-6 | M9 | Traffic benchmark | `--benchmark bench_city` | PERFORMANCE §3–5 | planned |
+| UV-7 | M11 | Night look | `--screenshot-suite M11` on PC/M4 | night readable | planned |
+| UV-8 | M13 | Listening pass | play 10 min with ambient/UI/sirens; note anything unpleasant | — | planned |
+| UV-9 | M16 | Final performance | `--benchmark bench_city` warm (10 min) | PERFORMANCE §1 | planned |
 
 ## Known bugs
 
 None yet.
 
+## Scope-cut ladder (apply in order when a milestone exceeds 1.5× its estimate; brief features are never cut without asking)
+
+1. Generative music (brief: optional).
+2. Ultra extras: real point lights for nearest lamps, TAA option.
+3. Rain splashes on roads (puddle darkening stays).
+4. Roundabout preset tool (manually drawn rings still work).
+5. Articulated trams → single-body trams.
+6. Landmark buildings (tiers 7–8 grant decorations instead).
+7. Set-B signature generators reuse generic massing with signature details.
+8. Anything beyond this → ask the user.
+
 ## Log
 
-- 2026-10-15 — Phase 1 planning package written (this commit). Verified Bevy 0.20.0 API
-  surface from crate sources: `Message`/observers split, WESL shaders (naga_oil removed),
-  `ShaderBuffer`, `MeshTag`, `VisibilityRange`, `ScreenSpaceAmbientOcclusion`,
-  `ContactShadows`, `GeneratedEnvironmentMapLight`, `DistanceFog`, `EguiPrimaryContextPass`.
+- 2026-10-15 — Phase 1 planning package written; Bevy 0.20.0 API surface verified from crate
+  sources.
+- 2026-10-15 — Skills (milestone-completion, write-adr, visual-verification); macOS on Apple
+  Silicon made a required platform (ADR-0037, 0040; CI/input/DPI ADRs later superseded).
+- 2026-10-15 — Independent review by a separate agent (≈ 310 findings,
+  `docs/review/2026-10-15-independent-review.md`); resolutions in `docs/PLAN_REVIEW.md`;
+  ADRs 0042–0058 supersede/extend 15 ADRs; PERFORMANCE, ALGORITHMS, GAME_DESIGN, DATA_MODEL,
+  ARCHITECTURE and this file rewritten; Phase S defined.

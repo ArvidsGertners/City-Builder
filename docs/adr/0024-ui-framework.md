@@ -1,6 +1,6 @@
 # ADR-0024: UI framework — egui via bevy_egui
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0051
 - **Date:** 2026-10-15
 - **Milestone:** M1 (debug), M8 (game UI)
 

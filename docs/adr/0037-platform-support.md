@@ -1,6 +1,6 @@
 # ADR-0037: Platform support — Windows, Linux and macOS on Apple Silicon
 
-- **Status:** Accepted
+- **Status:** Accepted (determinism paragraph superseded by ADR-0043)
 - **Date:** 2026-10-15
 - **Milestone:** M1 (build/CI), every milestone (verification)
 - **Refines:** ADR-0001 (engine choice unchanged; platform scope widened)
@@ -64,3 +64,14 @@ Rules:
 - One code base, three platforms; macOS adds a CI runner and a bundling script.
 - Real-GPU verification on Apple Silicon depends on the user's M4 at visual/perf
   milestones (GitHub's Apple Silicon runners have no reliable GPU for rendering tests).
+
+## Amendments
+
+- 2026-10-15 (plan review): the partitioning rule is replaced by ADR-0043 (`SIM_PARTITIONS = 64`,
+  hardware-independent); the FMA sentence is complemented by ADR-0043's portable math rules
+  (libm, no glam SIMD types in sim code). "No push constants" means *our* shaders. A quarantined
+  `.app` started from Downloads runs under App Translocation; portable mode is ignored there
+  with a notice (ADR-0040).
+- 2026-10-15 (plan review): the sentence "Determinism (ADR-0017) remains same-platform" is
+  superseded by ADR-0043 (bit-identical sim state across all three platforms, verified by the
+  cross-OS CI job). Input, CI and high-DPI are now specified by ADR-0052, ADR-0054 and ADR-0053.

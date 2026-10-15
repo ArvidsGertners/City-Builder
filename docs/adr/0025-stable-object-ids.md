@@ -26,3 +26,7 @@ must reference objects robustly; future networking needs shared identities.
 
 - Robust saves/undo/seeds; a small lookup cost (`IdMap`) when following references.
 - `u32` space (4 billion per kind) is ample since IDs are never reused.
+
+## Amendments
+
+- 2026-10-15 (plan review): IDs are `NonZeroU32` newtypes so `Option<Id>` stays 4 bytes.

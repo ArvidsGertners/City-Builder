@@ -1,6 +1,6 @@
 # ADR-0004: Lighting pipeline
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0050
 - **Date:** 2026-10-15
 - **Milestone:** M2 (static), M11 (cycle), M12 (weather)
 

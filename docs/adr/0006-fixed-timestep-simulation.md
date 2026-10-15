@@ -1,6 +1,6 @@
 # ADR-0006: Fixed-timestep simulation and the time model
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0042
 - **Date:** 2026-10-15
 - **Milestone:** M1 (driver), M5 (calendar)
 

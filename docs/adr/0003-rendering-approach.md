@@ -1,6 +1,6 @@
 # ADR-0003: Rendering approach — procedural meshes, chunk merging, instancing, LOD
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0049
 - **Date:** 2026-10-15
 - **Milestone:** M2 (terrain, roads, houses), M4 (chunk merging at scale)
 

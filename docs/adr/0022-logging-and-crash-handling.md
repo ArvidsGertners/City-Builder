@@ -41,3 +41,10 @@ errors and reports must be copy-paste friendly for handing back to the developer
 
 - Reports contain everything needed to reproduce (seed + recent commands + versions).
 - Small amount of global state (`OnceLock`s) isolated in `bootstrap/crash.rs`.
+
+## Amendments
+
+- 2026-10-15 (plan review): the panic hook reads shared state with `try_lock` only (a panic
+  while the lock is held must not deadlock the hook). Log and crash locations follow ADR-0040.
+  The "last session crashed" notice is an egui window at startup from M1, moved into the main
+  menu in M15.

@@ -1,44 +1,37 @@
 # Risks & Open Questions
 
-Status: **Living document** — update when a risk materializes, is retired, or a question is
-answered. Likelihood/Impact: L/M/H.
+Status: **Living document** (revised after the 2026-10-15 independent review) — update when a risk
+materializes, is retired, or a question is answered. Likelihood/Impact: L/M/H. The six top risks
+are proven by Phase S spikes before their real systems are built (PROGRESS.md, ADR-0058).
 
 ## 1. Risk register
 
-| # | Risk | L | I | Mitigation | Early signal / checkpoint |
+| # | Risk | L | I | Mitigation | Spike / checkpoint |
 |---|---|---|---|---|---|
-| R1 | **Intersection geometry** fails on acute angles, many-way nodes, mixed widths, curved approaches, short segments → overlapping meshes, broken connectors | H | H | Pure `cb_network::junction` with property tests over randomized junctions (2–6 approaches, angles 25–180°, mixed types); cut-back cap with clear "too close" validation instead of bad geometry; i_overlay repair of the polygon; min junction angle 25°; continuation nodes never build junctions; debug overlay of cut-backs/connectors; snapshot tests for canonical layouts | M3: 1 000 random junctions build without invalid polygons; visual review of T/X/Y/5-way/avenue×street |
-| R2 | **Traffic performance** below 5k agents at 60 FPS (routing spikes, junction logic cost, pose computation) | M | H | 1D SoA agent model; poses only for visible agents; route cache + variants + per-tick search cap; parallel lane groups; agent cap with macro sampling as a safety valve; headless bench from M9 day one | M9: bench 5k agents < 1.5 ms/tick; if not, lower junction request frequency (10 Hz) and vectorize IDM |
-| R3 | **Gridlock** (roundabout-like loops, merges on avenues, blocked boxes, lane-change failures) degrades cities | H | H | Don't-block-the-box exit check; atomic zone locking; anti-starvation; mandatory lane-change fallbacks (stop & wait → reroute); stuck timeout despawn (90 s) + wait-for-graph cycle breaking; per-area jam notifications; test suite on standard junction types; gridlock log in debug overlay | M9: 10-day soak with traffic shows < 1 despawn per 1 000 trips |
-| R4 | **Bridges**: span detection flicker during preview, piers colliding with roads, ugly abutments, steep ramps | M | M | Hysteresis in classification (enter/exit thresholds), min span 12 m, merge close spans, pier placement avoiding corridors, abutment Pad stamps, deck profile re-solve; validation messages; preview shows spans explicitly | M3: river crossing + valley crossing + road overpass screenshots |
-| R5 | **Terrain/road blending**: z-fighting, floating roads, gaps at LOD boundaries, embankments cutting into neighbors, junction height mismatch | H | M | Height queries use render triangulation; road surface +5 cm with skirts; corridor stamps set exact heights; order-independent stamp compositing with priorities; terrain LOD0 within 350 m; junction profiles meet node height; plot pads lower priority than roads | M2: close-up screenshots on slopes at all zooms; automated check that road surface − terrain ∈ [0, 0.2 m] along all lane samples |
-| R6 | **Freeform plot subdivision** produces slivers, crossing rays, non-touching lots, unstable lot IDs on edits, ugly fits | H | H | Strip algorithm with ray de-crossing, i_overlay booleans with snapping, repair/merge loop, stable ID matching; randomized tests on 10⁴ generated plots; tool limits (min frontage/area); debug overlay of rays and lots | M2: subdivision suite green; visual review of curved-road plots |
-| R7 | **Simulation performance** at 50k citizens (trip generation spikes at shift starts, sliced systems falling behind at 4×) | M | H | Time-wheel scheduling, shift-start jitter, sliced daily systems with fixed per-tick budgets, hourly aggregates; bench at 4×; tick-time p99 tracking | M5 bench: 50k citizens without traffic < 1 ms/tick avg |
-| R8 | **Look & feel not reaching "polished"** (procedural buildings repetitive, lighting flat) | M | H | Art direction doc with concrete palettes and keyframes; screenshot harness each visual milestone; procgen gallery for tuning; vertex AO + SSAO; multiple roof/façade styles; M2 is gated on visual quality | M2 screenshot review before moving on |
-| R9 | **Bevy 0.20 is one week old**: ecosystem lag (bevy-inspector-egui still on 0.19), new WESL shader dialect, possible early bugs | H | M | Use only core Bevy + bevy_egui (supports 0.20); in-house inspector until bevy-inspector-egui ships 0.20 (ADR-0031); custom shaders kept small and isolated in `render/shaders`; pin exact versions; upgrade Bevy only between milestones via ADR | M1: verify shaders, SSAO, shadows, egui all run on lavapipe and on a real GPU (user's machine) |
-| R10 | **GPU validation/driver issues on Windows** not visible in Linux CI | M | M | Windows CI builds and runs tests; render smoke is Linux-only → ask user to run `--smoke-test` on Windows at visual milestones; crash reports include adapter info | M2 user check |
-| R11 | **Procedural audio quality** can't be judged by ear in this environment | H | M | Conservative, well-known synthesis recipes (filtered noise beds, FM chirps, envelopes); loudness normalization; every sound previewable in the debug gallery; user listening pass requested in M13; ADR-0019 allows switching to CC0 files later via superseding ADR | M13 user feedback |
-| R12 | **Time compression** confuses commute semantics (long trips in game-clock terms) | M | M | Perceived-time rule (GAME_DESIGN §2), backward scheduling, UI shows perceived minutes; tune factor in M9 | M9 playtest |
-| R13 | **Determinism drift** from ECS iteration order, HashMap iteration, float accumulation order | M | M | Rules in CLAUDE.md; state hash tests incl. save/load continuation and shuffled schedules from M5 | M5 determinism tests |
-| R14 | **Save compatibility** breaks silently | L | H | Versioned header, Value-tree migrations, golden fixtures per version, CI test | From M5 |
-| R15 | **Scope** (16 milestones, one developer agent) — polish suffers | H | H | Milestone acceptance criteria, depth over breadth, explicit out-of-scope list, defer stretch (music, real point lamps) | Every milestone |
-| R17 | **macOS/Metal differences** (shader translation to MSL, storage-buffer limits, timestamp queries, unified-memory pressure) only visible on Apple hardware; GitHub's Apple Silicon runners have no reliable GPU | M | H | Only cross-backend wgpu features; GPU-free shader validation incl. MSL (spike S6); informational macOS smoke job; user runs `--smoke-test`/`--screenshot-suite`/`--benchmark` on the M4 at M2, M4, M9, M11, M16; crash reports include adapter/backend | M2 first M4 run |
-| R18 | **Retina fill rate** on base M4 misses 60 FPS | M | M | Render scale Auto (≤ 3.7 MP), half-res SSAO on Medium, fewer bloom mips, LOD scale; benchmark on M4 | M2/M4 M4 benchmark |
-| R19 | **Trackpad gesture conflicts** (pixel-scroll from Magic Mouse vs. trackpad, pinch vs. scroll, gestures swallowed by egui) | M | M | Scroll-unit policy + setting (ADR-0039), egui hover suppression, synthetic-event unit tests, user test on M4 at M2 | M2 user feedback |
-| R20 | **Unsigned macOS app** blocked by Gatekeeper | H | L | Ad-hoc signing, README first-launch instructions; notarization once a Developer ID is available (assumption A-P3) | first release |
-| R16 | **Build times** with full Bevy slow iteration | M | L | Workspace split (pure crates test without Bevy), dev profile opt-level 1 for own code / 3 for deps, optional `dynamic_linking` feature locally (not in CI), mold/lld documented | M1 |
+| R1 | **Traffic at scale**: junction admission, lane plans on short links, gridlock, routing load; visible traffic not representing real load | H | H | 1D SoA agents, fixed partitions, exit-space reservations, lane plans with routing penalty, spawn queues, cost-unit routing budget, wait-for cycle breaking, ≥ 40 % visible-agent target; fallback ladder (forced signals, meso model, lower cap) (ADR-0045/0047/0048) | **S-T**; M9 soak |
+| R2 | **Intersection geometry** on freeform, sloped, mixed-width roads incl. tram radii; steps at cut lines; "too close" frustration | H | H | Node-based generation with cut-back cap + spacing guide, per-vertex surface heights + landing grade, per-kind connector radii, polygon repair, randomized property tests; fallback: degree/angle caps, templates (ADR-0045) | **S-J**; M3 shots |
+| R3 | **Plots → lots → buildings**: slivers, crossing rays, corner lots, unstable lot IDs, poor fits | H | H | Strip subdivision with bounded de-crossing, i_overlay booleans, repair loop, fit rule, stable-ID matching, corner frontage via fillets; fallback: frontage-drag only, parallel side edges, corner generator (ADR-0014 + amendment) | **S-P**; M2 shots |
+| R4 | **Time model / trip scale**: unit confusion, peaks, concurrency vs agent cap, day-length effects | M | H | Fixed sim/game ratio, explicit units, day length as pacing only, backward scheduling, perceived time (ADR-0042) | **S-Time** |
+| R5 | **Road–terrain interface incl. bridges**: terrain through roads at any LOD, cliffs between embankments, junction steps, abutment gaps, buried underpasses, preview flicker | H | H | Continuous compositing with cores, 0.15 m carve, 3.5 m shoulder, min-downsampled LOD in corridors, skirts, overpass bridging, span hysteresis, abutment pads (ADR-0046, ALGORITHMS §2–3) | **S-G**; M2/M3 shots |
+| R6 | **Rendering pipeline assumptions**: custom vertex layout + derivative normals with Bevy 0.20 prepass/shadow paths, render-scale composite, memory budget, GPU-free shader validation | M | H | Spike first; fallbacks: standard layout with normals + tighter residency, offscreen composite, smoke-test-only validation (ADR-0049/0053) | **S-Render** |
+| R7 | **Simulation performance** at 50k citizens (trip bursts, sub-rate spikes at 4×) | M | H | Time wheel, phase table with 0.6 ms slot cap, sliced daily systems, deterministic budgets; bench at 4× | M5 bench (tick p95 ≤ 1.0 ms) |
+| R8 | **Look & feel not polished** (repetitive buildings, flat lighting) | M | H | ART_DIRECTION values, screenshot suites with objective metrics + semantic pass + agent review, procgen gallery, vertex AO + SSAO, M2 visual gate | M2 review |
+| R9 | **Bevy 0.20 is one week old** (ecosystem lag, WESL dialect, early bugs) | H | M | Core Bevy + bevy_egui only; in-house inspector; small isolated shaders; pinned versions; upgrades only between milestones via ADR | S-Render; M1 smoke |
+| R10 | **GPU/driver differences** on Windows and Metal not visible on lavapipe | M | M | Cross-backend features only; shader validation incl. MSL/HLSL (S-Render); real-GPU runs via the User verification queue; adapter info in crash reports | UV-1/UV-2 |
+| R11 | **Procedural audio quality** without listening | H | M | Objective audio QA suite + spectrograms; listening pass ☑ᵤ; CC0 samples possible via superseding ADR | M13 |
+| R12 | **Determinism drift** (iteration order, maps, partitions, float/libm, SIMD) | M | M | ADR-0043 rules enforced by clippy config; thread-count, shuffle, save/load and cross-OS hash tests | M1–M5 |
+| R13 | **Save compatibility** breaks silently | L | H | Completeness rule, struct-map encoding, validation, catalog hash, fixtures from v1.0 (ADR-0044) | M5, M15 |
+| R14 | **Scope** (≈ 150 agent-days) — polish suffers | H | H | Estimates vs actuals, 1.5× trigger, scope-cut ladder that never cuts brief features without asking, depth over breadth | every milestone |
+| R15 | **Build/CI time** with full Bevy on three OSes | M | M | Workspace split, cached CI, `ci-release` profile, 640×360 smoke, CI ≤ 25 min target; local `dynamic_linking` only outside CI | M1 |
+| R16 | **Retina fill rate** on base M4 | M | M | Auto render scale by GPU class (≤ 2.2 MP), Medium preset on Apple M-series, half-res SSAO, fewer bloom mips (ADR-0053) | UV-3 |
+| R17 | **Trackpad/shortcut behavior** on macOS (gesture delivery, ⌘Q interception, Magic Mouse) | M | M | Scroll-unit policy + setting, drag precedence, synthetic-event tests, autosave-on-exit fallback, user check (ADR-0052) | UV-4 |
+| R18 | **Unsigned macOS app** blocked by Gatekeeper / App Translocation | H | L | Ad-hoc signing, README instructions, translocation detection (ADR-0037/0040 amendments) | first release |
+| R19 | **Memory** (merged meshes, props, render targets) on 16 GB unified memory | M | M | 20 B indexed vertices, residency rings, LRU caps, budgets reported by `--benchmark` (ADR-0049) | S-Render, M4 |
 
-## 2. Open questions (with the default I will use unless you decide otherwise)
+## 2. Open questions
 
-| # | Question | Default decision |
-|---|---|---|
-| Q1 | Should bevy-inspector-egui be added via a git dependency before its 0.20 release? | **No.** In-house minimal inspector behind `dev`; switch to bevy-inspector-egui (feature `inspector`) when a crates.io release supports Bevy 0.20 (ADR-0031). |
-| Q2 | Audio: procedural synthesis vs. CC0 sample files? | **Procedural** (ADR-0019), consistent with "no assets" and fully reproducible. Revisit after your listening pass in M13. |
-| Q3 | Power distribution: road network vs. explicit power lines? | **Road network** (ADR-0026). Power lines are not in v1; the utility graph allows adding "utility links" later. |
-| Q4 | Day length default (24 real minutes) and season length (4 days)? | As stated; both configurable in settings. |
-| Q5 | Currency display | en: `$1,234`; de: `1.234 €` — purely a localized label for the same in-game currency. |
-| Q6 | Font | egui's bundled default fonts (no font files added to the repo). An OFL font could improve the look; adding one would need your OK because it is an asset file. |
-| Q7 | macOS | **Resolved:** macOS 14+ on Apple Silicon is a required platform (ADR-0037/0038/0039/0040/0041). |
-| Q8 | License for the repository | Not decided — no LICENSE file is added until you choose. |
-| Q9 | Grade-separated overpasses via manual elevation (PgUp/PgDn) are included; tunnels are out of scope. | Included as designed (ALGORITHMS §1–3). |
-| Q10 | Should the save/load *core* land early (M5) even though save UI is M15? | **Yes** — needed for roundtrip/determinism tests; menus/autosave/slots remain in M15. Same for the localization pipeline (M1) and the input map (M2). |
+All unconfirmed assumptions — with the default that will be implemented — are in
+[ASSUMPTIONS.md](ASSUMPTIONS.md). The ones marked ❓ there are the decisions worth your input;
+none blocks M1. Previously open questions resolved by decisions: inspector (ADR-0031), audio
+(ADR-0019), power distribution (ADR-0026, ASSUMPTIONS B7), macOS (required, ADR-0037), save/load
+core and l10n early (PROGRESS M1/M5).

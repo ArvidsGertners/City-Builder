@@ -3,7 +3,8 @@
 Status: **Accepted (Phase 1 plan)**. All colors are sRGB hex; shaders convert to linear.
 Every value here is data in `cb_procgen::palette` / `cb_game::lighting::keyframes`; tune
 there and update this doc. Screenshots for review are produced with `scripts/screenshot.sh`
-(fixed seed, fixed camera set, times 07:00/12:00/18:30/23:00, each weather).
+(fixed seed, fixed camera set, keyframe times 08:30/12:00/19:00/23:00, each weather; exposure from
+the lighting director, ADR-0058).
 
 ## 1. Pillars
 
@@ -41,17 +42,20 @@ by matching the noon reference screenshot, then all moods scale from it.
 
 | Time | Sun color | sun_rel | Ambient color | amb_rel | Sky zenith | Sky horizon | Fog color | Exposure offset |
 |---|---|---|---|---|---|---|---|---|
-| 00:00 night | moon #9DB2DF | 0.10 | #3A4F80 | 0.32 | #142039 | #2E4170 | #263760 | +2.6 EV |
-| 05:00 blue hour | moon→sun #A9B6E0 | 0.08 | #55618F | 0.30 | #24325A | #8C7FA3 | #6C6A8E | +2.0 EV |
+| 00:00 night | moon #9DB2DF | 0.10 | #3A4F80 | 0.14 | #142039 | #2E4170 | #263760 | +1.2 EV |
+| 05:00 blue hour | moon→sun #A9B6E0 | 0.08 | #55618F | 0.16 | #24325A | #8C7FA3 | #6C6A8E | +1.0 EV |
 | 06:30 sunrise | #FFB27A | 0.45 | #A88B9A | 0.45 | #5F7FB8 | #FFC594 | #E8B79A | +0.8 EV |
 | 08:30 morning | #FFE2BF | 0.85 | #B5C4D6 | 0.75 | #6F9ED6 | #CFE0EE | #D7E2EA | 0 |
 | 12:00 noon | #FFF3E2 | 1.00 | #BFD0E2 | 0.80 | #6A9FDC | #D6E6F2 | #DCE7EE | 0 |
 | 16:30 afternoon | #FFE4C2 | 0.90 | #C3C7D3 | 0.75 | #6F9AD0 | #E3E1DC | #E2DED6 | 0 |
 | 19:00 sunset | #FF9E5E | 0.50 | #B48A8A | 0.50 | #4F68A8 | #FFAE78 | #E9A882 | +0.6 EV |
-| 20:00 dusk | #C88AA0 | 0.12 | #6A6A98 | 0.38 | #2A3766 | #B98AA0 | #7E7398 | +1.8 EV |
-| 22:00 night | moon #9DB2DF | 0.10 | #3A4F80 | 0.32 | #142039 | #2E4170 | #263760 | +2.6 EV |
+| 20:00 dusk | #C88AA0 | 0.12 | #6A6A98 | 0.18 | #2A3766 | #B98AA0 | #7E7398 | +0.9 EV |
+| 22:00 night | moon #9DB2DF | 0.10 | #3A4F80 | 0.14 | #142039 | #2E4170 | #263760 | +1.2 EV |
 
-Night rules: never pitch black — minimum ambient `amb_rel 0.30`; the scene reads as
+`sun_rel`/`amb_rel` are **pre-exposure** (ADR-0050): effective = value × 2^EV. Night effective
+ambient = 0.14 × 2^1.2 ≈ 0.32, i.e. ≈ 40 % of noon ambient (0.80), so emissive windows and lamps
+(also scaled by exposure) clearly out-shine the ambient.
+Night rules: never pitch black — minimum effective ambient 0.30; the scene reads as
 "day-for-night" blue. Windows `#FFC877`, street lamps `#FFD59A` with soft warm pools,
 headlights `#FFF2D6`, tail lights `#E0584A` (desaturated red), transit interiors `#FFE7B0`.
 Seasonal sun: winter noon `sun_rel × 0.85`, color cooler (#FFF6EC), lower sun elevation;
@@ -72,7 +76,7 @@ color lifted by ambient — shadows are never darker than ~35 % of lit value at 
 | Snow | 0.55 | +0.30 cool white | #C7D0D8 @ 70 % | 2.0 | snowflakes, snow accumulation on roofs/terrain/trees (normal-up mask), roads partly cleared |
 
 Readability in bad weather: zone/road/vehicle value contrasts are preserved by limiting fog
-to distant terrain (fog start ≥ 120 m from camera focus) and by boosting emissive/vehicle
+to distant terrain (focus-distance fog starting ≥ 120 m from the camera focus, ADR-0050) and by boosting emissive/vehicle
 lights slightly in rain/fog/snow.
 
 ## 5. Palettes
@@ -174,9 +178,10 @@ increases outline thickness, uses pure white/black for neutral, and raises overl
 
 ## 8. Problem icons and world labels
 
-Billboards (procedural SDF icon atlas, ADR-0003) in rounded-square badges: badge #F6F1E7
+Billboards (procedural SDF icon atlas, ADR-0049) in rounded-square badges: badge #F6F1E7
 with icon stroke #3B3A36; severity ring: warning #E0A43A, critical #C4544A. Scale stays
-constant on screen within a range, fades beyond 1.2 km, clusters when > 3 overlap.
+constant on screen within a range, fades beyond 1.2 km, clusters on a 48 logical-px screen grid when
+> 3 fall into one cell (badge shows count + worst severity; click zooms to the cluster).
 Icons: no road (road with slash), no power (bolt), no water (drop), sewage (pipe), garbage
 (bin), fire (flame), crime (mask), sick (cross), no workers (person outline), no customers
 (bag), no goods (crate), abandoned (broken window), pollution (cloud), noise (wave).
@@ -192,7 +197,8 @@ Icons: no road (road with slash), no power (bolt), no water (drop), sewage (pipe
 - **Typography**: egui default proportional font (Ubuntu-Light) for body at 15 logical px
   (UI scale 1.0), headings 19–22 px; monospace (Hack) only in debug tools. UI scale
   75–200 % on top of the OS scale factor (Retina 2.0 renders text at native sharpness,
-  ADR-0041). Shortcut hints use platform glyphs (⌘ ⌥ ⇧ on macOS).
+  ADR-0053). Shortcut hints use platform glyphs (⌘ ⌥ ⇧ on macOS) drawn as procedural icons
+  (`shortcut_chip`), never font glyphs (ADR-0051).
   German strings are ~30 % longer: layouts use wrap/flex, no fixed-width labels.
 - **Iconography**: one procedural line-icon set (2 px stroke at 24 px, rounded caps), the
   same atlas as world icons. Toolbar buttons 44 × 44 px with icon + tooltip

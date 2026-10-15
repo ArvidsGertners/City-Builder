@@ -1,6 +1,6 @@
 # ADR-0009: Intersection handling and traffic control
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0045
 - **Date:** 2026-10-15
 - **Milestone:** M3 (geometry, settings), M9 (control behavior)
 

@@ -1,6 +1,6 @@
 # ADR-0010: Traffic simulation model — agents, LOD, trip generation
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0047
 - **Date:** 2026-10-15
 - **Milestone:** M9
 

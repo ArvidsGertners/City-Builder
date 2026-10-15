@@ -13,24 +13,33 @@ sudo apt-get install -y mesa-vulkan-drivers xvfb    # lavapipe software Vulkan +
 
 ## 2. Suite definition
 - Suites live in `crates/cb_game/src/debug/screenshot_suites.ron`, one per milestone
-  (`M2`, `M3`, …). Each suite = deterministic scenario (seed + scripted `PlayerCommand`
-  list, sim fast-forwarded headless to a fixed tick) + list of shots
-  `{ id, camera: {focus, yaw, pitch, distance}, time_of_day, weather, overlay, ui: bool }`.
+  (`M2`, `M3`, …, `S` for spikes). Each suite = deterministic scenario (seed + scripted
+  `PlayerCommand` list, sim fast-forwarded headless to a fixed tick) + list of shots
+  `{ id, camera: {focus, yaw, pitch, distance}, time_of_day, weather, overlay, ui: bool,
+  assertions: [semantic-pass checks] }`.
 - The shot list and the "must be visible" items for each suite are copied in
   `docs/PROGRESS.md` under the milestone's acceptance criteria. Minimum per suite:
   overview (high), mid (city block), close-up (street level), three yaw angles (0°, 120°,
-  240°) for at least one subject; from M11: 07:00, 12:00, 18:30, 23:00; from M12: each
-  weather at noon + rain and snow at night.
+  240°) for at least one subject; from M11: keyframe times (05:00, 06:30, 08:30, 12:00, 16:30,
+  19:00, 20:00, 23:00); from M12: each weather at noon + rain and snow at night.
 
 ## 3. Render
-- 1600 × 900 PNG, UI hidden unless the shot says `ui: true`, deterministic seed, fixed
-  exposure. File names `<suite>-<nn>-<id>.png`. Keep each image ≤ 1.5 MB (low-poly scenes
-  compress well); if larger, note it — don't commit huge files.
-- The run also writes `capture.json` (git hash, settings preset, adapter = lavapipe,
-  timings).
+- 1600 × 900 PNG at scale factor 1.0, UI hidden unless the shot says `ui: true`,
+  deterministic seed, **exposure from the lighting director** (not fixed). File names
+  `<suite>-<nn>-<id>.png`. Keep each image ≤ 1.5 MB; if larger, note it.
+- **Settle rule**: capture only when pending mesh jobs = 0, pending pipelines = 0, ≥ 30 frames
+  since the last change, and LOD crossfades finished.
+- The run also writes `capture.json` (git hash, settings preset, adapter = lavapipe, timings)
+  and, with `--screenshot-metrics`, `metrics.json` per shot: luminance histogram and median,
+  clipped %, pure-black (< 8/255) %, magenta/NaN pixel count, plus the **semantic pass** (same
+  camera rendered with flat class colors: terrain, water, road, R, C, I, service, vehicle, tree,
+  UI) with the shot's assertions evaluated (e.g. vehicle pixels ≥ 1.5 %) and the beauty-pass
+  class mean-color separation (ΔE00 ≥ 12).
 
 ## 4. Inspect every image yourself
-Open each PNG with the Read tool and check, writing findings per shot:
+First check `metrics.json`: any failed gate (magenta/NaN > 0, pure black > 0.5 % in daylight,
+failed semantic assertion, calibration metrics from ADR-0050) blocks completion.
+Then open each PNG with the Read tool and check, writing findings per shot:
 - Every "must be visible" item for the shot is clearly visible (name it).
 - Art direction: palettes within ART_DIRECTION.md; no pure saturated colors; shadows soft
   and not black; AO reads; fog not hiding the subject; night readable (if applicable).
@@ -47,7 +56,7 @@ recorded as known issues in PROGRESS.md with a plan.
   (thumbnail link, camera, time/weather, what it demonstrates, verdict), list of issues
   found and fixed, remaining known issues, render settings, git hash.
 - Note in the PROGRESS.md log that the suite was reviewed, with the path.
-- lavapipe renders are correct but slow and may differ slightly from GPUs (no MSAA
-  differences since we use SMAA; SSAO identical). At visual milestones ask the user for a
-  real-GPU confirmation run on Windows/Linux and Apple Silicon (`--screenshot-suite` works
-  the same on their machines).
+- lavapipe renders are correct but slow and may differ from GPUs (precision of derivatives and
+  compute passes). At M2 compare a lavapipe suite with the user's GPU suite once and record the
+  metric deltas. At visual milestones add a real-GPU confirmation request to the User
+  verification queue (☑ᵤ, non-blocking); `--screenshot-suite` works the same on their machines.

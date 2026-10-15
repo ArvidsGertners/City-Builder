@@ -48,3 +48,8 @@ injectable lookup), directories created lazily on first write:
 
 - Correct, documented locations; trivial to test; no dependency.
 - Windows Known Folder redirection only affects Documents/Pictures, which we don't use.
+
+## Amendments
+
+- 2026-10-15 (plan review): if the executable path contains `/AppTranslocation/` (macOS
+  Gatekeeper), portable mode is ignored and a notice explains `xattr -dr com.apple.quarantine`.

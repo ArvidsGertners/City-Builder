@@ -23,3 +23,10 @@ Bevy's mesh picking cannot identify individual buildings and would be slow on la
 ## Consequences
 
 - Fast (< 0.1 ms), precise, independent of render LOD/merging.
+
+## Amendments
+
+- 2026-10-15 (plan review): elevated roads and bridges are picked by ray-vs-deck ribbon tests
+  (profile height ± half width) for spans with elevation > 1 m; node snapping uses the 3D
+  distance between the cursor ray and the node; snap radius `max(r_m, 14 logical px ×
+  m_per_px)`. Picking goes through `picking::cursor_ray` (ADR-0053).

@@ -40,3 +40,11 @@ CPU budget at 4× and stay deterministic.
 - O(events) cost; 50k+ citizens fit comfortably; easy to save (tables) and deterministic
   (stable IDs, sorted processing).
 - No individual pathing for pedestrians beyond visual agents.
+
+## Amendments
+
+- 2026-10-15 (plan review): the 32-byte `Citizen` record uses `NonZeroU32` IDs, a merged
+  `Option<Place>` (work or school) and a 32-bit `TripId`; a `const` assertion enforces the size.
+  Lifecycle rules (yearly, sliced): Child→Student→Adult steps, Adult→Senior p = 1/12, Senior
+  removal p = 0.12, births p = 0.15 per eligible household, adults with free housing may move
+  out (GAME_DESIGN §10).

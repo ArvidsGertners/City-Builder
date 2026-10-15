@@ -1,34 +1,38 @@
 # Testing Strategy
 
-Status: **Accepted (Phase 1 plan)**.
+Status: **Accepted (Phase 1 plan, revised after the 2026-10-15 plan review)**.
 
 ## 1. Principles
 
 - The hard logic lives in pure crates → fast unit tests (whole pure-crate suite < 30 s).
 - The simulation is headless → integration tests drive real `SimPlugins` in a `MinimalPlugins`
   app, no GPU, no window.
-- Determinism is a testable property: same seed + same command stream ⇒ same state hash.
-- Randomized tests use our own seeded RNG (`cb_core::rng`) with fixed seeds and loop counts;
-  a failing seed is printed so it can be pinned as a regression case. (No proptest
-  dependency — ADR-0023.)
-- Rendering is checked by a smoke test (shader compile + N frames) and screenshot review,
-  not pixel-exact assertions.
+- Determinism is a testable property: same seed + same command log ⇒ same state hash — on every
+  thread count, with shuffled schedules, across save/load, and **across Windows, Linux and macOS**.
+- Randomized tests use `cb_core::rng` with fixed seeds and loop counts plus a tiny shrinker in
+  `cb_core::test_util` (halves counts/ranges until the failure disappears); a failing seed is
+  printed and pinned as a regression case. (No proptest dependency — ADR-0023.)
+- Rendering is checked by shader validation, a smoke test, objective screenshot metrics and a
+  semantic pass, plus the agent's own review of every screenshot (ADR-0058).
+- Every test name in PROGRESS.md acceptance criteria exists in the code before the milestone is
+  marked done.
 
 ## 2. Levels
 
-| Level | Where | Runs in CI | Typical time |
+| Level | Where | CI | Typical time |
 |---|---|---|---|
-| Unit | `#[cfg(test)]` modules in every crate | yes (Linux, Windows, macOS Apple Silicon) | seconds |
-| Golden/snapshot | pure crates: procgen hashes, junction geometry snapshots (RON in `tests/snapshots/`) | yes | seconds |
-| Integration (headless sim) | `crates/cb_sim/tests/*.rs` using `cb_sim::testing::Scenario` | yes | < 2 min |
-| Soak (multi-day, large) | `#[ignore]` tests in `cb_sim/tests/` | nightly workflow + before milestones | 5–15 min |
-| Schedule property | sim schedules built with shuffled order (`shuffle_seed`) + single-threaded executor, state hash compared | yes (3 seeds) | < 1 min |
-| Shader validation | compose every WESL shader and translate to SPIR-V/HLSL/MSL with naga, no GPU (if spike S6 succeeds) | yes (all three OS) | seconds |
-| Render smoke | `cb_game --smoke-test 300` under Xvfb + lavapipe (Linux job); macOS job informational | yes (Linux blocking, macOS non-blocking) | ~3 min |
-| Platform | paths (ADR-0040) for all three OS from injected env; `PRIMARY` modifier mapping; gesture/scroll-unit policy; DPI cursor-ray mapping (ADR-0041) | yes (all OS, pure functions) | seconds |
-| Real-hardware runs | `--smoke-test`, `--screenshot-suite`, `--benchmark` on the user's GPU PC and Apple M4 | requested at M2, M4, M9, M11, M16 | minutes |
-| Screenshot review | `scripts/screenshot.sh` → PNGs for manual/agent review | on demand, per art-relevant milestone | ~5 min |
-| Bench | `headless_bench` | on demand + CI informational | minutes |
+| Unit | `#[cfg(test)]` in every crate | yes, Linux/Windows/macOS × {default, `dev`} | seconds |
+| Golden/snapshot | procgen hashes, junction geometry snapshots (RON in `tests/snapshots/`) | yes | seconds |
+| Platform | paths (ADR-0040) for all OS from injected env; `PRIMARY` mapping; scroll-unit/gesture policy; DPI/render-scale cursor ray (ADR-0053) | yes (pure functions, all OS) | seconds |
+| Shader validation | compose every WESL shader and translate to SPIR-V/HLSL/MSL via naga, no GPU (if spike S-Render proves it feasible) | yes, all OS | seconds |
+| Integration (headless sim) | `crates/cb_sim/tests/*.rs` via `cb_sim::testing::Scenario` | yes | < 2 min |
+| Determinism | §5 | yes (cross-OS job blocking from M5) | < 3 min |
+| Soak | `#[ignore]` tests (`traffic_multi_day_large`, 2-hour 4× soak) | nightly + before milestones | 5–30 min |
+| Render smoke | `cb_game --smoke-test 60 --resolution 640x360 --scene smoke` (every material/specialization) | Linux blocking, macOS informational | ~3 min |
+| Screenshot suites | `scripts/screenshot.sh <M>` → PNG + `metrics.json` + semantic pass | locally per visual milestone | 10–30 min |
+| Audio QA | loudness, true peak, loop seams, DC/NaN, spectral centroid; spectrogram PNGs | yes (pure `cb_audio`) | seconds |
+| Benchmarks | `headless_bench`, `--benchmark --no-gpu-work` (container), user GPU runs | informational artifact | minutes |
+| Real hardware | smoke / screenshots / benchmark / input / listening on the user's PC and M4 | User verification queue (☑ᵤ) | — |
 
 ## 3. Scenario harness (cb_sim::testing)
 
@@ -36,62 +40,68 @@ Status: **Accepted (Phase 1 plan)**.
 let mut s = Scenario::new(seed).flat_terrain().money(1_000_000);
 let a = s.road(RoadType::Street, [(0.0, 0.0), (300.0, 0.0)]);
 let b = s.road_curved(RoadType::Avenue, (300.0, 0.0), (420.0, 60.0), (400.0, 200.0));
-s.plot(Zone::Residential, a.side(Side::Left), 20.0..280.0, depth 30.0);
-s.place(Service::PowerDiesel, near(a, 50.0)); s.place(Utility::WaterPump, shore());
-s.run_days(3);
+s.plot(Zone::Residential, a.side(Side::Left), 20.0..280.0, 30.0 /* depth */);
+s.place(Utility::DieselGenerator, near(a, 50.0));
+s.place(Utility::WaterPump, s.shore_near(a));
+s.run_game_days(3);
 assert!(s.population() > 50);
 assert_eq!(s.problems(Problem::NoPower), 0);
-let h = s.state_hash();   // stable hash over sorted saved state
+let h = s.state_hash();   // stable hash over the canonical save snapshot
 ```
-`Scenario` issues real `PlayerCommand`s (so command validation is exercised), runs
-`SimEdit`/`SimTick` explicitly, and exposes query helpers. `state_hash()` hashes the save
-snapshot (the canonical sorted representation), so it is independent of ECS iteration order.
+`Scenario` issues real `PlayerCommand`s (so validation is exercised), runs `SimEdit`/`SimTick`
+explicitly, and exposes query helpers. `cb_sim::testing::citygen` builds large organic cities
+(roads + plots + forced growth) for benchmarks and soak tests.
 
-## 4. Required test coverage (from the project brief)
+## 4. Required coverage
 
-| Area | Tests |
+| Area | Tests (names in PROGRESS.md acceptance criteria) |
 |---|---|
-| Geometry edge cases | Bézier split/eval/nearest-point vs. dense sampling; arc-length accuracy; curvature on degenerate curves (coincident control points); offset of sharp curves (no inversion at r_min); polygon orientation/area/containment with collinear & duplicate points; self-intersecting input rejected; ear clipping on random simple polygons (area preserved, no inverted triangles); boolean ops on touching/overlapping/slivers; rect fitting on L/U/angled shapes |
-| Plot subdivision | tiny lots (N clamps), sharp concave frontage (no crossing rays), corner plots on two roads, deep plots, N too large, slivers merged, stable lot IDs across small edits, all lots touch frontage, union of lots ⊆ plot and area conserved ±0.5 % |
-| Lane generation | lane count/offset per cross-section; one-way; lane polylines parallel within tolerance; lengths consistent; bus/tram lanes; lanes reversed correctly |
-| Junctions | cut-backs for T/X/Y/5-way/acute angles; polygon simple; connectors exist for all allowed movements; same-approach connectors never cross; conflict zones symmetric; continuation nodes produce no junction |
-| Road graph connectivity | components after add/remove/split; outside reachability; one-way dead ends detected by routing tests |
-| Pathfinding | A* = Dijkstra on random graphs (optimality); ALT admissibility; cache invalidation on removed links; variants deterministic; unreachable handled; bounded Dijkstra radius |
-| Intersection rules | no deadlock on standard junctions under random arrivals (10⁵ ticks, all control types); no two vehicles in conflicting zones simultaneously; stop-sign full stop; light phases never give conflicting greens; anti-starvation |
-| Traffic | IDM never produces negative speed or overlap; queue discharge rate within 10 % of expected capacity; gridlock detector despawns stuck agents and logs |
-| Bridges | span detection over water/valleys; piers inside span and outside other corridors; min clearance; cost scales with length |
-| Terrain | determinism of generation; stamps order-independent (shuffle insertion → identical heights); remove stamp restores base exactly; raycast vs. brute force |
-| Utilities | supply/demand allocation deterministic; brownout order; disconnected networks; shoreline requirement |
-| Service coverage | network distance (not Euclidean): a building across a river without bridge is uncovered; incremental recompute equals full recompute |
-| Demand | monotonic responses (more jobs → R up; higher tax → down) on synthetic inputs |
-| Leveling | thresholds and hysteresis; decline/abandon/recover sequences |
-| Economy | ledger sums equal money delta; rounding residuals carried; loans; refunds on undo |
-| Undo/redo | every command: apply → undo restores state hash; apply → undo → redo equals apply; history depth limit; cleared on load |
-| Procgen determinism | building/vehicle/tree/yard meshes: same seed → identical hash; different IDs → different; generation never panics on random lots (10⁴ random polygons) and stays within lot polygon (footprint ⊆ lot) |
-| Save/load | roundtrip: snapshot → bytes → load → snapshot equal; run N days, save, load, run M days vs. continuous run → equal hashes; corrupted file → error, no panic |
-| Migration | golden saves for every format version in `tests/fixtures/` load and migrate to latest |
-| Localization | every key present in en and de; no unused keys; placeholders consistent; number/date formatting per locale |
-| Headless multi-day with traffic | `traffic_multi_day`: medium city, traffic on, 10 game days, asserts no panics, gridlock despawns < threshold, commute EMA reasonable, population grows, tick p95 within budget (soak variant with large city) |
-| Transit routing | stop access, transfers, mode choice shifts with fares/headway, ridership counts consistent with boardings |
+| Geometry edge cases | Bézier split/eval/nearest point vs dense sampling; arc-length accuracy; degenerate curves; offsets at r_min; polygon orientation/area/containment with collinear & duplicate points; self-intersecting input rejected; ear clipping on random polygons; booleans on touching/overlapping/slivers; rect fitting on L/U/angled shapes |
+| Plot subdivision | `subdivide_random_10k_invariants`, `lot_ids_stable_under_small_drags`, corner plots, concave/S-curve frontage, tiny plots, N too large, slivers, area conservation ±0.5 % |
+| Building fitting | `building_footprint_within_lot_10k`, triangle budgets, façade edges, slope classes, golden hashes |
+| Lanes | counts/offsets per cross-section incl. bus/tram variants; parallelism; reversal |
+| Junctions | `junction_random_10k_valid_or_typed_error`, connectors cover movements, same-approach no crossing, conflict zone symmetry, `junction_surface_continuous_8pct`, ring detection |
+| Junction control | `no_vehicle_stops_inside_conflict_zone`, `junction_no_conflicting_occupancy`, `equal_priority_4way_all_occupied_no_idle_gt_2s`, light plans without conflicting greens (T/X/Y/5/6-way), all-way greedy release, anti-starvation |
+| Traffic | `idm_no_negative_speed_no_overlap_1e6_steps`, `idm_saturation_flow_matches_capacity`, lane plans on short links, spawn queues, gridlock cycle detection, stuck despawn logging |
+| Pathfinding | A* = Dijkstra on random graphs; ALT admissible with variants; cache invalidation; budget determinism; negative cache; SCC traps; bounded Dijkstra radius |
+| Bridges | span detection + hysteresis, piers outside corridors, abutment steps, overpass leaves lower corridor unchanged, cost monotonic |
+| Terrain | determinism (incl. cross-OS hash), compositing order-independence and continuity, bitwise restore on stamp removal, raycast vs brute force, worldgen constraints |
+| Utilities | deterministic allocation, brownout order, disconnected networks, shoreline rules, water pollution advection |
+| Coverage | network-distance (river without bridge uncovered), incremental reach == full, proportional capacity split |
+| Demand / leveling / economy | monotonic demand, breakdown sums, leveling thresholds + hysteresis, ledger = money delta, rounding residuals, loans, bankruptcy, undo refund decay, goods conservation |
+| Undo/redo | per command: undo restores hash, redo equals apply; depth; window; blocked reasons; replay log reproduces hash |
+| Procgen determinism | identical hashes for same input; different IDs differ; never panics on 10⁴ random lots; footprints within lots |
+| Save/load | roundtrip hash; continuation equals continuous (with traffic from M9); corrupt → error; fuzz → no panic; struct-map missing-field default; migration fixtures (from v1.0) |
+| Localization | keys complete in en + de; placeholders match; formatting per locale; no string literals in UI code; German overflow test |
+| UI | structural tooltips lint; anchors; CVD palette separation (Machado 2009) |
+| Audio | loudness targets, seams, clipping/DC/NaN, spectral centroid, deterministic ambient mixer |
+| Headless multi-day with traffic | `traffic_multi_day` (medium, CI) and `traffic_multi_day_large` (soak): thresholds in PROGRESS M9 |
+| Transit | stop access, transfers, overflow, ridership = boardings, tram geometry, car-trip reduction A/B |
 
 ## 5. Determinism tests
 
-1. Same seed, same commands, two runs → equal `state_hash` every game day.
-2. Save at day 3 → load → run to day 6 vs. continuous to day 6 → equal hashes.
-3. Shuffled schedule order (3 seeds) + single-threaded executor → equal hashes (catches
-   hidden ordering dependencies).
-4. Traffic enabled with different presentation settings (max visible vehicles) → equal
-   hashes (proves presentation never affects sim).
-Cross-platform equality is **not** asserted (ADR-0017); CI runs each test per platform
-(x86-64 Linux/Windows and aarch64 macOS).
+1. Same seed + commands, two runs → equal `state_hash` every game day.
+2. `results_identical_1_4_8_threads` (fixed 64 partitions).
+3. Shuffled schedules (`shuffle_seed`, 3 seeds, single-threaded executor; `bevy/debug` dev
+   feature) → equal hashes.
+4. Save at day 3 → load → run to day 6 vs continuous to day 6 → equal hashes (with traffic on
+   from M9).
+5. Presentation independence: vary window size, frame rate (tick distribution per frame),
+   graphics preset, `max_visible_vehicles`, camera path and day-length pacing → equal hashes.
+6. **Cross-OS**: `determinism_probe` (5 worldgen seeds + 2-game-day scenario with traffic) on
+   Linux, Windows and macOS; a CI job compares hashes (blocking from M5, ADR-0054).
+7. `replay_command_log_reproduces_hash` (commands applied at recorded `apply_tick`s).
 
-## 6. Render smoke & screenshots
+## 6. Rendering checks
 
-- `cb_game --smoke-test <frames> [--seed S] [--scene vertical-slice]` loads a fixed scene,
-  runs N frames, exercises every material/shader path, exits non-zero on wgpu validation
-  errors or panics. CI Linux job installs `mesa-vulkan-drivers` + `xvfb`.
-- `scripts/screenshot.sh` renders fixed camera views × times of day × weathers to
-  `target/screenshots/` for art review at each visual milestone (M2, M3, M4, M8, M11, M12, M16).
+- **Smoke**: `--smoke-test 60 --resolution 640x360 --scene smoke` loads a scene containing one
+  instance of every material and specialization (extended each milestone), exits non-zero on
+  wgpu validation errors or panics.
+- **Screenshot suites**: `scripts/screenshot.sh <M>` renders the suite into
+  `docs/screenshots/<M>/` with `metrics.json` (luminance histogram/median, clipped %, pure-black %,
+  magenta/NaN count) and a semantic class pass with per-shot assertions; gates in PROGRESS.md and
+  ADR-0050 calibration metrics; the agent reviews every image (skill `visual-verification`).
+- **lavapipe vs GPU**: compared once at M2 with the user's suite; metric deltas recorded.
 
 ## 7. Conventions
 

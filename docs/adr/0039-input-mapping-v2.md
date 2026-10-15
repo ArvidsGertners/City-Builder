@@ -1,6 +1,6 @@
 # ADR-0039: Input and action mapping v2 — platform conventions and trackpads
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0052
 - **Date:** 2026-10-15
 - **Milestone:** M2
 - **Supersedes:** ADR-0030 (keeps the own action layer, contexts and remapping; adds the

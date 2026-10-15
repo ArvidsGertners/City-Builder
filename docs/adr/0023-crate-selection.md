@@ -53,3 +53,17 @@ Dev/CI tooling (not linked into the game): GitHub Actions `actions/checkout`,
 
 - Small, auditable dependency tree beyond Bevy; more code of our own in core utilities,
   all covered by tests.
+
+## Amendments
+
+- 2026-10-15 (plan review): added `libm` (pure-Rust portable transcendental math for
+  cross-platform determinism, ADR-0043; tiny, no dependencies). Transitively via bevy_egui's
+  `manage_clipboard` feature: `arboard` (clipboard on Windows/macOS/X11) and
+  `smithay-clipboard` (Wayland); bevy_egui is used with `default-features = false`
+  (ADR-0051). A minimal test shrinker (halving counts/ranges) lives in `cb_core::test_util`
+  instead of adopting proptest.
+
+| Crate | Version | Used by | Why |
+|---|---|---|---|
+| `libm` | 0.2 | all pure crates, cb_sim (via `cb_core::math`) | portable `sinf/cosf/expf/powf/atan2f…` identical on x86-64 and aarch64 |
+| `arboard`, `smithay-clipboard` | (bevy_egui's) | cb_game (transitive) | copy crash reports / seeds to clipboard |

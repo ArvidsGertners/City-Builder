@@ -40,3 +40,10 @@ and cheap evaluation for meshing, traffic and picking.
 - Robust editing operations and simple save data.
 - Offset curves are polylines (memory: ~1 sample/m/lane — acceptable).
 - Clothoid transitions are not modeled; very tight S-curves rely on the min-radius rule.
+
+## Amendments
+
+- 2026-10-15 (plan review): long or sharp curves are split evenly into `ceil(len / 120 m)`
+  pieces (never below the 6 m minimum). Existing geometry is reshaped with the
+  `EditRoadGeometry` command (move node, drag control point; ADR-0055), sharing validation,
+  junction regeneration and dependent re-pointing with `BuildRoad`.

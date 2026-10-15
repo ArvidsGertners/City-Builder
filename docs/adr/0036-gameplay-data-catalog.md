@@ -31,3 +31,9 @@ to headless tests without an asset server.
 ## Consequences
 
 - Tuning without code edits, deterministic headless availability, a natural path to modding.
+
+## Amendments
+
+- 2026-10-15 (plan review): the check that catalog localization keys exist runs in a
+  `cb_game` test (cb_sim does not depend on cb_l10n). The save header stores `catalog_hash`
+  (ADR-0044).

@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Accepted (Phase 1 plan)** · Engine: Bevy 0.20 · Rust stable, edition 2024
+Status: **Accepted (Phase 1 plan, revised after the 2026-10-15 plan review)** · Engine: Bevy 0.20 · Rust stable, edition 2024
 
 This is the entry document. Read it, then `docs/PROGRESS.md`, at the start of every session.
 Topic documents:
@@ -14,6 +14,9 @@ Topic documents:
 | [PERFORMANCE.md](PERFORMANCE.md) | Targets, frame budgets and how the design meets them |
 | [TESTING.md](TESTING.md) | Unit, integration, headless, determinism, render smoke tests |
 | [RISKS.md](RISKS.md) | Risks, mitigations, open questions |
+| [CONSTANTS.md](CONSTANTS.md) | Stability/balance constants with owning tests and target metrics |
+| [ASSUMPTIONS.md](ASSUMPTIONS.md) | Unconfirmed assumptions, defaults chosen, questions for the user |
+| [PLAN_REVIEW.md](PLAN_REVIEW.md) | Independent plan review (2026-10-15) and how each finding was resolved |
 | [adr/README.md](adr/README.md) | Index of architecture decision records |
 
 ---
@@ -23,13 +26,13 @@ Topic documents:
 - Fully 3D, continuous world (4 × 4 km), **no grid or tile placement**; all visuals generated
   at runtime (no image/model assets).
 - Simulation separated from rendering, runnable and testable headless, deterministic for a
-  given seed + command stream on the same platform.
+  given seed + command log across all three platforms (ADR-0043).
 - 10k+ buildings, 50k+ citizens, 5k+ simultaneously simulated vehicles at 60 FPS on a
   ~2019 mid-range GPU (GTX 1660 Super / RX 5600 XT class) and a 6-core CPU, **and on an
   Apple M4** (base, 10-core GPU) at the Retina display's auto render scale.
 - Required platforms: Windows 10/11 x86-64, Linux x86-64, macOS 14+ on Apple Silicon
-  (ADR-0037), with native input conventions (ADR-0039), per-OS file locations (ADR-0040)
-  and high-DPI handling (ADR-0041).
+  (ADR-0037), with native input conventions (ADR-0052), per-OS file locations (ADR-0040)
+  and high-DPI handling (ADR-0053).
 - Stylized low-poly look (Townscaper/Islanders spirit), readable at any time and weather.
 - Playable with traffic agents disabled (aggregate fallback).
 - Architecture must not block: metro, trains, ferries, airports, tunnels, parking sim,
@@ -50,7 +53,7 @@ Topic documents:
 │  Sim plugins: clock, catalog, commands/undo, roads, terrain, zoning,         │
 │  buildings, citizens, demand, economy, utilities, services, fields, traffic, │
 │  transit, weather(sim), progression, notifications, stats, save/load         │
-│  Schedules: SimEdit (every frame, also when paused) · SimTick (fixed 20 Hz)  │
+│  Schedules: SimEdit (every frame, also paused) · SimTick (dt 0.1 sim s)      │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ Pure crates (no Bevy): cb_core · cb_geometry · cb_terrain · cb_network ·     │
 │ cb_traffic · cb_procgen · cb_l10n · cb_audio                                 │
@@ -65,14 +68,14 @@ Topic documents:
 - The **pure crates** hold the hard algorithms. They are engine-independent so they can be
   tested in milliseconds and reused (e.g. by a future dedicated server or mod tools).
 - The **presentation layer** derives everything visual from sim state and never mutates
-  sim state directly; it sends `PlayerCommand`s (ADR-0015).
+  sim state directly; it sends `PlayerCommand`s (ADR-0055).
 
 ## 3. Project structure
 
 ```
 City-Builder/
 ├── Cargo.toml                  Workspace: members, [workspace.dependencies], [workspace.lints], profiles
-├── rust-toolchain.toml         Pinned stable toolchain + rustfmt/clippy (ADR-0038)
+├── rust-toolchain.toml         Pinned stable toolchain + rustfmt/clippy (ADR-0054)
 ├── rustfmt.toml                Formatting rules
 ├── clippy.toml                 Clippy config (msrv, thresholds)
 ├── .cargo/config.toml          Aliases (`cargo bench-sim`, `cargo gallery`), optional fast linker
@@ -80,17 +83,19 @@ City-Builder/
 │   ├── ci.yml                  fmt, clippy -D warnings, test on Linux + Windows + macOS (Apple Silicon),
 │   │                           sim-isolation, render smoke (Linux blocking, macOS informational)
 │   ├── nightly.yml             soak tests + informational benches on all three OS
-│   └── release.yml             Tagged builds → Linux tar.gz, Windows zip, macOS arm64 .app zip (ADR-0038)
+│   └── release.yml             Tagged builds → Linux tar.gz, Windows zip, macOS arm64 .app zip (ADR-0054)
 ├── .claude/skills/             Claude Code skills: milestone-completion, write-adr, visual-verification, …
 ├── packaging/macos/Info.plist  App bundle metadata (bundle id, NSHighResolutionCapable, min macOS 14)
 ├── scripts/
 │   ├── screenshot.sh           Xvfb + lavapipe: render a milestone screenshot suite into docs/screenshots/<M>/
 │   ├── check_sim_isolation.sh  Fails if cb_sim (transitively) depends on rendering/window/audio crates
 │   └── macos_bundle.sh         Build CityBuilder.app (+ ad-hoc codesign) from the dist profile
-├── spikes/                     Throwaway risk spikes S1–S6 (not workspace default members; deleted after use)
+├── spikes/                     Phase S throwaway spikes: traffic, junctions, plots, timemodel, grading, render
+│                               (not workspace default members; removed after use, kept on tags spike/<name>)
 ├── CLAUDE.md                   Agent/dev conventions (read first)
 ├── README.md                   Build, run, controls
-├── docs/                       This documentation set, ADRs in docs/adr/, screenshots in docs/screenshots/<M>/
+├── docs/                       This documentation set, ADRs in docs/adr/, screenshots in docs/screenshots/<M>/,
+│                               independent plan review in docs/review/
 └── crates/
     ├── cb_core/                Foundation types (no Bevy)
     │   └── src/
@@ -102,7 +107,9 @@ City-Builder/
     │       ├── units.rs        Meters, speeds, angles helpers; consts
     │       ├── time.rs         GameTime (game-ms), Calendar (year/season/day/hh:mm), durations
     │       ├── money.rs        Money(i64 cents) with checked arithmetic
-    │       ├── collections.rs  SortedVecMap, DenseSlotMap (generational), BitSet
+    │       ├── collections.rs  LookupMap (fixed hasher, no iteration), SortedVecMap, DenseSlotMap, BitSet
+    │       ├── math.rs         Portable math facade over libm (sin/cos/exp/powf/atan2/…) — ADR-0043
+    │       ├── test_util.rs    Seeded random-case generators + tiny shrinker (cfg(test)/feature "testing")
     │       └── error.rs        Shared error helpers
     ├── cb_geometry/            Geometry kernel (no Bevy)
     │   └── src/
@@ -204,9 +211,10 @@ City-Builder/
     │   │   ├── citizens/       population.rs, households.rs, schedule.rs, jobs.rs, migration.rs,
     │   │   │                   happiness.rs, education.rs, trips.rs, mode_choice.rs
     │   │   ├── demand.rs       RCI demand
-    │   │   ├── economy/        ledger.rs, taxes.rs, costs.rs, upkeep.rs, loans.rs
-    │   │   ├── utilities/      power.rs, water.rs, sewage.rs, garbage.rs
-    │   │   ├── services/       coverage.rs, dispatch.rs, police.rs, fire.rs, health.rs, education.rs
+    │   │   ├── economy/        ledger.rs, taxes.rs, costs.rs, upkeep.rs, loans.rs, goods.rs (ADR-0057)
+    │   │   ├── utilities/      power.rs, water.rs, sewage.rs, water_pollution.rs, garbage.rs
+    │   │   ├── services/       reach.rs, allocation.rs, dispatch.rs, incidents.rs, police.rs, fire.rs,
+    │   │   │                   health.rs, education.rs
     │   │   ├── fields/         raster.rs, land_value.rs, pollution.rs, noise.rs
     │   │   ├── traffic.rs      Bridge to cb_traffic: lane graph sync, trip → agent, stats feedback
     │   │   ├── transit/        stops.rs, lines.rs, network.rs, ridership.rs
@@ -217,11 +225,13 @@ City-Builder/
     │   │   ├── spatial.rs      Spatial index maintenance (observers + dirty)
     │   │   ├── save/           format.rs (header/body), snapshot.rs (collect/restore), migrate.rs
     │   │   ├── worldgen.rs     New game: terrain, outside connections, initial state
-    │   │   └── testing.rs      Scenario builder & assertions for tests (cfg(test) + feature "testing")
+    │   │   └── testing/        scenario.rs (Scenario builder & assertions), citygen.rs (organic road +
+    │   │                       plot generator + forced growth: benchmarks, soak tests, menu backdrop)
     │   ├── tests/              Headless integration tests (growth, determinism, save roundtrip,
     │   │                       migration, utilities, services, traffic multi-day, transit)
     │   │   └── fixtures/       Golden saves per format version
-    │   └── examples/headless_bench.rs   Scripted benchmark city, prints timings
+    │   └── examples/           headless_bench.rs (citygen city, per-system timings, --balance),
+    │                           determinism_probe.rs (worldgen + scenario hashes for the cross-OS CI job)
     └── cb_game/                Game binary (full Bevy + bevy_egui)
         └── src/
             ├── main.rs         CLI parsing, bootstrap (paths → logging → crash hook → App)
@@ -235,7 +245,7 @@ City-Builder/
             │                   persist.rs (RON, versioned), apply.rs
             ├── input/          actions.rs (Action enum), bindings.rs (InputMap), contexts.rs
             ├── camera/         controller.rs (orbit/pan/zoom/snap), follow.rs, bounds.rs
-            ├── picking.rs      Cursor ray (logical px → NDC → render-scaled target, ADR-0041) → terrain hit → objects (ADR-0034)
+            ├── picking.rs      Cursor ray (logical px → NDC → render-scaled target, ADR-0053) → terrain hit → objects (ADR-0034)
             ├── render/
             │   ├── setup.rs    World camera, offscreen render-scale target + composite pass, post FX presets
             │   ├── materials/  world.rs, terrain.rs, water.rs, road.rs, sky.rs, precipitation.rs,
@@ -262,7 +272,10 @@ City-Builder/
             ├── save_io.rs      Save slots, autosave rotation, async file IO
             └── debug/          perf_overlay.rs, inspector.rs, sim_controls.rs (step/time scale/time+weather
                                 override), gizmo_overlays.rs (graph, lanes, connectors, paths, spatial,
-                                subdivision), procgen_gallery.rs, screenshot.rs, console.rs (log tail)
+                                subdivision), procgen_gallery.rs, console.rs (log tail), debug_view.rs
+                                (DebugView trait for pure-crate resources), screenshot.rs + screenshot_suites.ron
+                                (suites, settle rule), screenshot_metrics.rs (luminance/clipping/NaN metrics,
+                                semantic class pass), benchmark.rs (--benchmark, --no-gpu-work), smoke.rs
 ```
 
 ### Crate dependency graph
@@ -283,25 +296,30 @@ Rationale for the workspace split: ADR-0002.
 ## 4. Runtime topology
 
 One Bevy `App`, one main `World`. The simulation runs in the main world inside two custom
-schedules that the sim driver runs explicitly from `Update`. Rendering uses Bevy's
-pipelined render sub-app as usual (extract → prepare → queue → render overlaps the next
-main-world frame).
+schedules that the sim driver runs explicitly from `Update`. Rendering uses Bevy's pipelined
+render sub-app: **extract runs on the main thread** at the end of each frame (a sync point that
+waits for the render thread to finish the previous frame); prepare/queue/encode/submit then run
+on the render thread while the main thread starts the next frame.
 
 ```
-Frame N (main world)                                         Render world (frame N-1)
- First       input, time, message buffer swap                  extract/prepare/render
- PreUpdate   egui input, picking ray
+Main thread, frame N                                          Render thread
+ First       input events, time, message buffer swap            (frame N−1: prepare, queue,
+ PreUpdate   egui input capture, cursor ray                      sort, encode, upload, submit)
  Update
-   GameSet::Input       camera, action mapping, tool input
-   GameSet::Ui          egui panels (EguiPrimaryContextPass) → PlayerCommand
-   GameSet::SimDrive    run SimEdit once; run SimTick k times (k = accumulator / dt)
-   GameSet::ViewSync    spawn/update visuals from sim changes, interpolate agents
-   GameSet::Presentation lighting director, weather FX, overlays, audio, notifications
- PostUpdate  transform propagation, visibility, LOD (VisibilityRange), camera
+   GameSet::Input        action mapping (gated by egui wants from frame N−1), camera, picking,
+                         tool state machines + previews → PlayerCommand
+   GameSet::SimDrive     SimEdit once (structural work completes fully); then k × SimTick
+   GameSet::ViewSync     visuals from sim changes, agent poses (α interpolation), mesh-job polling
+   GameSet::Presentation lighting director, weather FX, overlays, audio director, toasts
+ PostUpdate
+   EguiPrimaryContextPass  all egui UI (reads sim, emits PlayerCommand/UiIntent → applied by
+                           SimEdit in frame N+1: one-frame UI latency, ADR-0051)
+   transforms, visibility, VisibilityRange
+ Extract (main thread, sync point) ───────────────────────────► render thread frame N
 ```
 
-Headless (tests, bench, future server): `App::new().add_plugins((MinimalPlugins, SimPlugins))`
-and the test drives `SimEdit`/`SimTick` directly via `cb_sim::testing::Scenario`.
+Headless (tests, bench, future server): `App::new().add_plugins((MinimalPlugins, SimPlugins))`;
+tests drive `SimEdit`/`SimTick` via `cb_sim::testing::Scenario`.
 
 ## 5. ECS schedules and system ordering
 
@@ -309,69 +327,86 @@ and the test drives `SimEdit`/`SimTick` directly via `cb_sim::testing::Scenario`
 
 `SimEdit` runs **every frame, also while paused**. It applies player commands and all
 *structural* derived updates, so construction, overlays and previews stay live when paused.
+Structural work always **completes within the frame** before any `SimTick`; when it is
+expensive, the driver defers ticks instead of splitting work (determinism, ADR-0042). Each
+applied command records `apply_tick`.
 
 ```
 SimEdit:
-  EditSet::Commands     drain CommandQueue → validate → apply → record undo → CommandResult
-  EditSet::Network      road graph edits finalize: junction regeneration (dirty nodes),
-                        segment geometry, vertical profiles, bridge spans
+  EditSet::Commands     drain CommandQueue → validate → apply → record undo + apply_tick → CommandResult
+  EditSet::Network      junction regeneration (dirty nodes), segment geometry, profiles, bridge spans,
+                        ring (roundabout) detection
   EditSet::Terrain      apply/remove deformation stamps for dirty regions → TerrainChanged
-  EditSet::Lanes        patch LaneGraph + LinkGraph for dirty segments/nodes; bump graph version
-  EditSet::Zoning       plot validation, subdivision of dirty plots → lots; lot access
-  EditSet::Connectivity network components, outside-connection reachability, road access flags
-  EditSet::Coverage     recompute service coverage & stop access for dirty emitters/segments
-  EditSet::Utilities    recompute utility network components (structure only)
+  EditSet::Lanes        patch LaneGraph + LinkGraph + upstream horizons; bump graph version
+  EditSet::Zoning       plot clipping/validation, subdivision of dirty plots → lots; lot access
+  EditSet::Connectivity undirected components, directed SCCs, outside reachability, access flags
+  EditSet::Coverage     coverage *reach* for dirty facilities; stop access for dirty stops/segments
+  EditSet::Utilities    utility network components (structure only)
   EditSet::Index        spatial index updates (also via observers), dirty-region broadcast
 ```
 
-`SimTick` runs at a **fixed 20 Hz of sim time** (ADR-0006), 0..N times per frame depending
-on speed. Systems that run at lower rates use run conditions (`every_n_ticks(n, phase)`),
-with staggered phases so heavy work never lands on the same tick.
+`SimTick` has a fixed `dt = 0.1 sim s` (ADR-0042); it runs 0..N times per frame depending on
+speed and day length (PERFORMANCE §2). Lower-rate work follows the phase table (§5.3).
 
 ```
 SimTick:
-  TickSet::Clock        advance GameTime; emit HourElapsed/DayElapsed/SeasonChanged
-  TickSet::Weather      weather state machine step, snow/wetness accumulation
-  TickSet::Schedule     citizen time-wheel: due activities → TripRequest messages      (1 Hz)
-  TickSet::Trips        mode choice, routing batch (parallel, deterministic), flow update,
-                        agent admission (sampling), transit boarding queues
-  TickSet::Agents       vehicle step: junction control → IDM → lane change → advance (20 Hz, all
-                        agents, 1D lane state), transit & service vehicles, despawn on arrival
-  TickSet::Dispatch     service/garbage dispatch, fire/crime/sickness incidents         (1 Hz)
-  TickSet::Utilities    supply/demand balance and allocation per network component     (1/game-hour)
-  TickSet::Fields       pollution/noise/land value incremental update (sliced)         (sliced, 1 Hz)
-  TickSet::City         demand, lot development, building leveling/decline (sliced),
-                        happiness (sliced), migration                                  (sliced)
-  TickSet::Economy      hourly accrual of taxes/upkeep/fares; daily statement, loans
+  TickSet::Clock        advance tick; emit HourElapsed/DayElapsed/SeasonChanged
+  TickSet::Weather      weather state machine, snow/wetness accumulation
+  TickSet::Schedule     time wheel: due activities → TripRequest (≤ 2 000 per tick, overflow carried)
+  TickSet::Trips        mode choice, routing within the cost-unit budget (parallel, request order),
+                        flow model update, agent admission (sampling), transit boarding queues
+  TickSet::Agents       spawn queues → junction control (grants, reservations) → IDM step
+                        (64 partitions) → sequential pass (transfers, lane changes) → arrivals;
+                        transit and service vehicles; stuck counters
+  TickSet::SubRate      exactly the systems whose phase-table slot matches this tick
   TickSet::Progression  milestone checks, unlocks
   TickSet::Stats        statistics sampling, SimNotification emission
 ```
 
 Rules:
-- Every set is `.chain()`ed; systems within a set may run in parallel only if they have no
-  conflicting access. `ScheduleBuildSettings { ambiguity_detection: LogLevel::Error }` on
-  both sim schedules; a CI test builds the schedules with Bevy's `shuffle_seed` and the
-  single-threaded executor and asserts identical state hashes (TESTING.md).
-- Heavy per-tick work (routing batches, vehicle steps, coverage Dijkstras) is parallelized
-  *inside* a system with `ComputeTaskPool::scope` over deterministic partitions; results are
-  merged in stable order.
-- Sim systems never use `Commands` for anything order-sensitive within a tick; structural
-  spawns/despawns are applied at set boundaries (explicit `ApplyDeferred` points between
-  sets) so later sets observe them.
+- Every set is `.chain()`ed; systems within a set run in parallel only without conflicting
+  access. `ambiguity_detection: LogLevel::Error` on both sim schedules;
+  `auto_insert_apply_deferred` is disabled — explicit `ApplyDeferred` between sets.
+- A test builds both schedules with `shuffle_seed` (bevy `debug` feature in cb_sim
+  dev-dependencies) and the single-threaded executor and asserts identical state hashes.
+- Intra-system parallelism uses `ComputeTaskPool::scope` over `SIM_PARTITIONS = 64` fixed
+  partitions; results merged in partition order (ADR-0043).
 
 ### 5.2 Game schedule usage (cb_game)
 
-| Set (in `Update`) | Contents | Order |
+| Schedule / set | Contents | Order |
 |---|---|---|
-| `GameSet::Input` | action mapping, camera controller, cursor ray & picking, tool input state machines | 1 |
-| `GameSet::Ui` | egui systems run in `EguiPrimaryContextPass`; they read sim state and push `PlayerCommand`s and `UiIntent`s; ordered before `SimDrive` by frame order | 2 |
-| `GameSet::SimDrive` | `run_sim_edit`, `run_sim_ticks` (exclusive systems) | 3 |
-| `GameSet::ViewSync` | `sync_terrain_chunks`, `sync_roads`, `sync_buildings`, `sync_props`, `sync_vehicles` (interpolation α), `sync_transit`, `sync_icons`, mesh job polling | 4 |
-| `GameSet::Presentation` | lighting director, env map refresh, weather FX, overlays, audio director, notifications/toasts, tutorial triggers | 5 |
-| `GameSet::Debug` | perf overlay, gizmo overlays (feature `dev`) | 6 |
+| `Update` / `GameSet::Input` | action mapping (egui-gated with previous frame's wants), camera controller, cursor ray & picking, tool state machines, previews (heavy preview work on async, ≤ 2 ms apply) | 1 |
+| `Update` / `GameSet::SimDrive` | `run_sim_edit`, `run_sim_ticks` (exclusive) | 2 |
+| `Update` / `GameSet::ViewSync` | terrain/road/building/prop chunk sync, agent pose pool (α), transit, icons, mesh-job polling, uploads within budget | 3 |
+| `Update` / `GameSet::Presentation` | lighting director, env map (throttled), weather FX, overlays, audio director, toasts, tutorial triggers | 4 |
+| `Update` / `GameSet::Debug` | perf overlay data, gizmo overlays (`dev`) | 5 |
+| `PostUpdate` / `EguiPrimaryContextPass` | all egui UI (HUD, panels, menus, dialogs, tutorial, debug windows) | — |
 
-Tool previews (ghost meshes, validation) run in `GameSet::Input` after picking and use the
-same pure validation functions as the sim commands, so preview and execution agree.
+Tool previews use the same pure validation functions as the sim commands.
+
+### 5.3 Sub-rate phase table (1 200 ticks per game hour)
+
+| System | Period | Offset (tick in hour) | Slices | Nominal per slice |
+|---|---|---|---|---|
+| Economy accrual (incl. goods profit, taxes, upkeep) | 1 game h | 0 | 4 | ≤ 0.15 ms |
+| Demand update | 1 game h | 60 | 1 | ≤ 0.1 ms |
+| Goods matching / delivery requests | 1 game h | 90 | 8 | ≤ 0.1 ms |
+| Utilities balance + allocation | 1 game h | 120 | 4 | ≤ 0.6 ms |
+| Coverage capacity allocation | 1 game h | 180 | 10 | ≤ 0.3 ms |
+| Ground/water pollution diffusion (double-buffered) | 1 game h | 200 | 64 | ≤ 0.2 ms |
+| Noise recompute | 1 game h | 300 | 64 | ≤ 0.3 ms |
+| Land value | 1 game h | 400 | 64 | ≤ 0.2 ms |
+| Job matching | 1 game h | 500 | 200 | ≤ 0.2 ms |
+| Immigration / lot development | 1 game h | 720 | 4 | ≤ 0.2 ms |
+| Dispatch (incidents → vehicles) | 20 ticks | 7 | 1 | ≤ 0.2 ms |
+| Cycle detection slice | 100 ticks | 13 | 1 | ≤ 0.05 ms |
+| Happiness | 1 game day | hour 2, 0 | 600 | ≤ 0.2 ms |
+| Leveling / decline | 1 game day | hour 3, 0 | 600 | ≤ 0.2 ms |
+| Weather forecast pre-roll | 1 game day | hour 0, 30 | 1 | ≤ 0.1 ms |
+| Lifecycle / education | 1 season | day 0 hour 4 | 1 200 | ≤ 0.2 ms |
+
+No tick runs more than one slot's work; a unit test asserts every tick's nominal sum ≤ 0.6 ms.
 
 ## 6. Simulation ↔ rendering data flow
 
@@ -385,98 +420,88 @@ Player input ─► Tool (preview: pure validation + cost estimate) ─► Playe
      │                    change detection + dirty messages (SegmentChanged, LotsChanged,
      │                    TerrainChanged{rect}, BuildingChanged, …)
      │                                     ▼
-     │                   View sync systems ─► async mesh jobs (cb_procgen, pure) ─► chunk meshes
+     │                   View sync ─► async mesh jobs (cb_procgen, pure) ─► chunk meshes
      │                                     │
      └── notifications/audio cues ◄── SimNotification messages
 ```
 
-- **Visual entities are separate from sim entities** (ADR-0005). A view plugin keeps a
-  `VisualRegistry<K>` mapping stable IDs to visual entities (or to a render chunk), and
-  reacts to `Added`/`Changed` sim components, removal observers and dirty messages.
-- Buildings, props and terrain are rendered as **merged per-chunk meshes** with LOD; a
-  building is a *slot* inside a chunk mesh with a per-building parameter record in a GPU
-  storage buffer (condition, construction progress, highlight, overlay value, window seed).
-  ADR-0003.
-- Agents (vehicles, trams, pedestrians) live in SoA stores in `cb_traffic`. The view pool
-  spawns at most `max_visible_vehicles` visual entities for agents inside the view
-  frustum + margin, writes interpolated transforms (`prev_pose.lerp(pose, α)`), and recycles.
-- Overlays read sim fields/stats and upload compact textures/storage buffers
-  (field rasters, per-segment values, per-building values).
+- **Visual entities are separate from sim entities** (ADR-0005); view plugins keep
+  `VisualRegistry<K>` (stable ID → visual entity or chunk slot).
+- Buildings, yards, props, trees, road surfaces and decorations render as **merged per-chunk
+  meshes** with LOD residency rings; a building is a slot with a parameter record in a per-chunk
+  storage buffer (ADR-0049).
+- Agents live in SoA stores in `cb_traffic`; the view pool keeps ≤ `max_visible_vehicles`
+  pooled entities for agents inside the frustum + margin, writing interpolated poses.
+- Overlays read sim fields/stats and upload compact textures/buffers.
 
 ## 7. State management
 
 ```rust
-#[derive(States)]           enum AppState    { Boot, MainMenu, Loading, InGame, ProcgenGallery }
-#[derive(SubStates)]        enum InGameMenu  { #[default] None, Pause, Settings, SaveLoad, Dialog } // source: AppState::InGame
-#[derive(Resource)]         struct SimSpeed  { Paused | X1 | X2 | X4 }            // independent of menus
-#[derive(Resource)]         struct ActiveTool(ToolKind + per-tool state)        // presentation only
-#[derive(Resource)]         struct ActiveOverlay(Option<OverlayKind>)
-#[derive(Resource)]         struct TutorialState { step, completed, hints_enabled }
+#[derive(States)]    enum AppState   { Boot, MainMenu, Loading, InGame, ProcgenGallery }
+#[derive(SubStates)] enum InGameMenu { #[default] None, Pause, Settings, SaveLoad, Dialog } // source: InGame
+#[derive(Resource)]  struct SimSpeed(Speed /* Paused | X1 | X2 | X4 */)   // driver API, independent of menus
+#[derive(Resource)]  struct ActiveTool(ToolKind + per-tool state)         // presentation only
+#[derive(Resource)]  struct ActiveOverlay(Option<OverlayKind>)
+#[derive(Resource)]  struct TutorialState { step, completed, hints_enabled }
 ```
 
-- `Boot`: paths, settings, l10n, icon atlas, audio bank synthesis (async), shader warmup.
-- `MainMenu`: menu over an animated procedurally generated backdrop city (seeded, sim paused).
-- `Loading`: world generation or save restore runs as a staged async task with progress UI;
-  sim plugins are idle until `InGame`.
-- `InGame`: sim schedules active; `InGameMenu != None` forces the sim driver to treat speed
-  as paused (without changing the stored `SimSpeed`).
-- `ProcgenGallery` (feature `dev` or `--procgen-gallery`): debug scene, no sim.
-- Entities are scoped with `DespawnOnExit(AppState::InGame)` so leaving to the menu tears
-  down the world cleanly; sim resources are removed by `SimPlugins::teardown`.
+- `Boot`: paths, settings, l10n, icon atlas, crash-notice check; audio synthesized lazily.
+- `MainMenu` (M15; until then the game boots straight into a new game or `--load`): backdrop city
+  from `cb_sim::testing::citygen` (300 buildings, sim paused).
+- `Loading`: world generation or save restore as a staged task with progress UI; **shader
+  warm-up**: render one hidden instance per material × specialization (prepass, shadow, LOD
+  dither on/off, overlay on/off, transparent) with an offscreen camera until the pipeline cache
+  has nothing queued (cap 10 s); count logged and reported by `--benchmark`.
+- `InGame`: sim schedules active; `InGameMenu != None` makes the driver treat speed as paused.
+- `ProcgenGallery` (`dev` or `--procgen-gallery`): debug scene, no sim.
+- Entities scoped with `DespawnOnExit(AppState::InGame)`; sim resources removed by
+  `SimPlugins::teardown`.
 
 ## 8. Event flow
 
-Bevy 0.20 has two mechanisms; we use both deliberately:
-
 | Mechanism | Used for | Examples |
 |---|---|---|
-| `Message` (buffered, `MessageWriter`/`MessageReader`) | Cross-system/cross-schedule data flow, many-to-many, consumed in a later set or frame | `PlayerCommand`, `CommandResult`, `TripRequest`, `SegmentChanged`, `TerrainChanged`, `LotsChanged`, `BuildingChanged`, `SimNotification`, `HourElapsed`, `DayElapsed` |
-| Observers (`Event`/`EntityEvent`, `On<…>`) | Immediate, local reactions to lifecycle or UI triggers | `On<Remove, Building>` → spatial index removal; `On<Add, RoadSegment>` → index insert; UI button triggers in menus |
+| `Message` (buffered) | cross-system/cross-schedule data flow | `PlayerCommand`, `CommandResult`, `TripRequest`, `SegmentChanged`, `TerrainChanged`, `LotsChanged`, `BuildingChanged`, `SimNotification`, `HourElapsed`, `DayElapsed` |
+| Observers (`On<…>`) | immediate lifecycle/UI reactions | `On<Remove, Building>` → index removal; `On<Add, RoadSegment>` → index insert; menu widgets |
 
 Rules:
-- Sim → presentation communication is **only** via messages, change detection and
-  read-only queries. Presentation → sim is **only** via `PlayerCommand` (plus the
-  `SimSpeed`/debug-override resources, which are part of the driver API).
-- Messages written in `SimTick` are read in `GameSet::ViewSync`/`Presentation` of the same
-  frame. Because `SimTick` may run 0 or several times per frame, readers always drain
-  everything (`MessageReader::read()`), never assume one message per frame.
-- Facts are past tense (`FireStarted`), requests are imperative (`RequestRoute`).
-- `SimNotification { kind, severity, subject: Option<StableRef>, args: SmallVec<L10nArg> }`
-  carries localization keys and arguments, never strings.
+- Sim → presentation only via messages, change detection and read-only queries;
+  presentation → sim only via `PlayerCommand` and the driver API (`SimSpeed`, step requests,
+  `DebugCommand`s in `dev`).
+- `SimTick` runs 0..N times per frame → readers always drain all messages.
+- Facts past tense (`FireStarted`), requests imperative (`RequestRoute`).
+- `SimNotification { kind, severity, subject, args }` carries l10n keys + typed args only.
 
 ## 9. Command pattern and undo/redo
 
-Full design in ADR-0015; summary:
+Design: ADR-0055 (framework in M2, history in M3).
 
 ```rust
-pub enum PlayerCommand {               // serializable, carries stable IDs only
-    BuildRoad(BuildRoad), UpgradeRoad(UpgradeRoad), SetSegmentStyle(SetSegmentStyle),
-    DemolishSegments(DemolishSegments /* cascade policy */), SetIntersectionControl(..),
+pub enum PlayerCommand {               // serializable, stable IDs only, versioned with the save format
+    BuildRoad(..), EditRoadGeometry(..), UpgradeRoad(..), SetSegmentStyle(..),
+    DemolishSegments(.. /* cascade policy */), SetNodeControl(..), SetApproachControl(..),
     CreatePlot(..), EditPlot(..), SetSubdivision(..), DeletePlot(..),
-    PlaceBuilding(..), DemolishBuilding(..),
+    PlaceBuilding(..), MoveTownHall(..), DemolishBuilding(..), PlaceProp(..), RemoveProp(..),
     PlaceStop(..), RemoveStop(..), CreateLine(..), EditLine(..), DeleteLine(..), SetLineVehicles(..),
-    SetTaxRate(..), SetServiceBudget(..), TakeLoan(..), RepayLoan(..),
+    SetTaxRate(..), SetServiceBudget(..), TakeLoan(..), RepayLoan(..), EmptyLandfill(..),
+    SetSimConfig(..),                  // non-undoable (season length, weather toggles, traffic toggle)
     Undo, Redo,
 }
-pub trait Command {                    // implemented per undoable action
+pub trait Command {
     fn validate(&self, world: &World) -> Result<Validated, ValidationError>;
-    fn apply(&mut self, world: &mut World) -> Result<Applied, CommandError>;   // records what it did
+    fn apply(&mut self, world: &mut World) -> Result<Applied, CommandError>;   // records the effect log
     fn undo(&mut self, world: &mut World) -> Result<(), CommandError>;
-    fn redo(&mut self, world: &mut World) -> Result<(), CommandError>;          // default: apply with recorded IDs
+    fn redo(&mut self, world: &mut World) -> Result<(), CommandError>;
     fn label(&self) -> L10nKey;
 }
 ```
 
-- Commands are queued as messages and applied in `EditSet::Commands` in arrival order with
-  a monotonically increasing `CommandSeq`, tagged with the current tick (future multiplayer
-  lockstep/replay can reuse the stream).
-- Applying records an inverse: created IDs, removed-object snapshots (serialized via the
-  same snapshot types as the save system), money delta. Undo restores with **the original
-  stable IDs** (IDs are never reused). Refund = recorded cost.
-- `UndoHistory { undo: VecDeque<Box<dyn Command>>, redo: Vec<…>, depth: 100 }`; cleared on
-  load and on new game. Policy changes (taxes, budgets, loans) are commands but not undoable.
-- Undo checks preconditions (e.g. the road to remove has no newer dependents not covered by
-  the snapshot); on failure it reports `undo.blocked` and leaves the stack intact.
+- Applied in `EditSet::Commands` in `CommandSeq` order; each records `apply_tick`.
+- Effect logs hold created IDs, removed-object snapshots (`cb_sim::save::snapshot` types, M3),
+  old values, money delta; undo restores **original IDs**.
+- Undo window: 1 game day; refund 100 % in the first game hour, linearly to 25 % at expiry;
+  evicted households go to `homeless_queue`. Depth 100; cleared on load/new game; policy
+  commands not undoable. Failed preconditions → `undo.blocked` with reason.
 
 ## 10. Plugin breakdown
 
@@ -484,83 +509,77 @@ pub trait Command {                    // implemented per undoable action
 
 | Plugin | Owns |
 |---|---|
-| `SimCorePlugin` | schedules, driver, clock, catalog, ID allocators, RNG, command queue + history |
-| `TerrainSimPlugin` | `Terrain` resource, stamps, `TerrainChanged` |
-| `RoadNetworkPlugin` | node/segment entities, editor ops, junctions, profiles, bridges, lane/link graph sync, connectivity, outside connections |
-| `ZoningPlugin` | plots, lots, subdivision, lot development |
-| `BuildingsPlugin` | building entities, construction, leveling, condition, access, massing |
-| `CitizensPlugin` | population tables, households, jobs, schedules, trips, migration, happiness, education |
+| `SimCorePlugin` | schedules, driver, phase table, clock, catalog, ID allocators, RNG, command queue + history |
+| `TerrainSimPlugin` | `Terrain`, stamps, `TerrainChanged`, tree-density field |
+| `RoadNetworkPlugin` | nodes/segments, editor ops, junctions, profiles, bridges, rings, lane/link graph sync, connectivity + SCC, outside connections |
+| `ZoningPlugin` | plots, lots, subdivision, clipping, lot development |
+| `BuildingsPlugin` | buildings, construction, leveling, condition, access, massing, placed props |
+| `CitizensPlugin` | population, households, jobs, schedules, trips, migration, happiness, education, lifecycle |
 | `DemandPlugin` | RCI demand |
-| `EconomyPlugin` | ledger, taxes, upkeep, costs, loans |
-| `UtilitiesPlugin` | power, water, sewage, garbage |
-| `ServicesPlugin` | coverage, dispatch, police, fire, health, education |
+| `EconomyPlugin` | ledger, taxes, upkeep, costs, loans, goods market (ADR-0057) |
+| `UtilitiesPlugin` | power, water, sewage, water pollution graph, garbage |
+| `ServicesPlugin` | coverage reach + allocation, dispatch, incidents |
 | `FieldsPlugin` | land value, pollution, noise rasters |
-| `TrafficSimPlugin` | cb_traffic integration (agents, flow model, stats); honors `traffic_enabled` |
+| `TrafficSimPlugin` | cb_traffic integration (router, cache, agents, flow model, admission); honors `traffic_enabled` |
 | `TransitPlugin` | stops, lines, transit graph, ridership |
-| `WeatherSimPlugin` | weather state, seasons, forecast, sim effect factors |
+| `WeatherSimPlugin` | weather state, seasons, forecast, effect factors |
 | `ProgressionPlugin` | milestones, unlocks, sandbox |
 | `StatsPlugin` | statistics history, notifications |
-| `SavePlugin` | snapshot/restore, migration (file IO is in cb_game) |
+| `SavePlugin` | snapshot/restore, validation, migration (file IO in cb_game) |
 
 ### cb_game
 
-`BootstrapPlugin`, `SettingsPlugin`, `L10nPlugin`, `InputPlugin`, `CameraPlugin`,
-`PickingPlugin`, `RenderSetupPlugin` (camera, post FX, quality presets), `MaterialsPlugin`,
-`TerrainViewPlugin`, `WaterViewPlugin`, `RoadViewPlugin`, `BuildingViewPlugin`,
-`PropViewPlugin`, `AgentViewPlugin`, `FxViewPlugin`, `LightingPlugin`, `WeatherFxPlugin`,
-`ToolsPlugin` (+ one sub-plugin per tool), `UiPlugin` (+ HUD/panels/menus sub-plugins),
-`OverlayPlugin`, `AudioPlugin`, `SaveIoPlugin`, `TutorialPlugin`, `DebugPlugin` (feature `dev`).
+`BootstrapPlugin`, `PlatformPlugin`, `SettingsPlugin`, `L10nPlugin`, `InputPlugin`,
+`CameraPlugin`, `PickingPlugin`, `RenderSetupPlugin` (world camera, offscreen render scale,
+composite, post FX, presets, frame limiter), `MaterialsPlugin`, `TerrainViewPlugin`,
+`WaterViewPlugin`, `RoadViewPlugin`, `BuildingViewPlugin`, `PropViewPlugin`, `AgentViewPlugin`,
+`FxViewPlugin`, `LightingPlugin`, `WeatherFxPlugin`, `ToolsPlugin` (+ one sub-plugin per tool),
+`UiPlugin` (theme, widgets, anchors, HUD/panels/menus), `OverlayPlugin`, `AudioPlugin` (absent
+with `--no-audio` or no device), `SaveIoPlugin`, `TutorialPlugin`, `DebugPlugin` (`dev`).
 
 ## 11. Incremental update pipeline
 
-Every derived structure has an explicit dirty set; nothing is rebuilt globally in steady state.
-
 | Change | Dirty propagation | Rebuilt |
 |---|---|---|
-| Segment added/removed/edited | `DirtyNodes` (both ends), `DirtySegments`, AABB → `DirtyRegion` | junction geometry for dirty nodes; lanes/connectors of touching segments; link graph patch; terrain stamps; road render chunks; lots whose frontage references the segment |
-| Terrain stamps changed | `TerrainChanged{rect}` | heights in rect; terrain chunks intersecting rect; props in rect (re-filter); building pads (foundations) in rect |
-| Plot edited | `DirtyPlots` | subdivision → lots diff (stable lot IDs kept where geometry matches), building regeneration for changed lots |
-| Building level/condition changed | `BuildingChanged` | building mesh regenerate (async) → chunk re-merge (debounced 250 ms) or param-buffer update only (condition, progress) |
-| Network topology changed | graph version++ | connectivity components (O(V+E)), route cache entries touching removed links, coverage for emitters whose reach intersects dirty segments, utility components |
-| Service building added/removed | `DirtyEmitters` | bounded Dijkstra for that emitter only; building coverage samples in its reach |
+| Segment added/removed/edited | `DirtyNodes`, `DirtySegments`, AABB → `DirtyRegion` | junction geometry; lanes/connectors/horizons; link graph patch; stamps; road chunks; plot clipping and lots referencing the segment |
+| Terrain stamps changed | `TerrainChanged{rect}` | heights in rect; terrain chunk-LODs; scatter exclusion; tree density; pads |
+| Plot edited | `DirtyPlots` | subdivision → lot diff (stable IDs), regenerate changed lots' buildings |
+| Building level/condition changed | `BuildingChanged` | mesh regenerate (async) + chunk re-merge (debounced 250 ms) or param-buffer update only |
+| Network topology changed | graph version++ | components, SCCs, route-cache eviction, landmark recompute (tick-sliced), coverage reach for touched facilities, utility components |
+| Facility added/removed | `DirtyFacilities` | reach for that facility; next hourly allocation |
 
 ## 12. Threading model
 
 - Bevy multi-threaded executor for system-level parallelism.
-- Intra-system data parallelism via `ComputeTaskPool::scope` with fixed, deterministic
-  partitioning (by stable ID ranges or lane ranges) for: routing batches, vehicle micro
-  steps (lanes partitioned so leaders are local), coverage Dijkstras, field updates.
-- Render-side procgen and chunk merging on `AsyncComputeTaskPool`; results are polled in
-  `ViewSync`. Non-deterministic completion order is fine there (visual only, keyed by ID +
-  generation counter to drop stale results).
-- File IO (save/load/autosave, logs) on `IoTaskPool` / non-blocking appender. Saving
-  snapshots the sim synchronously (fast, in-memory) then serializes/compresses/writes async.
+- Intra-system parallelism over 64 fixed partitions (routing batches, vehicle step, reach
+  Dijkstras, field slices); merges in partition order.
+- Render-side procgen, chunk merges, terrain re-mesh, env map on `AsyncComputeTaskPool`
+  (≤ 1 job per async thread, distance-prioritized, generation counters).
+- IO on `IoTaskPool`; saving snapshots synchronously (≤ 10 ms) then serializes/compresses/
+  writes async.
 
-## 13. Save/load flow
+## 13. Save/load flow (ADR-0044)
 
-1. `SavePlugin::snapshot(world) -> SaveData` (pure data: seeds, terrain stamps, entities by
-   stable ID, resources, RNG/counter state, weather, clock, undo NOT included).
-2. `cb_game::save_io` serializes on the IO pool: header (magic, format version, metadata
-   for the load menu) + MessagePack body, LZ4-compressed, written to `*.tmp` then renamed.
-3. Load: read header → migrate body (`rmpv::Value` chain v_n → v_latest) → deserialize →
-   new world gen from seed (terrain base) → apply stamps → spawn entities with original IDs
-   → rebuild all derived structures in one pass (lane graph, indices, coverage, fields
-   recomputed or loaded) → vehicles regenerated from in-flight trips.
-Details: ADR-0020.
+1. `SavePlugin::snapshot(world) -> SaveData` — everything that influences future results (incl.
+   base terrain, traffic and service state), sorted by stable ID (canonical; used for
+   `state_hash`).
+2. `cb_game::save_io` on the IO pool: header (magic, version, metadata, catalog hash,
+   optional presentation state) + struct-map MessagePack body, LZ4, checksum; `*.tmp` + rename.
+3. Load: header → body → migrate (`rmpv::Value` chain) → `validate_snapshot` → restore terrain
+   (no regeneration) → spawn entities with original IDs → rebuild derived structures → restore
+   traffic/service state onto rebuilt lanes → resume.
 
 ## 14. Settings and input
 
-- `Settings` resource (graphics, display, audio, input bindings, language, accessibility,
-  gameplay toggles, autosave) persisted as versioned RON at `AppPaths::settings_file`
-  (per-OS location, ADR-0040);
-  invalid/missing fields fall back to defaults with a logged warning (never a crash).
-- Gameplay toggles that change sim behavior (traffic agents on/off, weather on/off,
-  day length, season length) are copied into the sim's `SimConfig` resource and saved with
-  the city; purely visual toggles (lock time-of-day visuals, reduce flashes) stay
-  presentation-side.
-- Input: one `InputMap` (`Action → Vec<Binding>`), contexts (Global, Camera, Tool, Ui),
-  remappable in settings, conflict detection, defaults in `input/bindings.rs`; virtual
-  `PRIMARY` modifier (Cmd/Ctrl), logical-key mnemonics, trackpad gestures. ADR-0039.
+- `Settings` (graphics, display, render scale, frame cap, audio, bindings, language,
+  accessibility, **day length** (pacing), lock time-of-day visuals, autosave) persisted as
+  versioned RON at `AppPaths::settings_file` from M1 (ADR-0040); invalid fields fall back to
+  defaults with a warning.
+- Sim-affecting options live in `SimConfig` (saved with the city, changed via
+  `SetSimConfig`): traffic agents on/off, `agent_cap`, weather on/off/lock, season length,
+  sandbox, difficulty.
+- Input: `InputMap` with contexts, `PRIMARY` modifier, logical-key mnemonics, trackpad gestures,
+  drag precedence (ADR-0052).
 
 ## 15. Coding patterns (quick reference)
 
@@ -571,4 +590,6 @@ Details: ADR-0020.
 - Errors: `thiserror` enums per crate; systems return `Result` and use Bevy's error
   handler (configured to log + count; release builds never abort on a system error).
 - Feature flags: `dev` (debug tooling), `inspector` (bevy-inspector-egui when available,
-  ADR-0031), `trace_tracy` (profiling).
+  ADR-0031), `trace_tracy` (profiling, nightly only). CI never uses `--all-features` (ADR-0054).
+- Math in sim-affecting code via `cb_core::math` (libm); no glam SIMD types; maps via
+  `LookupMap`/`BTreeMap` (ADR-0043).
