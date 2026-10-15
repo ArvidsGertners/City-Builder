@@ -91,6 +91,9 @@ pub struct Router {
     /// Reverse index link → keys (for eviction on removal).
     pub by_link: HashMap<u32, Vec<Key>>,
     slots: Vec<Mutex<Scratch>>,
+    pub jitter_epoch: bool,
+    pub absent: u64,
+    pub rejected: u64,
 }
 
 fn turn_pen(t: Turn) -> u32 {
@@ -103,7 +106,9 @@ fn turn_pen(t: Turn) -> u32 {
 }
 
 fn hash3(a: u64, b: u64, c: u64) -> u64 {
-    let mut h = a.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ b.wrapping_mul(0xC2B2_AE3D_27D4_EB4F) ^ c.wrapping_mul(0x1656_67B1_9E37_79F9);
+    let mut h = a.wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ b.wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
+        ^ c.wrapping_mul(0x1656_67B1_9E37_79F9);
     h ^= h >> 31;
     h = h.wrapping_mul(0xBF58_476D_1CE4_E5B9);
     h ^ (h >> 29)
@@ -131,7 +136,12 @@ impl Router {
             misses: 0,
             units_total: 0,
             by_link: HashMap::new(),
-            slots: (0..BATCH + 1).map(|_| Mutex::new(Scratch::default())).collect(),
+            slots: (0..BATCH + 1)
+                .map(|_| Mutex::new(Scratch::default()))
+                .collect(),
+            jitter_epoch: std::env::var("ST_JITTER_STABLE").is_err(),
+            absent: 0,
+            rejected: 0,
         };
         r.rebuild(net);
         r.landmarks(net);
@@ -196,7 +206,11 @@ impl Router {
             let adj = if fwd { self.succ(v) } else { self.pred(v) };
             for &(w, p) in adj {
                 // Cost of entering w (forward) / leaving v toward w (backward) uses the head link.
-                let c = if fwd { self.free[w as usize] + p } else { self.free[v as usize] + p };
+                let c = if fwd {
+                    self.free[w as usize] + p
+                } else {
+                    self.free[v as usize] + p
+                };
                 let nd = dv.saturating_add(c);
                 if nd < d[w as usize] {
                     d[w as usize] = nd;
@@ -210,7 +224,9 @@ impl Router {
     /// 16 landmarks by farthest-point selection on free-flow costs (deterministic).
     pub fn landmarks(&mut self, net: &Net) {
         let n = net.links.len();
-        let alive: Vec<u32> = (0..n as u32).filter(|l| net.links[*l as usize].alive && !self.succ(*l).is_empty()).collect();
+        let alive: Vec<u32> = (0..n as u32)
+            .filter(|l| net.links[*l as usize].alive && !self.succ(*l).is_empty())
+            .collect();
         if alive.is_empty() {
             return;
         }
@@ -227,7 +243,11 @@ impl Router {
             }
             from.push(f);
             to.push(t);
-            let next = alive.iter().copied().filter(|v| mind[*v as usize] != u32::MAX).max_by_key(|v| (mind[*v as usize], Reverse(*v)));
+            let next = alive
+                .iter()
+                .copied()
+                .filter(|v| mind[*v as usize] != u32::MAX)
+                .max_by_key(|v| (mind[*v as usize], Reverse(*v)));
             match next {
                 Some(v) if !chosen.contains(&v) => chosen.push(v),
                 _ => break,
@@ -268,7 +288,10 @@ impl Router {
 
     fn link_cost(&self, l: u32, variant: u8) -> u64 {
         let base = u64::from(self.cost[l as usize]);
-        let j = hash3(u64::from(l), u64::from(variant), self.epoch) % 2001; // +0…20 %
+        // Variant jitter per (link, variant, epoch) (ADR-0048); ST_JITTER_STABLE drops the epoch
+        // (spike S-T: no measurable effect on hit rate).
+        let e = if self.jitter_epoch { self.epoch } else { 0 };
+        let j = hash3(u64::from(l), u64::from(variant), e) % 2001; // +0…20 %
         base + base * j / 10_000
     }
 
@@ -308,7 +331,12 @@ impl Router {
             if e.seen == eg && e.g <= g0 {
                 continue;
             }
-            sc.n[src as usize] = Scr { g: g0, h: h0, parent: u32::MAX, seen: eg };
+            sc.n[src as usize] = Scr {
+                g: g0,
+                h: h0,
+                parent: u32::MAX,
+                seen: eg,
+            };
             sc.heap.push(Reverse((g0 + h0, Reverse(g0), src)));
         }
         sc.run = Some((d, variant));
@@ -318,7 +346,9 @@ impl Router {
 
     /// Advances the search by up to `budget` settled nodes; true when finished.
     pub fn advance(&self, sc: &mut Scratch, budget: u64) -> bool {
-        let Some((d, variant)) = sc.run else { return true };
+        let Some((d, variant)) = sc.run else {
+            return true;
+        };
         let eg = sc.epoch_gen;
         let mut heap = std::mem::take(&mut sc.heap);
         let mut steps = 0u64;
@@ -350,7 +380,12 @@ impl Router {
                 let fresh = e.seen != eg;
                 if fresh || ng < e.g {
                     let hw = if fresh { self.h(sc, w) } else { e.h };
-                    sc.n[w as usize] = Scr { g: ng, h: hw, parent: v, seen: eg };
+                    sc.n[w as usize] = Scr {
+                        g: ng,
+                        h: hw,
+                        parent: v,
+                        seen: eg,
+                    };
                     heap.push(Reverse((ng + hw, Reverse(ng), w)));
                 }
             }
@@ -380,24 +415,38 @@ impl Router {
     fn path_cost(&self, path: &[u32], variant: u8) -> u64 {
         let mut c = 0;
         for w in path.windows(2) {
-            let p = self.succ(w[0]).iter().find(|e| e.0 == w[1]).map_or(u64::MAX / 4, |e| u64::from(e.1));
+            let p = self
+                .succ(w[0])
+                .iter()
+                .find(|e| e.0 == w[1])
+                .map_or(u64::MAX / 4, |e| u64::from(e.1));
             c += self.link_cost(w[1], variant) + p;
         }
         c
     }
 
     /// Cache lookup only (hit path). Returns (route, cost units) on a hit.
-    pub fn lookup(&mut self, net: &Net, k: Key) -> Option<(Arc<Vec<u32>>, Option<Arc<Vec<u16>>>, u64)> {
+    pub fn lookup(
+        &mut self,
+        net: &Net,
+        k: Key,
+    ) -> Option<(Arc<Vec<u32>>, Option<Arc<Vec<u16>>>, u64)> {
         self.stamp += 1;
-        let e = self.cache.get(&k)?;
+        let Some(e) = self.cache.get(&k) else {
+            self.absent += 1;
+            return None;
+        };
         let ok = match self.policy {
             CachePolicy::Epoch => e.epoch == self.epoch,
             CachePolicy::Revalidate => {
                 let alive = e.route.iter().all(|l| net.links[*l as usize].alive);
-                alive && (e.epoch == self.epoch || self.path_cost(&e.route, k.variant) * 100 <= e.cost * 115)
+                alive
+                    && (e.epoch == self.epoch
+                        || self.path_cost(&e.route, k.variant) * 100 <= e.cost * 115)
             }
         };
         if !ok {
+            self.rejected += 1;
             return None;
         }
         let r = e.route.clone();
@@ -429,10 +478,21 @@ impl Router {
             for l in r.iter() {
                 self.by_link.entry(*l).or_default().push(k);
             }
-            self.cache.insert(k, Entry { route: r.clone(), plan: None, cost, epoch: self.epoch, stamp: self.stamp });
+            self.cache.insert(
+                k,
+                Entry {
+                    route: r.clone(),
+                    plan: None,
+                    cost,
+                    epoch: self.epoch,
+                    stamp: self.stamp,
+                },
+            );
             self.lru.push_back((self.stamp, k));
             while self.cache.len() > self.cap {
-                let Some((st, kk)) = self.lru.pop_front() else { break };
+                let Some((st, kk)) = self.lru.pop_front() else {
+                    break;
+                };
                 if self.cache.get(&kk).is_some_and(|e| e.stamp == st) {
                     self.cache.remove(&kk);
                 }
@@ -457,7 +517,9 @@ impl Router {
     }
 
     pub fn slot_busy(&self, i: usize) -> bool {
-        self.slots[i].lock().is_ok_and(|s| s.run.is_some() || s.done.is_some())
+        self.slots[i]
+            .lock()
+            .is_ok_and(|s| s.run.is_some() || s.done.is_some())
     }
 
     pub fn start(&self, i: usize, sources: &[(u32, u64)], d: u32, variant: u8) {

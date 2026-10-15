@@ -1,6 +1,6 @@
 # ADR-0048: Pathfinding and route caching v2
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0067
 - **Date:** 2026-10-15
 - **Milestone:** M5 (router, cache, macro trips), M9 (agents, reroutes); validated by spike S-T
 - **Supersedes:** ADR-0011 (keeps the segment-direction link graph, A* with ALT, LRU cache,

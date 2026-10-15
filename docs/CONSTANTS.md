@@ -16,7 +16,7 @@ in the PROGRESS.md log. Values live in code consts or `crates/cb_sim/data/*.ron`
 | Anti-starvation | 12 sim s | `equal_priority_4way_all_occupied_no_idle_gt_2s` | no approach idle > 2 s while waiting |
 | Signal timings | min 8, max 30, yellow 3, all-red 1.5 s | `signal_discharge_rate` | ≥ 1 500 veh/sim-h/lane of green |
 | Junction release headway `h0` | 1.8 s | `background_headway_scaling` | flow reduced by V_bg/C as specified |
-| Stuck timeout | 90 sim s | `traffic_multi_day_large` | despawns < 1 per 1 000 trips |
+| Stuck timeout | 90 sim s | `traffic_multi_day_large` | despawns < 1 per 1 000 trips at peak node V/C ≤ 1 (S-T: 0.67 at 1 500 agents; release valve above) |
 | Lane-plan runway | 40 m per change | `lane_plan_feasible_on_short_links` | ≥ 99 % plans feasible on citygen networks |
 | Spawn TTC / wait | 2 s / 30 sim s | `spawn_queue_never_overlaps` | 0 overlaps; macro fallback counted |
 | Flow EMA half-life | 120 sim s | `flow_ema_tracks_step_change` | 90 % of step within 400 sim s |
@@ -27,7 +27,7 @@ in the PROGRESS.md log. Values live in code consts or `crates/cb_sim/data/*.ron`
 | Zone claim | after 6 sim s blocked by zones/space (ADR-0066) | `merge_platoon_no_starvation` | minor merge served while major platoon passes (S-T case 4) |
 | Equal-priority release | earliest arrival + greedy non-conflicting (ADR-0066) | `equal_priority_4way_capacity` | ≥ 1 700 veh/sim-h saturated 4-way (S-T 1 846) |
 | Legitimate wait window | node granted within 10 sim s (ADR-0066) | `traffic_multi_day_large` | despawns < 1 per 1 000 trips at peak node V/C ≤ 1 |
-| Route cache size | 32 768 | `route_cache_hit_rate` | ≥ 80 % in steady-state 50k bench |
+| Route cache size / policy | 32 768, revalidate ≤ 115 % (ADR-0067) | `route_cache_hit_rate` | ≥ 80 % in steady-state 50k bench with daily commuters (S-T harness: 46 % of repeated keys, no evictions) |
 | Variant cost range | +0…+20 % | `alt_heuristic_admissible_with_variants` | no overestimate |
 | Trip scale | 6 citizens' trips per vehicle trip (ADR-0062) | spike S-Time / `trip_scale_50k_peak` | 50k city: peak concurrent vehicles 4–7 % of population (realistic count, user requirement), on-time ≥ 90 %, peak ≤ agent cap, congestion p95 2–4× |
 | Agent cap default | 5 000 | spike S-Time / `agent_share_at_50k` | ≥ 40 % of peak trips are agents (S-Time: 100 % at trip scale 6) |

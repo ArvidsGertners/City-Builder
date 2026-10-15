@@ -10,11 +10,12 @@
   (control ∧ zones free ∧ target-lane reservation of `length + gap`), right-before-left,
   priority/yield gap checks with a 100 m upstream horizon, actuated signal timings, ring
   detection, the 90 s stuck timeout, macro completion of despawned trips, rendering pools and
-  the fallback ladder.
+  the fallback ladder. The ADR-0047 amendment from spike S-Time (trip scale 6, `p = 1` at 50k)
+  still applies.
 
 ## Context
 
-Spike S-T (`spikes/s_t/`, tag `spike/s-t`) built the full v2 model on a synthetic 4 × 4 km city
+Spike S-T (`spikes/s_t/`) built the full v2 model on a synthetic 4 × 4 km city
 (10 428 links, 2 922 nodes, 30 601 connectors, 68 849 conflict zones; T/X/Y/5-way, 4-lane
 avenues, one-way rows, a 6-entry ring) and measured it against the PROGRESS.md S-T gates. With
 the v2 structure (parallel IDM, everything else in one sequential pass) the 5 000-agent step
@@ -102,7 +103,21 @@ reroute → wrong lane → reroute.
 
 **Measured at the gates** (container, 4 threads, 5 000 agents, city seed 6, 2 game days unless
 noted; numbers in PROGRESS.md S-T outcome):
-_filled from the final run_
+
+| Gate | Result |
+|---|---|
+| Vehicle step p95 ≤ 0.9 ms, sequential ≤ 0.35 ms (5 000 agents) | 0.58–0.65 ms, sequential 0.19–0.22 ms ✓ (v2: 1.45–1.71 / 0.9) |
+| Junction control p95 ≤ 0.3 ms | 0.27–0.29 ms ✓ (v2: 0.40) |
+| 0 overlaps, 0 conflicting zone occupancy | 0 / 0 in every case and run ✓ |
+| Signal discharge ≥ 1 500 veh/sim-h/lane of green | 1 621 (mean headway 2.22 s) ✓ |
+| Case 1 never idle > 6 s while vehicles wait | 1.2 s; 4-way capacity 1 846 veh/sim-h ✓ |
+| Case 2 at V/C 1.2 recovers ≤ 180 sim s | 74 s (V/C 0.9: 108 s) ✓ |
+| Despawns < 1 per 1 000 trips at V/C ≤ 1.0 | cases 1–5 at V/C ≤ 1: 0; city at 1 500 agents (0 links, 20/2 915 nodes with peak V/C > 1): 0.67 ✓ |
+| Identical hash 1 / 4 / 8 threads | identical ✓ |
+
+Beyond the gates: the same city with 5 000 agents is oversaturated (437–460 of 2 917 nodes with
+peak V/C > 1) and despawns 18.5–21 per 1 000 trips; 8 000 agents: 893 nodes > 1, 58 per 1 000,
+step 0.99 ms; 12 000: 1 225 nodes > 1, 103 per 1 000, step 1.15 ms, junctions 0.74 ms.
 
 ## Consequences
 

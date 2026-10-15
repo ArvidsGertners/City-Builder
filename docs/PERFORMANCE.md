@@ -94,10 +94,10 @@ Ticks per frame (`dt = 0.1 sim s`, ADR-0042), at 60 FPS:
 | Clock, weather | 0.02 | |
 | Time wheel (due activities) | 0.10 | ≤ 2 000 activities per tick; overflow carried |
 | Trips, mode choice, admission | 0.25 | |
-| Routing (searches + cache refresh + reroutes) | 0.65 hard cap | 50 000 cost units/tick (settled nodes; ≈ 0.65 ms nominal, ≤ 0.8 ms p99); FIFO overflow (ADR-0048) |
+| Routing (searches + cache refresh + reroutes) | 0.65 nominal, ≤ 0.8 p99 | 8 resumable search slots × 1 200 settled nodes/tick in parallel + ≤ 4 000 cache-hit units; FIFO overflow; latency p99 7 ticks (ADR-0067; S-T 5k p99 0.70–0.81 ms, 1 settled node ≈ 130 ns single-threaded) |
 | Flow model | 0.10 | incremental per link event |
-| Vehicle step: parallel / sequential pass | 0.30 / 0.40 | 64 fixed partitions; sequential = lane transfers, grants, lane changes |
-| Junction control | 0.30 | active junctions only |
+| Vehicle step: parallel / sequential pass | 0.45 / 0.25 | 64 fixed partitions; parallel = IDM + flags, apply; sequential = merge, transfers, releases, lane changes for flagged vehicles (ADR-0066; S-T 5k p95 0.40–0.44 / 0.19–0.22) |
+| Junction control | 0.30 | active junctions only; parallel prepass + sequential grants (S-T 5k p95 0.27–0.29) |
 | Transit dwell/boarding, service vehicles | 0.10 | |
 | Stuck counters + cycle-detection slice | 0.05 | |
 | One sub-rate slot (phase table) | 0.60 hard cap | ARCHITECTURE §5.3 |

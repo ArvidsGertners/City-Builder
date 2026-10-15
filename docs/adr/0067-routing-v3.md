@@ -58,7 +58,19 @@ Option 2, plus a shorter epoch.
   re-queued.
 - **Lane plans** are cached in the route-cache entry (topology-only data). Removed-link eviction
   also drops their plans.
-- **Cache policy**: _filled from the final run (Epoch vs Revalidate, day-2 hit rate)_.
+- **Cache policy: revalidate.** An entry from an earlier epoch still hits if all its links are
+  alive and its path re-costed under the current epoch costs is ≤ 115 % of its cost at insert
+  (re-costing costs path length / 8 units). Current-epoch entries always hit. Results depend on
+  cache contents, which stays deterministic because the cache is saved (unchanged from
+  ADR-0048). With 15-minute epochs an epoch-only cache is useless (S-T 5 000 agents: 0.6 % hit
+  rate vs 12 % overall / 18.7 % on day 2 with revalidation).
+- **Hit-rate measurement**: the S-T harness draws a random household per trip, so only 26 % of
+  requests repeat an earlier key; 46 % of those hit. Every other miss was a never-seen key
+  (no LRU evictions at 32 768 entries); the rejected 54 % failed the 115 % re-cost test
+  because repeats came at a different time of day. The ≥ 80 % target assumes daily repeated
+  commutes and is verified in M5/M9 (`route_cache_hit_rate`, 50k benchmark with real
+  commuters). Removing the epoch from the variant jitter changed nothing (46.0 vs 45.7 %), so
+  the jitter keeps `(link, variant, epoch)`.
 
 ## Consequences
 

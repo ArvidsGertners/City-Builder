@@ -7,8 +7,8 @@ use std::time::Instant;
 
 use crate::net::{Approach, Net, NodeCtrl, Turn};
 use crate::pool::Pool;
-use std::sync::Mutex;
 use crate::route::{BATCH, Key, Router};
+use std::sync::Mutex;
 
 pub const NONE: u32 = u32::MAX;
 pub const DT: f32 = 0.1;
@@ -171,6 +171,8 @@ pub struct Stats {
     pub req_n: Vec<u32>,
     pub reeval: u64,
     pub t_sort: Vec<f32>,
+    /// Requests whose key was requested before (upper bound for cache hits).
+    pub repeat_requests: u64,
     /// Routing batches per tick and queue length after routing.
     pub batches: Vec<u32>,
     pub route_q_len: Vec<u32>,
@@ -215,6 +217,7 @@ pub struct Sim {
     /// Ring links per ring node (whole cycle), for metering.
     ring_of: Vec<Vec<u32>>,
     ring_conns: Vec<Vec<u32>>,
+    seen_keys: std::collections::HashSet<Key>,
     ring_cap: Vec<f32>,
     /// Tick of the last grant per node (a junction that serves traffic is not a jam).
     pub last_grant: Vec<u64>,
@@ -285,6 +288,7 @@ impl Sim {
             outs: (0..PARTS).map(|_| Mutex::new(PartOut::default())).collect(),
             ring_of: Vec::new(),
             ring_conns: Vec::new(),
+            seen_keys: std::collections::HashSet::new(),
             ring_cap: Vec::new(),
             last_grant: vec![0; nn],
             merge_req: vec![Vec::new(); nl],
@@ -304,7 +308,10 @@ impl Sim {
             req_l: Vec::new(),
             sig_nodes: Vec::new(),
             ring_occ: Vec::new(),
-            epoch_ticks: std::env::var("ST_EPOCH").ok().and_then(|v| v.parse().ok()).unwrap_or(300),
+            epoch_ticks: std::env::var("ST_EPOCH")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300),
             full_lanes: std::env::var("ST_FULL").is_ok(),
             t_jc: 0.0,
         }
@@ -323,8 +330,17 @@ impl Sim {
                 continue;
             }
             let nd = &self.net.nodes[k.to as usize];
-            let o: Vec<u32> = nd.inc.iter().copied().filter(|x| *x as usize != l && self.net.links[*x as usize].alive).collect();
-            self.majors[l] = o.iter().copied().filter(|x| self.net.links[*x as usize].approach == Approach::Priority).collect();
+            let o: Vec<u32> = nd
+                .inc
+                .iter()
+                .copied()
+                .filter(|x| *x as usize != l && self.net.links[*x as usize].alive)
+                .collect();
+            self.majors[l] = o
+                .iter()
+                .copied()
+                .filter(|x| self.net.links[*x as usize].approach == Approach::Priority)
+                .collect();
             self.others[l] = o;
             self.rights[l] = self.net.right_of(l as u32);
         }
@@ -337,12 +353,24 @@ impl Sim {
         self.ring_conns = vec![Vec::new(); n];
         self.ring_cap = vec![0.0; n];
         for node in 0..n {
-            let Some(&start) = self.net.nodes[node].inc.iter().find(|l| self.net.links[**l as usize].ring) else { continue };
+            let Some(&start) = self.net.nodes[node]
+                .inc
+                .iter()
+                .find(|l| self.net.links[**l as usize].ring)
+            else {
+                continue;
+            };
             let mut cyc = vec![start];
             let mut cur = start;
             for _ in 0..16 {
                 let to = self.net.links[cur as usize].to as usize;
-                let Some(&nx) = self.net.nodes[to].out.iter().find(|l| self.net.links[**l as usize].ring) else { break };
+                let Some(&nx) = self.net.nodes[to]
+                    .out
+                    .iter()
+                    .find(|l| self.net.links[**l as usize].ring)
+                else {
+                    break;
+                };
                 if nx == start {
                     break;
                 }
@@ -383,6 +411,9 @@ impl Sim {
             return;
         }
         self.stats.trips_requested += 1;
+        if !self.seen_keys.insert(k) {
+            self.stats.repeat_requests += 1;
+        }
         self.route_q.push_back((k, self.tick));
     }
 
@@ -413,13 +444,23 @@ impl Sim {
                     }
                     any |= 1 << i;
                     let j = (cc.to_lane - lb.lane0) as i32;
-                    let dist = (0..lb.lanes as i32).filter(|q| mask[k + 1] & (1 << q) != 0).map(|q| (q - j).abs()).min().unwrap_or(99);
+                    let dist = (0..lb.lanes as i32)
+                        .filter(|q| mask[k + 1] & (1 << q) != 0)
+                        .map(|q| (q - j).abs())
+                        .min()
+                        .unwrap_or(99);
                     if dist <= allowed {
                         good |= 1 << i;
                     }
                 }
             }
-            mask[k] = if good != 0 { good } else if any != 0 { any } else { self.mask_all(a) };
+            mask[k] = if good != 0 {
+                good
+            } else if any != 0 {
+                any
+            } else {
+                self.mask_all(a)
+            };
         }
         mask
     }
@@ -469,7 +510,18 @@ impl Sim {
         self.stuck();
         let t4 = Instant::now();
         let msd = |a: Instant, b: Instant| (b - a).as_secs_f32() * 1e3;
-        let parts = [msd(t1, tb), msd(tb, ta), msd(ta, tt), msd(tt, tr), msd(tr, t2), msd(t3, tsp), msd(tsp, t4), self.t_jc, msd(t2, tj) - self.t_jc, msd(tj, t3)];
+        let parts = [
+            msd(t1, tb),
+            msd(tb, ta),
+            msd(ta, tt),
+            msd(tt, tr),
+            msd(tr, t2),
+            msd(t3, tsp),
+            msd(tsp, t4),
+            self.t_jc,
+            msd(t2, tj) - self.t_jc,
+            msd(tj, t3),
+        ];
         for (k, v) in parts.iter().enumerate() {
             self.stats.t_parts[k].push(*v);
         }
@@ -497,9 +549,13 @@ impl Sim {
         }
         let mask = x.plan[(x.ri as usize).min(x.plan.len() - 1)];
         let idx = lane.idx;
-        [idx.wrapping_sub(1), idx + 1]
-            .into_iter()
-            .any(|ni| ni < lk.lanes && mask & (1 << ni) != 0 && self.change_check(vid as usize, l, lk.lane0 + u32::from(ni), true).is_some())
+        [idx.wrapping_sub(1), idx + 1].into_iter().any(|ni| {
+            ni < lk.lanes
+                && mask & (1 << ni) != 0
+                && self
+                    .change_check(vid as usize, l, lk.lane0 + u32::from(ni), true)
+                    .is_some()
+        })
     }
 
     /// Start-of-tick legitimacy of a slow vehicle's wait (read-only; parallel-safe).
@@ -510,7 +566,10 @@ impl Sim {
                 h.v >= 0.5
                     || (h.want != NONE && !h.granted && {
                         let cn = &self.net.conns[h.want as usize];
-                        (self.net.nodes[cn.node as usize].ctrl == NodeCtrl::Signal && !self.signal_green(cn.node, self.net.lanes[l as usize].link, cn.turn).0)
+                        (self.net.nodes[cn.node as usize].ctrl == NodeCtrl::Signal
+                            && !self
+                                .signal_green(cn.node, self.net.lanes[l as usize].link, cn.turn)
+                                .0)
                             || self.tick.saturating_sub(self.last_grant[cn.node as usize]) <= 100
                     })
             }
@@ -527,7 +586,9 @@ impl Sim {
         let work = |t: usize| {
             let mut p = t;
             while p < PARTS {
-                let Ok(mut out) = self.outs[p].lock() else { return };
+                let Ok(mut out) = self.outs[p].lock() else {
+                    return;
+                };
                 let o = &mut *out;
                 o.kin.clear();
                 o.lanes.clear();
@@ -683,7 +744,13 @@ impl Sim {
             if at_dest && s >= x.dest_s {
                 out.arrive.push(vid);
             }
-            if !x.granted && (x.fresh || x.need || x.reroute || self.full_lanes || ((u64::from(vid) + self.tick) % 5 == 0 && self.disc_candidate(vid, l))) {
+            if !x.granted
+                && (x.fresh
+                    || x.need
+                    || x.reroute
+                    || self.full_lanes
+                    || ((u64::from(vid) + self.tick) % 5 == 0 && self.disc_candidate(vid, l)))
+            {
                 out.work.push(vid);
             }
         }
@@ -700,7 +767,11 @@ impl Sim {
                 (ld.s - ld.len - x.s, x.v - ld.v, ld.s - ld.len - 0.5)
             } else if let Some(&lv) = self.lane_q[cn.to_lane as usize].last() {
                 let ld = &self.veh[lv as usize];
-                (cn.len - x.s + ld.s - ld.len, x.v - ld.v, cn.len + ld.s - ld.len - 0.5)
+                (
+                    cn.len - x.s + ld.s - ld.len,
+                    x.v - ld.v,
+                    cn.len + ld.s - ld.len - 0.5,
+                )
             } else {
                 (1e6, 0.0, f32::INFINITY)
             };
@@ -739,7 +810,12 @@ impl Sim {
                 x.on = On::Conn(c);
                 self.conn_q[c as usize].push(f);
                 if self.record_passes {
-                    self.stats.passes.push((self.net.conns[c as usize].node, self.net.conns[c as usize].from_lane, self.tick, f));
+                    self.stats.passes.push((
+                        self.net.conns[c as usize].node,
+                        self.net.conns[c as usize].from_lane,
+                        self.tick,
+                        f,
+                    ));
                 }
             }
         }
@@ -775,7 +851,10 @@ impl Sim {
             let x = &self.veh[vid];
             if let On::Lane(l) = x.on {
                 let link = self.net.lanes[l as usize].link;
-                if x.ri as usize + 1 == x.route.len() && x.route.last() == Some(&link) && x.s >= x.dest_s {
+                if x.ri as usize + 1 == x.route.len()
+                    && x.route.last() == Some(&link)
+                    && x.s >= x.dest_s
+                {
                     self.stats.arrived += 1;
                     self.despawn(vid as u32);
                 }
@@ -796,9 +875,13 @@ impl Sim {
                 let cn = &self.net.conns[x.zconn as usize];
                 let pos = match x.on {
                     On::Conn(c) if c == x.zconn => x.s,
-                    On::Lane(l) if l == cn.to_lane && !(x.granted && x.want == x.zconn) => x.zoff + x.s,
+                    On::Lane(l) if l == cn.to_lane && !(x.granted && x.want == x.zconn) => {
+                        x.zoff + x.s
+                    }
                     // Granted, still on the approach lane: before the connector start.
-                    On::Lane(l) if x.granted && x.want == x.zconn => x.s - self.net.lanes[l as usize].len,
+                    On::Lane(l) if x.granted && x.want == x.zconn => {
+                        x.s - self.net.lanes[l as usize].len
+                    }
                     _ => f32::INFINITY,
                 };
                 let rear = pos - x.len;
@@ -817,7 +900,9 @@ impl Sim {
                 }
                 let x = &mut self.veh[vid];
                 x.zrel = zr as u16;
-                if zr >= self.net.conns[zc as usize].zones.len() && !matches!(x.on, On::Conn(c) if c == zc) {
+                if zr >= self.net.conns[zc as usize].zones.len()
+                    && !matches!(x.on, On::Conn(c) if c == zc)
+                {
                     x.zconn = NONE;
                 }
             }
@@ -943,7 +1028,11 @@ impl Sim {
                 (k.lanes, k.lane0, k.v_free)
             };
             let ri = x.ri as usize;
-            if x.reroute || (x.fresh && ri + 1 < x.route.len() && !self.net.links[x.route[ri + 1] as usize].alive) {
+            if x.reroute
+                || (x.fresh
+                    && ri + 1 < x.route.len()
+                    && !self.net.links[x.route[ri + 1] as usize].alive)
+            {
                 self.reroute(vid);
                 continue;
             }
@@ -954,7 +1043,9 @@ impl Sim {
             let (s, v) = (x.s, x.v);
             let mut changed = false;
             if need && lane_len - s > 3.0 {
-                let target = (0..lk_lanes).filter(|q| mask & (1 << q) != 0).min_by_key(|q| (i32::from(*q) - i32::from(idx)).abs());
+                let target = (0..lk_lanes)
+                    .filter(|q| mask & (1 << q) != 0)
+                    .min_by_key(|q| (i32::from(*q) - i32::from(idx)).abs());
                 if let Some(t) = target {
                     let ni = if t > idx { idx + 1 } else { idx - 1 };
                     let tl = lk_lane0 + u32::from(ni);
@@ -963,9 +1054,17 @@ impl Sim {
                         self.merge_req[tl as usize].push(vid as u32);
                     }
                 }
-            } else if !need && disc_turn && s < lane_len - 40.0 && self.tick >= self.veh[vid].lc_until && v < 0.9 * lk_vfree {
+            } else if !need
+                && disc_turn
+                && s < lane_len - 40.0
+                && self.tick >= self.veh[vid].lc_until
+                && v < 0.9 * lk_vfree
+            {
                 for ni in [idx.wrapping_sub(1), idx + 1] {
-                    if ni < lk_lanes && mask & (1 << ni) != 0 && self.try_change(vid, l, lk_lane0 + u32::from(ni), true) {
+                    if ni < lk_lanes
+                        && mask & (1 << ni) != 0
+                        && self.try_change(vid, l, lk_lane0 + u32::from(ni), true)
+                    {
                         changed = true;
                         break;
                     }
@@ -996,7 +1095,11 @@ impl Sim {
                 let On::Lane(l2) = x.on else { continue };
                 let idx2 = self.net.lanes[l2 as usize].idx;
                 let need2 = mask & (1 << idx2) == 0;
-                let w = if need2 && !x.reroute { NONE } else { self.pick_want(vid) };
+                let w = if need2 && !x.reroute {
+                    NONE
+                } else {
+                    self.pick_want(vid)
+                };
                 let y = &mut self.veh[vid];
                 y.need = need2;
                 y.want = w;
@@ -1008,7 +1111,9 @@ impl Sim {
 
     /// 1D lane change with gap checks (never ahead of a granted vehicle).
     fn try_change(&mut self, vid: usize, from: u32, to: u32, discretionary: bool) -> bool {
-        let Some(p) = self.change_check(vid, from, to, discretionary) else { return false };
+        let Some(p) = self.change_check(vid, from, to, discretionary) else {
+            return false;
+        };
         self.lane_q[from as usize].retain(|o| *o as usize != vid);
         self.lane_q[to as usize].insert(p, vid as u32);
         let x = &mut self.veh[vid];
@@ -1022,10 +1127,17 @@ impl Sim {
         let x = &self.veh[vid];
         let (s, v, len) = (x.s, x.v, x.len);
         let q = &self.lane_q[to as usize];
-        let p = q.iter().take_while(|o| self.veh[**o as usize].s > s).count();
+        let p = q
+            .iter()
+            .take_while(|o| self.veh[**o as usize].s > s)
+            .count();
         let lead = (p > 0).then(|| &self.veh[q[p - 1] as usize]);
         let fol = q.get(p).map(|o| &self.veh[*o as usize]);
-        let (g_min, b_safe) = if discretionary { (S0, -4.0) } else { (1.0, -6.0) };
+        let (g_min, b_safe) = if discretionary {
+            (S0, -4.0)
+        } else {
+            (1.0, -6.0)
+        };
         if let Some(f) = fol {
             if f.granted {
                 return None;
@@ -1081,7 +1193,14 @@ impl Sim {
     }
 
     /// Applies a reroute result (route from one of the lane's exits) or despawns.
-    fn apply_reroute(&mut self, vid: usize, vgen: u64, lane: u32, res: Option<Vec<u32>>, req_tick: u64) {
+    fn apply_reroute(
+        &mut self,
+        vid: usize,
+        vgen: u64,
+        lane: u32,
+        res: Option<Vec<u32>>,
+        req_tick: u64,
+    ) {
         let x = &self.veh[vid];
         if x.start_tick != vgen || x.on == On::Off || !x.rr_pending {
             return;
@@ -1133,7 +1252,10 @@ impl Sim {
         (0..lk.lanes).flat_map(move |i| {
             let lane = lk.lane0 + u32::from(i);
             let len = self.net.lanes[lane as usize].len;
-            self.lane_q[lane as usize].iter().map(|v| &self.veh[*v as usize]).take_while(move |x| len - x.s <= horizon)
+            self.lane_q[lane as usize]
+                .iter()
+                .map(|v| &self.veh[*v as usize])
+                .take_while(move |x| len - x.s <= horizon)
         })
     }
 
@@ -1149,7 +1271,10 @@ impl Sim {
                 let in_range = len - x.s <= x.v * x.v / (2.0 * B_COMF) + 10.0;
                 // A priority vehicle at the line waiting for the same target-lane space goes
                 // first (else entries steal its space and rings/merges lock up).
-                if in_range && x.want != NONE && self.net.conns[x.want as usize].to_lane == my_target {
+                if in_range
+                    && x.want != NONE
+                    && self.net.conns[x.want as usize].to_lane == my_target
+                {
                     return false;
                 }
                 if x.v < 0.5 {
@@ -1160,7 +1285,10 @@ impl Sim {
                 if in_range {
                     continue;
                 }
-                let conflict = x.want == NONE || self.net.conflicts[c as usize].binary_search(&x.want).is_ok();
+                let conflict = x.want == NONE
+                    || self.net.conflicts[c as usize]
+                        .binary_search(&x.want)
+                        .is_ok();
                 if !conflict {
                     continue;
                 }
@@ -1196,7 +1324,9 @@ impl Sim {
         let work = |t: usize| {
             let mut p = t;
             while p < PARTS {
-                let Ok(mut out) = self.outs[p].lock() else { return };
+                let Ok(mut out) = self.outs[p].lock() else {
+                    return;
+                };
                 let o = &mut *out;
                 o.req.clear();
                 for &l in &o.lanes {
@@ -1207,7 +1337,9 @@ impl Sim {
                         if x.granted {
                             continue;
                         }
-                        if x.want == NONE || (k > 0 && !self.veh[self.lane_q[l][k - 1] as usize].granted) {
+                        if x.want == NONE
+                            || (k > 0 && !self.veh[self.lane_q[l][k - 1] as usize].granted)
+                        {
                             break;
                         }
                         let d = len - x.s;
@@ -1215,17 +1347,32 @@ impl Sim {
                             break;
                         }
                         let c = &self.net.conns[x.want as usize];
-                        let starve = u8::from(self.tick.saturating_sub(x.req_tick) > 120 && x.req_tick != 0);
+                        let starve =
+                            u8::from(self.tick.saturating_sub(x.req_tick) > 120 && x.req_tick != 0);
                         let prio: u8 = match self.net.links[c.from_link as usize].approach {
                             Approach::Priority => 1,
                             Approach::Yield => 0,
                         };
-                        let rt = if x.req_tick == 0 { self.tick } else { x.req_tick };
+                        let rt = if x.req_tick == 0 {
+                            self.tick
+                        } else {
+                            x.req_tick
+                        };
                         // Sort key: node asc, starving first, priority first, earliest, vid.
-                        let key = u128::from(c.node) << 96 | u128::from(1 - starve) << 95 | u128::from(1 - prio) << 94 | u128::from(rt) << 32 | u128::from(vid);
+                        let key = u128::from(c.node) << 96
+                            | u128::from(1 - starve) << 95
+                            | u128::from(1 - prio) << 94
+                            | u128::from(rt) << 32
+                            | u128::from(vid);
                         let allow = self.allow(vid);
                         let feasible = allow != Allow::No && self.grant_feasible(vid, &[]);
-                        o.req.push(Req { key, node: c.node, vid, allow, feasible });
+                        o.req.push(Req {
+                            key,
+                            node: c.node,
+                            vid,
+                            allow,
+                            feasible,
+                        });
                         break;
                     }
                 }
@@ -1252,11 +1399,17 @@ impl Sim {
                 let lk = &self.net.links[l as usize];
                 for i in 0..lk.lanes {
                     let lane = lk.lane0 + u32::from(i);
-                    occ += self.lane_q[lane as usize].iter().map(|v| self.veh[*v as usize].len + S0).sum::<f32>();
+                    occ += self.lane_q[lane as usize]
+                        .iter()
+                        .map(|v| self.veh[*v as usize].len + S0)
+                        .sum::<f32>();
                 }
             }
             for &c in &self.ring_conns[node] {
-                occ += self.conn_q[c as usize].iter().map(|v| self.veh[*v as usize].len + S0).sum::<f32>();
+                occ += self.conn_q[c as usize]
+                    .iter()
+                    .map(|v| self.veh[*v as usize].len + S0)
+                    .sum::<f32>();
             }
             // Granted entries still on their approach lane.
             for &l in ring {
@@ -1276,7 +1429,11 @@ impl Sim {
                     }
                 }
             }
-            self.ring_occ[node] = if self.ring_cap[node] > 0.0 { occ / self.ring_cap[node] } else { 0.0 };
+            self.ring_occ[node] = if self.ring_cap[node] > 0.0 {
+                occ / self.ring_cap[node]
+            } else {
+                0.0
+            };
         }
     }
 
@@ -1299,7 +1456,9 @@ impl Sim {
         self.stats.req_n.push(req.len() as u32);
         let ts0 = Instant::now();
         req.sort_unstable_by_key(|r| r.key);
-        self.stats.t_sort.push((Instant::now() - ts0).as_secs_f32() * 1e3);
+        self.stats
+            .t_sort
+            .push((Instant::now() - ts0).as_secs_f32() * 1e3);
         let mut i = 0;
         while i < req.len() {
             let node = req[i].node;
@@ -1410,7 +1569,9 @@ impl Sim {
                         // Yield to vehicles that are coming, or waiting at the line able to go.
                         let able = y.want != NONE && {
                             let t = self.net.conns[y.want as usize].to_lane as usize;
-                            let space = self.lane_q[t].last().map_or(self.net.lanes[t].len, |lv| self.veh[*lv as usize].s - self.veh[*lv as usize].len) - self.resv[t];
+                            let space = self.lane_q[t].last().map_or(self.net.lanes[t].len, |lv| {
+                                self.veh[*lv as usize].s - self.veh[*lv as usize].len
+                            }) - self.resv[t];
                             space >= y.len + GAP
                         };
                         let coming = y.v >= 0.5;
@@ -1418,7 +1579,11 @@ impl Sim {
                         if !(coming || (at_line && able)) {
                             continue;
                         }
-                        if y.want == NONE || self.net.conflicts[c as usize].binary_search(&y.want).is_ok() {
+                        if y.want == NONE
+                            || self.net.conflicts[c as usize]
+                                .binary_search(&y.want)
+                                .is_ok()
+                        {
                             return Allow::Rbl;
                         }
                     }
@@ -1484,7 +1649,12 @@ impl Sim {
 
     fn update_signals(&mut self) {
         if self.sig_nodes.is_empty() {
-            self.sig_nodes = (0..self.net.nodes.len() as u32).filter(|n| self.net.nodes[*n as usize].ctrl == NodeCtrl::Signal && !self.net.nodes[*n as usize].phases.is_empty()).collect();
+            self.sig_nodes = (0..self.net.nodes.len() as u32)
+                .filter(|n| {
+                    self.net.nodes[*n as usize].ctrl == NodeCtrl::Signal
+                        && !self.net.nodes[*n as usize].phases.is_empty()
+                })
+                .collect();
         }
         let sig_nodes = std::mem::take(&mut self.sig_nodes);
         for &n in &sig_nodes {
@@ -1493,17 +1663,19 @@ impl Sim {
             let nd = &self.net.nodes[n];
             if self.tick % 5 == 0 || self.sig_demand[n].len() != nd.phases.len() {
                 let d: Vec<bool> = nd
-                .phases
-                .iter()
-                .zip(&nd.phase_turns)
-                .map(|(ph, tb)| {
-                    ph.iter().any(|l| {
-                        self.approaching(*l, 60.0).any(|x| {
-                            !x.granted && x.want != NONE && self.net.conns[x.want as usize].turn.bit() & tb != 0
+                    .phases
+                    .iter()
+                    .zip(&nd.phase_turns)
+                    .map(|(ph, tb)| {
+                        ph.iter().any(|l| {
+                            self.approaching(*l, 60.0).any(|x| {
+                                !x.granted
+                                    && x.want != NONE
+                                    && self.net.conns[x.want as usize].turn.bit() & tb != 0
+                            })
                         })
                     })
-                })
-                .collect();
+                    .collect();
                 self.sig_demand[n] = d;
             }
             let demand = self.sig_demand[n].clone();
@@ -1525,7 +1697,10 @@ impl Sim {
                 }
                 _ => {
                     if sg.t >= 1.5 {
-                        let next = (1..=np).map(|k| (sg.phase + k) % np).find(|p| demand[*p]).unwrap_or((sg.phase + 1) % np);
+                        let next = (1..=np)
+                            .map(|k| (sg.phase + k) % np)
+                            .find(|p| demand[*p])
+                            .unwrap_or((sg.phase + 1) % np);
                         sg.phase = next;
                         sg.stage = 0;
                         sg.t = 0.0;
@@ -1554,7 +1729,9 @@ impl Sim {
     fn spawn(&mut self) {
         let links: Vec<u32> = self.spawn_q.keys().copied().collect();
         for l in links {
-            let Some(trip) = self.spawn_q.get(&l).and_then(|q| q.front()) else { continue };
+            let Some(trip) = self.spawn_q.get(&l).and_then(|q| q.front()) else {
+                continue;
+            };
             if self.tick - trip.queued_tick > 300 {
                 self.stats.macro_spawn_timeout += 1;
                 if let Some(q) = self.spawn_q.get_mut(&l) {
@@ -1581,7 +1758,10 @@ impl Sim {
                     continue;
                 }
                 let q = &self.lane_q[lane as usize];
-                let p = q.iter().take_while(|o| self.veh[**o as usize].s > s0).count();
+                let p = q
+                    .iter()
+                    .take_while(|o| self.veh[**o as usize].s > s0)
+                    .count();
                 let ok_lead = p == 0 || {
                     let ld = &self.veh[q[p - 1] as usize];
                     ld.s - ld.len - s0 >= S0 + 2.0
@@ -1600,13 +1780,17 @@ impl Sim {
             // Enter at the speed the gap ahead allows (arrivals come in moving).
             let v_in = {
                 let q = &self.lane_q[lane as usize];
-                let g = if p == 0 { 1e6 } else {
+                let g = if p == 0 {
+                    1e6
+                } else {
                     let ld = &self.veh[q[p - 1] as usize];
                     ld.s - ld.len - s0
                 };
                 ((g - S0) / T_HW).clamp(0.0, lk.4)
             };
-            let Some(trip) = self.spawn_q.get_mut(&l).and_then(|q| q.pop_front()) else { continue };
+            let Some(trip) = self.spawn_q.get_mut(&l).and_then(|q| q.pop_front()) else {
+                continue;
+            };
             let dest = *trip.route.last().unwrap_or(&l);
             let trip_len = trip.route.len();
             let x = Veh {
@@ -1647,7 +1831,12 @@ impl Sim {
     }
 
     /// Queues a trip for spawning; returns plan units (route length when the plan is computed).
-    fn enqueue_trip(&mut self, k: Key, route: Option<Arc<Vec<u32>>>, plan: Option<Arc<Vec<u16>>>) -> u64 {
+    fn enqueue_trip(
+        &mut self,
+        k: Key,
+        route: Option<Arc<Vec<u32>>>,
+        plan: Option<Arc<Vec<u16>>>,
+    ) -> u64 {
         let mut units = 0;
         match route {
             Some(route) => {
@@ -1668,7 +1857,12 @@ impl Sim {
                     let node = self.net.links[w[0] as usize].to;
                     *self.stats.node_demand.entry((hour, node)).or_default() += 1;
                 }
-                self.spawn_q.entry(k.o).or_default().push_back(Trip { key: k, route, plan, queued_tick: self.tick });
+                self.spawn_q.entry(k.o).or_default().push_back(Trip {
+                    key: k,
+                    route,
+                    plan,
+                    queued_tick: self.tick,
+                });
             }
             None => self.stats.trips_no_route += 1,
         }
@@ -1695,7 +1889,12 @@ impl Sim {
                 }
                 let dest = x.dest_link;
                 let variant = x.key.variant;
-                let exits: Vec<u32> = self.net.lanes[l as usize].conns.iter().map(|c| self.net.conns[*c as usize].to_link).filter(|t| self.net.links[*t as usize].alive).collect();
+                let exits: Vec<u32> = self.net.lanes[l as usize]
+                    .conns
+                    .iter()
+                    .map(|c| self.net.conns[*c as usize].to_link)
+                    .filter(|t| self.net.links[*t as usize].alive)
+                    .collect();
                 if exits.contains(&dest) {
                     self.apply_reroute(vid as usize, vgen, l, Some(vec![dest]), self.tick);
                     continue;
@@ -1704,9 +1903,16 @@ impl Sim {
                     self.apply_reroute(vid as usize, vgen, l, None, self.tick);
                     continue;
                 }
-                let sources: Vec<(u32, u64)> = exits.iter().map(|e| (*e, self.router.enter_cost(*e, variant))).collect();
+                let sources: Vec<(u32, u64)> = exits
+                    .iter()
+                    .map(|e| (*e, self.router.enter_cost(*e, variant)))
+                    .collect();
                 self.router.start(i, &sources, dest, variant);
-                self.slot_req[i] = Some(SlotReq { key: None, waiters: vec![Waiter::Reroute(vid, vgen, l)], start_tick: self.tick });
+                self.slot_req[i] = Some(SlotReq {
+                    key: None,
+                    waiters: vec![Waiter::Reroute(vid, vgen, l)],
+                    start_tick: self.tick,
+                });
                 break;
             }
             if self.slot_req[i].is_some() {
@@ -1714,18 +1920,29 @@ impl Sim {
             }
             // Trip requests: hits resolve now; the first miss takes this slot.
             while units < ROUTE_BUDGET {
-                let Some((k, _)) = self.route_q.pop_front() else { break };
+                let Some((k, _)) = self.route_q.pop_front() else {
+                    break;
+                };
                 if let Some((r, plan, u)) = self.router.lookup(&self.net, k) {
                     units += u;
                     units += self.enqueue_trip(k, Some(r), plan);
                     continue;
                 }
-                if let Some(sr) = self.slot_req.iter_mut().flatten().find(|sr| sr.key == Some(k)) {
+                if let Some(sr) = self
+                    .slot_req
+                    .iter_mut()
+                    .flatten()
+                    .find(|sr| sr.key == Some(k))
+                {
                     sr.waiters.push(Waiter::Trip(k));
                     continue;
                 }
                 self.router.start(i, &[(k.o, 0)], k.d, k.variant);
-                self.slot_req[i] = Some(SlotReq { key: Some(k), waiters: vec![Waiter::Trip(k)], start_tick: self.tick });
+                self.slot_req[i] = Some(SlotReq {
+                    key: Some(k),
+                    waiters: vec![Waiter::Trip(k)],
+                    start_tick: self.tick,
+                });
                 break;
             }
         }
@@ -1739,11 +1956,17 @@ impl Sim {
             if self.slot_req[i].is_none() {
                 continue;
             }
-            let Some(res) = self.router.take_done(i) else { continue };
-            let Some(sr) = self.slot_req[i].take() else { continue };
+            let Some(res) = self.router.take_done(i) else {
+                continue;
+            };
+            let Some(sr) = self.slot_req[i].take() else {
+                continue;
+            };
             match sr.key {
                 Some(k) => {
-                    self.stats.route_lat.push((self.tick - sr.start_tick) as u32);
+                    self.stats
+                        .route_lat
+                        .push((self.tick - sr.start_tick) as u32);
                     let (route, _) = self.router.insert(k, res);
                     for w in sr.waiters {
                         if let Waiter::Trip(k) = w {
@@ -1764,7 +1987,9 @@ impl Sim {
         }
         self.stats.units.push(units);
         self.stats.batches.push(busy);
-        self.stats.route_q_len.push((self.route_q.len() + self.reroute_q.len()) as u32);
+        self.stats
+            .route_q_len
+            .push((self.route_q.len() + self.reroute_q.len()) as u32);
     }
 
     fn stuck(&mut self) {
@@ -1776,7 +2001,15 @@ impl Sim {
             if std::env::var("ST_DEBUG").is_ok() {
                 let x = &self.veh[v as usize];
                 let (cont, len) = match x.on {
-                    On::Lane(l) => (format!("lane{} link{} ring={}", l, self.net.lanes[l as usize].link, self.net.links[self.net.lanes[l as usize].link as usize].ring), self.net.lanes[l as usize].len),
+                    On::Lane(l) => (
+                        format!(
+                            "lane{} link{} ring={}",
+                            l,
+                            self.net.lanes[l as usize].link,
+                            self.net.links[self.net.lanes[l as usize].link as usize].ring
+                        ),
+                        self.net.lanes[l as usize].len,
+                    ),
                     On::Conn(c) => (format!("conn{c}"), self.net.conns[c as usize].len),
                     On::Off => ("off".into(), 0.0),
                 };
@@ -1790,28 +2023,63 @@ impl Sim {
                         }
                     }
                     let t = cn.to_lane as usize;
-                    let space = self.lane_q[t].last().map_or(self.net.lanes[t].len, |lv| self.veh[*lv as usize].s - self.veh[*lv as usize].len) - self.resv[t];
-                    why += &format!(" to_lane{t} space={space:.1} resv={:.1} turn={:?} node={} ctrl={:?} from_ring={}", self.resv[t], cn.turn, cn.node, self.net.nodes[cn.node as usize].ctrl, self.net.links[cn.from_link as usize].ring);
+                    let space = self.lane_q[t].last().map_or(self.net.lanes[t].len, |lv| {
+                        self.veh[*lv as usize].s - self.veh[*lv as usize].len
+                    }) - self.resv[t];
+                    why += &format!(
+                        " to_lane{t} space={space:.1} resv={:.1} turn={:?} node={} ctrl={:?} from_ring={}",
+                        self.resv[t],
+                        cn.turn,
+                        cn.node,
+                        self.net.nodes[cn.node as usize].ctrl,
+                        self.net.links[cn.from_link as usize].ring
+                    );
                 }
                 if let On::Lane(l) = x.on {
                     let ri = x.ri as usize;
-                    why += &format!(" need={} fresh={} reroute={} idx={} plan={:?} route={:?} lane_to={:?}", x.need, x.fresh, x.reroute, self.net.lanes[l as usize].idx, &x.plan[ri..(ri + 2).min(x.plan.len())], &x.route[ri..(ri + 2).min(x.route.len())],
-                        self.net.lanes[l as usize].conns.iter().map(|c| self.net.conns[*c as usize].to_link).collect::<Vec<_>>());
+                    why += &format!(
+                        " need={} fresh={} reroute={} idx={} plan={:?} route={:?} lane_to={:?}",
+                        x.need,
+                        x.fresh,
+                        x.reroute,
+                        self.net.lanes[l as usize].idx,
+                        &x.plan[ri..(ri + 2).min(x.plan.len())],
+                        &x.route[ri..(ri + 2).min(x.route.len())],
+                        self.net.lanes[l as usize]
+                            .conns
+                            .iter()
+                            .map(|c| self.net.conns[*c as usize].to_link)
+                            .collect::<Vec<_>>()
+                    );
                 }
-                println!("stuck v{v} {cont} s={:.1}/{len:.1} v={:.2} want={} granted={} zconn={} resv_lane={} ri={}/{}{why}", x.s, x.v, x.want, x.granted, x.zconn, x.resv_lane, x.ri, x.route.len());
+                println!(
+                    "stuck v{v} {cont} s={:.1}/{len:.1} v={:.2} want={} granted={} zconn={} resv_lane={} ri={}/{}{why}",
+                    x.s,
+                    x.v,
+                    x.want,
+                    x.granted,
+                    x.zconn,
+                    x.resv_lane,
+                    x.ri,
+                    x.route.len()
+                );
             }
             self.stats.despawn_stuck += 1;
             let w = self.veh[v as usize].want;
             if w != NONE {
                 let cn = &self.net.conns[w as usize];
                 self.stats.stuck_targets.push(cn.to_link);
-                self.stats.stuck_nodes.push((cn.node, self.net.links[cn.to_link as usize].to));
+                self.stats
+                    .stuck_nodes
+                    .push((cn.node, self.net.links[cn.to_link as usize].to));
             } else if let On::Lane(l) = self.veh[v as usize].on {
                 let n = self.net.links[self.net.lanes[l as usize].link as usize].to;
                 self.stats.stuck_nodes.push((n, n));
             } else if let On::Conn(c) = self.veh[v as usize].on {
                 let cn = &self.net.conns[c as usize];
-                self.stats.stuck_nodes.push((cn.node, self.net.links[cn.to_link as usize].to));
+                self.stats
+                    .stuck_nodes
+                    .push((cn.node, self.net.links[cn.to_link as usize].to));
             }
             self.despawn(v);
         }
@@ -1823,7 +2091,9 @@ impl Sim {
 
     /// Wait-for graph over vehicles stuck > 20 s; break cycles by despawning the latest trip.
     fn break_cycles(&mut self) {
-        let stuck: Vec<u32> = (0..self.veh.len() as u32).filter(|v| self.veh[*v as usize].on != On::Off && self.veh[*v as usize].wait_s > 20.0).collect();
+        let stuck: Vec<u32> = (0..self.veh.len() as u32)
+            .filter(|v| self.veh[*v as usize].on != On::Off && self.veh[*v as usize].wait_s > 20.0)
+            .collect();
         if stuck.is_empty() {
             return;
         }
@@ -1891,7 +2161,10 @@ impl Sim {
                     if color[w as usize] == 1 {
                         if let Some(p) = path.iter().position(|x| *x == w) {
                             let cyc = &path[p..];
-                            if let Some(&victim) = cyc.iter().max_by_key(|v| (self.veh[**v as usize].start_tick, **v)) {
+                            if let Some(&victim) = cyc
+                                .iter()
+                                .max_by_key(|v| (self.veh[**v as usize].start_tick, **v))
+                            {
                                 victims.push(victim);
                             }
                         }
@@ -1922,12 +2195,22 @@ impl Sim {
                 .map(|l| {
                     let lk = &self.net.links[l];
                     let lanes = lk.lane0 as usize..(lk.lane0 + u32::from(lk.lanes)) as usize;
-                    let (sum, cnt) = lanes.fold((0.0f32, 0u32), |a, q| (a.0 + self.v_sum[q], a.1 + self.v_cnt[q]));
-                    let v = if cnt > 0 { (sum / cnt as f32).clamp(0.2 * lk.v_free, lk.v_free) } else { lk.v_free };
+                    let (sum, cnt) = lanes.fold((0.0f32, 0u32), |a, q| {
+                        (a.0 + self.v_sum[q], a.1 + self.v_cnt[q])
+                    });
+                    let v = if cnt > 0 {
+                        (sum / cnt as f32).clamp(0.2 * lk.v_free, lk.v_free)
+                    } else {
+                        lk.v_free
+                    };
                     ((lk.len / v) * 1000.0) as u32 + 1
                 })
                 .collect();
-            let cost = if std::env::var("ST_NOEPOCH").is_ok() { self.router.free.clone() } else { cost };
+            let cost = if std::env::var("ST_NOEPOCH").is_ok() {
+                self.router.free.clone()
+            } else {
+                cost
+            };
             self.router.new_epoch(self.tick / self.epoch_ticks, cost);
             self.v_sum.iter_mut().for_each(|v| *v = 0.0);
             self.v_cnt.iter_mut().for_each(|v| *v = 0);
@@ -1998,7 +2281,9 @@ impl Sim {
         self.router.evict_link(l);
         // Searches in flight may cross the removed link: restart them on the new graph.
         for i in 0..BATCH {
-            let Some(sr) = self.slot_req[i].take() else { continue };
+            let Some(sr) = self.slot_req[i].take() else {
+                continue;
+            };
             let _ = self.router.take_done(i);
             match sr.key {
                 Some(k) => {

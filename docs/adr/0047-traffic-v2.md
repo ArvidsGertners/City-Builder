@@ -1,6 +1,6 @@
 # ADR-0047: Traffic simulation model v2
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0066
 - **Date:** 2026-10-15
 - **Milestone:** M9; validated by spikes S-T and S-Time
 - **Supersedes:** ADR-0010 (keeps the hybrid: 1D lane microsimulation for agents + macro flow

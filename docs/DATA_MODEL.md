@@ -265,7 +265,7 @@ generated names from seed + ID) but are never ECS entities.
 
 ---
 
-## 7. Trips and traffic (resources) — ADR-0047, ADR-0048
+## 7. Trips and traffic (resources) — ADR-0066, ADR-0067
 
 ```rust
 #[derive(Resource)] struct Trips { active: DenseSlotMap<TripId, Trip> }
@@ -293,7 +293,7 @@ struct TrafficWorld {
 Agent state is 1D (lane, `s`, `v`). World-space poses are **not** sim state: the
 presentation computes `pose(lane, s, lateral_offset)` only for agents inside the view
 (frustum + margin) and interpolates between the previous and current tick. Camera position
-therefore never influences simulation results (ADR-0047: presentation LOD vs. deterministic
+therefore never influences simulation results (ADR-0066: presentation LOD vs. deterministic
 aggregation beyond `agent_cap`).
 
 ---
@@ -312,7 +312,7 @@ struct LineStats { riders_today: u32, riders_history: RingBuffer<u32, 16>, incom
 #[derive(Resource)] struct TransitNetwork {      // derived
     graph: TransitGraph,                         // nodes = (stop, line) + stop; edges = ride/transfer/wait
     stop_access: LookupMap<BuildingId, SmallVec<[(StopId, f32 /*walk m*/); 4]>>,
-    leg_paths: LookupMap<(LineId, u16), RouteHandle>,   // frozen at line edit (ADR-0048)
+    leg_paths: LookupMap<(LineId, u16), RouteHandle>,   // frozen at line edit (ADR-0067)
 }
 ```
 Transit vehicles are agents in `TrafficWorld` with `VehicleKind::Bus|Tram` and a `TransitRun

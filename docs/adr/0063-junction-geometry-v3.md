@@ -1,6 +1,6 @@
 # ADR-0063: Junction geometry v3 (validated by spike S-J)
 
-- **Status:** Accepted
+- **Status:** Accepted (control section superseded by ADR-0066)
 - **Date:** 2026-10-15
 - **Milestone:** M3 (geometry), M9 (control behaviour)
 - **Supersedes:** ADR-0045 — geometry rules change as below; the control rules are carried over

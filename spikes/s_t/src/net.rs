@@ -162,7 +162,16 @@ fn seg_x(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> Option<(f32, f32)> {
 
 impl Net {
     pub fn add_node(&mut self, pos: Vec2, want: Ctrl) -> u32 {
-        self.nodes.push(Node { pos, want, ctrl: NodeCtrl::None, inc: Vec::new(), out: Vec::new(), cut: 0.0, phases: Vec::new(), phase_turns: Vec::new() });
+        self.nodes.push(Node {
+            pos,
+            want,
+            ctrl: NodeCtrl::None,
+            inc: Vec::new(),
+            out: Vec::new(),
+            cut: 0.0,
+            phases: Vec::new(),
+            phase_turns: Vec::new(),
+        });
         (self.nodes.len() - 1) as u32
     }
 
@@ -200,14 +209,22 @@ impl Net {
 
     fn reverse_of(&self, l: u32) -> Option<u32> {
         let k = &self.links[l as usize];
-        self.nodes[k.to as usize].out.iter().copied().find(|o| self.links[*o as usize].to == k.from && self.links[*o as usize].alive)
+        self.nodes[k.to as usize]
+            .out
+            .iter()
+            .copied()
+            .find(|o| self.links[*o as usize].to == k.from && self.links[*o as usize].alive)
     }
 
     /// Lateral offset of lane `idx` (right of the centreline for two-way roads).
     fn lane_offset(&self, l: u32, idx: u8) -> f32 {
         let k = &self.links[l as usize];
         let two_way = self.reverse_of(l).is_some();
-        let median = if k.class == Class::Avenue && two_way { 1.0 } else { 0.0 };
+        let median = if k.class == Class::Avenue && two_way {
+            1.0
+        } else {
+            0.0
+        };
         if two_way {
             median + (idx as f32 + 0.5) * LANE_W
         } else {
@@ -223,11 +240,22 @@ impl Net {
             for &l in node.inc.iter().chain(node.out.iter()) {
                 let k = &self.links[l as usize];
                 let two = self.reverse_of(l).is_some();
-                let width = k.lanes as f32 * LANE_W * if two { 2.0 } else { 1.0 } + if k.class == Class::Avenue { 1.0 } else { 0.0 };
+                let width = k.lanes as f32 * LANE_W * if two { 2.0 } else { 1.0 }
+                    + if k.class == Class::Avenue { 1.0 } else { 0.0 };
                 w = w.max(0.5 * width);
             }
             let deg = node.inc.len().max(node.out.len());
-            self.nodes[n].cut = if deg <= 1 { 0.0 } else if self.nodes[n].inc.iter().any(|l| self.links[*l as usize].ring) { 4.0 } else { w + 4.0 };
+            self.nodes[n].cut = if deg <= 1 {
+                0.0
+            } else if self.nodes[n]
+                .inc
+                .iter()
+                .any(|l| self.links[*l as usize].ring)
+            {
+                4.0
+            } else {
+                w + 4.0
+            };
         }
         // Link geometry and lanes.
         self.lanes.clear();
@@ -249,7 +277,14 @@ impl Net {
             for i in 0..lanes {
                 let off = self.lane_offset(l as u32, i);
                 let k = &self.links[l];
-                self.lanes.push(Lane { link: l as u32, idx: i, len, p0: k.a + right * off, p1: k.b + right * off, conns: Vec::new() });
+                self.lanes.push(Lane {
+                    link: l as u32,
+                    idx: i,
+                    len,
+                    p0: k.a + right * off,
+                    p1: k.b + right * off,
+                    conns: Vec::new(),
+                });
             }
         }
         // Connectors.
@@ -267,7 +302,14 @@ impl Net {
                     .iter()
                     .copied()
                     .filter(|o| self.links[*o as usize].alive)
-                    .filter(|o| self.links[*o as usize].to != lk.from || out.iter().filter(|q| self.links[**q as usize].alive).count() == 1)
+                    .filter(|o| {
+                        self.links[*o as usize].to != lk.from
+                            || out
+                                .iter()
+                                .filter(|q| self.links[**q as usize].alive)
+                                .count()
+                                == 1
+                    })
                     .map(|o| {
                         let d = self.links[o as usize].dir;
                         (o, cross(lk.dir, d).atan2(lk.dir.dot(d)))
@@ -291,7 +333,16 @@ impl Net {
                     let is_leftmost = mv.first().is_some_and(|m| m.0 == o) && mv.len() > 1;
                     let is_rightmost = mv.last().is_some_and(|m| m.0 == o) && mv.len() > 1;
                     let pairs: Vec<(usize, usize)> = match turn {
-                        _ if n_in == 1 => vec![(0, if turn == Turn::Right { n_out - 1 } else if turn == Turn::Left { 0 } else { 0usize.min(n_out - 1) })],
+                        _ if n_in == 1 => vec![(
+                            0,
+                            if turn == Turn::Right {
+                                n_out - 1
+                            } else if turn == Turn::Left {
+                                0
+                            } else {
+                                0usize.min(n_out - 1)
+                            },
+                        )],
                         Turn::Left | Turn::U => vec![(0, 0)],
                         Turn::Right => vec![(n_in - 1, n_out - 1)],
                         Turn::Straight => {
@@ -321,7 +372,11 @@ impl Net {
                                 p0 * (1.0 - t) * (1.0 - t) + ctrl * 2.0 * t * (1.0 - t) + p1 * t * t
                             })
                             .collect();
-                        let len: f32 = pts.windows(2).map(|w| w[0].distance(w[1])).sum::<f32>().max(1.0);
+                        let len: f32 = pts
+                            .windows(2)
+                            .map(|w| w[0].distance(w[1]))
+                            .sum::<f32>()
+                            .max(1.0);
                         let v_max = match turn {
                             Turn::Straight => lk.v_free.min(ok.v_free),
                             Turn::Right => 6.0,
@@ -329,7 +384,18 @@ impl Net {
                             Turn::U => 3.0,
                         };
                         let id = self.conns.len() as u32;
-                        self.conns.push(Conn { node: n as u32, from_lane, to_lane, from_link: li, to_link: o, len, pts, zones: Vec::new(), turn, v_max });
+                        self.conns.push(Conn {
+                            node: n as u32,
+                            from_lane,
+                            to_lane,
+                            from_link: li,
+                            to_link: o,
+                            len,
+                            pts,
+                            zones: Vec::new(),
+                            turn,
+                            v_max,
+                        });
                         self.lanes[from_lane as usize].conns.push(id);
                     }
                 }
@@ -361,9 +427,16 @@ impl Net {
                         let (la, lb) = (self.conns[a].len, self.conns[b].len);
                         // Merge slot: released once the front has entered the target lane (rear
                         // past len − 4.5); IDM across the connector end keeps the spacing.
-                        self.conns[a].zones.push((zid, (la - 8.0).max(0.0), (la - 4.5).max(0.5)));
-                        self.conns[b].zones.push((zid, (lb - 8.0).max(0.0), (lb - 4.5).max(0.5)));
-                        self.zones.push(Zone { node: n as u32, conns: [a as u32, b as u32] });
+                        self.conns[a]
+                            .zones
+                            .push((zid, (la - 8.0).max(0.0), (la - 4.5).max(0.5)));
+                        self.conns[b]
+                            .zones
+                            .push((zid, (lb - 8.0).max(0.0), (lb - 4.5).max(0.5)));
+                        self.zones.push(Zone {
+                            node: n as u32,
+                            conns: [a as u32, b as u32],
+                        });
                         continue;
                     }
                     let (pa, pb) = (self.conns[a].pts.clone(), self.conns[b].pts.clone());
@@ -374,7 +447,11 @@ impl Net {
                             if let Some((t, u)) = seg_x(pa[i], pa[i + 1], pb[j], pb[j + 1]) {
                                 let da = (pa[i + 1] - pa[i]).normalize_or_zero();
                                 let db = (pb[j + 1] - pb[j]).normalize_or_zero();
-                                hit = Some((sa[i] + t * (sa[i + 1] - sa[i]), sb[j] + u * (sb[j + 1] - sb[j]), cross(da, db).abs()));
+                                hit = Some((
+                                    sa[i] + t * (sa[i + 1] - sa[i]),
+                                    sb[j] + u * (sb[j + 1] - sb[j]),
+                                    cross(da, db).abs(),
+                                ));
                                 break 'o;
                             }
                         }
@@ -382,9 +459,16 @@ impl Net {
                     if let Some((s1, s2, sin)) = hit {
                         let half = (2.5 / sin.max(0.2)).clamp(2.5, 9.0);
                         let (la, lb) = (self.conns[a].len, self.conns[b].len);
-                        self.conns[a].zones.push((zid, (s1 - half).max(0.0), (s1 + half).min(la)));
-                        self.conns[b].zones.push((zid, (s2 - half).max(0.0), (s2 + half).min(lb)));
-                        self.zones.push(Zone { node: n as u32, conns: [a as u32, b as u32] });
+                        self.conns[a]
+                            .zones
+                            .push((zid, (s1 - half).max(0.0), (s1 + half).min(la)));
+                        self.conns[b]
+                            .zones
+                            .push((zid, (s2 - half).max(0.0), (s2 + half).min(lb)));
+                        self.zones.push(Zone {
+                            node: n as u32,
+                            conns: [a as u32, b as u32],
+                        });
                     }
                 }
             }
@@ -408,17 +492,34 @@ impl Net {
     /// Node control from the road hierarchy (ADR-0063 Auto) + signal phases.
     fn classify(&mut self) {
         for n in 0..self.nodes.len() {
-            let inc: Vec<u32> = self.nodes[n].inc.iter().copied().filter(|l| self.links[*l as usize].alive).collect();
-            let outs = self.nodes[n].out.iter().filter(|l| self.links[**l as usize].alive).count();
+            let inc: Vec<u32> = self.nodes[n]
+                .inc
+                .iter()
+                .copied()
+                .filter(|l| self.links[*l as usize].alive)
+                .collect();
+            let outs = self.nodes[n]
+                .out
+                .iter()
+                .filter(|l| self.links[**l as usize].alive)
+                .count();
             if inc.iter().any(|l| self.links[*l as usize].ring) {
                 self.nodes[n].ctrl = NodeCtrl::Ring;
                 for &l in &inc {
-                    self.links[l as usize].approach = if self.links[l as usize].ring { Approach::Priority } else { Approach::Yield };
+                    self.links[l as usize].approach = if self.links[l as usize].ring {
+                        Approach::Priority
+                    } else {
+                        Approach::Yield
+                    };
                 }
                 continue;
             }
             if inc.len() <= 1 || (inc.len() == 2 && outs <= 2) {
-                self.nodes[n].ctrl = if inc.len() >= 2 { NodeCtrl::Priority } else { NodeCtrl::None };
+                self.nodes[n].ctrl = if inc.len() >= 2 {
+                    NodeCtrl::Priority
+                } else {
+                    NodeCtrl::None
+                };
                 for &l in &inc {
                     self.links[l as usize].approach = Approach::Priority;
                 }
@@ -464,8 +565,14 @@ impl Net {
                 }
                 continue;
             }
-            let top = inc.iter().map(|l| self.links[*l as usize].class.rank()).max().unwrap_or(0);
-            let all_equal = inc.iter().all(|l| self.links[*l as usize].class.rank() == top);
+            let top = inc
+                .iter()
+                .map(|l| self.links[*l as usize].class.rank())
+                .max()
+                .unwrap_or(0);
+            let all_equal = inc
+                .iter()
+                .all(|l| self.links[*l as usize].class.rank() == top);
             if all_equal {
                 self.nodes[n].ctrl = NodeCtrl::Equal;
                 for &l in &inc {
@@ -474,7 +581,12 @@ impl Net {
             } else {
                 self.nodes[n].ctrl = NodeCtrl::Priority;
                 for &l in &inc {
-                    self.links[l as usize].approach = if self.links[l as usize].class.rank() == top { Approach::Priority } else { Approach::Yield };
+                    self.links[l as usize].approach = if self.links[l as usize].class.rank() == top
+                    {
+                        Approach::Priority
+                    } else {
+                        Approach::Yield
+                    };
                 }
             }
         }

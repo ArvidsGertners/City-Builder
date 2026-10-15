@@ -5,8 +5,8 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Current status
 
-- **Phase:** S (risk spikes) ◐ — S-Render ☑, S-Time ☑ (fallback ADR-0062), S-J ☑ (ADR-0063),
-  S-P ☑ (ADR-0064), S-G ☑ (ADR-0065); next: S-T (last spike).
+- **Phase:** S (risk spikes) ☑ — S-Render ☑, S-Time ☑ (fallback ADR-0062), S-J ☑ (ADR-0063),
+  S-P ☑ (ADR-0064), S-G ☑ (ADR-0065), S-T ☑ (ADR-0066/0067); next: **M2 vertical slice**.
 - **Last updated:** 2026-10-15
 - **Verified environment:** Bevy 0.20.0 (2026-10-08), bevy_egui 0.43.1 (Bevy 0.20), rustc 1.97.1;
   `bevy-inspector-egui` 0.37 targets Bevy 0.19 (ADR-0031); `mesa-vulkan-drivers` (lavapipe) and
@@ -14,13 +14,15 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**Phase S, spike S-T — traffic at scale** (definition below; the other five spikes are done).
-First action: read the S-T definition, ADR-0047, ADR-0048, ADR-0063 (control rules) and
-ALGORITHMS §6, §12–13, then create `spikes/s_t/` as a standalone crate (own empty `[workspace]`,
-path dependency on `crates/cb_core`, glam; copy the root `Cargo.lock`; build with
-`CARGO_TARGET_DIR=target/spikes`): synthetic 4 × 4 km network generator first, then lanes +
-connectors + conflict zones, IDM + admission, routing, OD, and the seven cases printing
-`metric=` lines (pattern: `spikes/s_time`, `spikes/s_j`).
+**M2 — vertical slice**, first item *Worldgen* (ALGORITHMS §7, ADR-0065; spike code in
+`spikes/s_g/src/terrain.rs` shows the validated approach but is not promoted as-is).
+First action: in `crates/cb_terrain` (layout ARCHITECTURE §3) add `heightfield.rs`
+(`Heightfield` on the 2 m grid with bilinear sampling, normals, slope via `cb_core::math`),
+`noise.rs` (gradient noise, fBm, ridged, domain warp), then `generate.rs`
+(`pub fn generate(params: &WorldGenParams, seed: u64) -> Result<World, TerrainError>`, steps 1–8
+of ALGORITHMS §7 over 64 row partitions, with `rivers.rs` and `lakes.rs`), then the tests `worldgen_features_seed_1_to_20` and
+`terrain_generation_deterministic` (M2 checklist below). Read ADR-0065, ADR-0043 (seeds) and
+the M2 section before starting; traffic work (ADR-0066/0067) resumes in M5/M9.
 
 ## Process conventions (ADR-0058)
 
@@ -45,7 +47,7 @@ connectors + conflict zones, IDM + admission, routing, OD, and the seven cases p
 |---|---|---|---|---|
 | 0 | Phase 1 planning package + independent review | 2 | 2 | ☑ |
 | 1 | Project setup | 4 | 1 | ☑ |
-| S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | | ◐ (S-Render ☑, S-Time ☑ fallback, S-J ☑ ADR-0063, S-P ☑ ADR-0064, S-G ☑ ADR-0065) |
+| S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | ≈ 4 | ☑ (S-Render ☑, S-Time ☑ fallback, S-J ☑ ADR-0063, S-P ☑ ADR-0064, S-G ☑ ADR-0065, S-T ☑ ADR-0066/0067) |
 | 2 | Vertical slice | 12 | | ☐ |
 | 3 | Full road system | 12 | | ☐ |
 | 4 | All zone types, special buildings, leveling visuals | 10 | | ☐ |
@@ -315,7 +317,42 @@ fallbacks require a superseding ADR.
   route cache hit rate reported (target ≥ 80 % in case 6).
 - Fallback ladder: forced signals at ≥ 4-approach equal-class junctions + roundabout controller;
   mesoscopic link-queue model for non-visible traffic; default cap 3 000.
-- Outcome: _pending_
+- Outcome (2026-10-15, actual ≈ 1.5 days): **PASS with rule changes (ADR-0066 supersedes
+  ADR-0047 and the control section of ADR-0063; ADR-0067 supersedes ADR-0048)**; no fallback-
+  ladder step needed. Code `spikes/s_t/` (`--case 1…8`, `--case 61 --cap N --days D` single city
+  run, `--case 62` router micro-benchmark; `ST_DEBUG=1` prints every stuck despawn).
+  - Network: 10 428 links, 2 922 nodes, 30 601 connectors, 68 849 conflict zones (54 × 54
+    jittered grid, avenues every 8th line with signals at avenue × avenue, one-way rows, 6 %
+    removed segments, diagonals, 6-entry ring); commuter OD homes → jobs near avenues/centre.
+  - Isolated cases ✓: (1) 4-way equal never idle > 1.2 s (≤ 6), capacity 1 846 veh/sim-h;
+    (2) discharge 1 621 veh/sim-h/lane of green (headway 2.22 s), V/C 1.2 recovers in 74 s
+    (≤ 180), V/C 0.9 in 108 s; (3) 25 m block 0 despawns; (4) 2→1 merge 1 002 veh/sim-h,
+    0 despawns; (5) ring saturated 1 572 veh/sim-h, 0 despawns; at V/C 1.0 0 despawns. 0
+    overlaps and 0 zone conflicts in every case and run.
+  - City, 5 000 agents, 2 game days, 4 threads ✓: vehicle step p95 0.58–0.65 ms (gate 0.9),
+    sequential 0.19–0.22 ms (0.35), junctions 0.27–0.29 ms (0.3), routing p99 0.70–0.81 ms
+    (0.8; case 7 bulldoze 0.76 ms). Case 8: identical state hash at 1/4/8 threads ✓.
+  - Despawn gate ✓ at V/C ≤ 1.0: city at 1 500 agents (0 links, 20/2 915 nodes with peak V/C > 1)
+    0.67 per 1 000 trips; cases 1–5 0. At 5 000 agents the synthetic grid is oversaturated
+    (437–460 nodes > 1): 18.5–21 per 1 000 as the release valve; 8 000: 893 nodes > 1, 58 per
+    1 000, step 0.99 ms, junctions 0.53 ms; 12 000: 1 225 nodes > 1, 103 per 1 000, step 1.15 ms,
+    junctions 0.74 ms, routing 1.01 ms.
+  - Cache (reported; target ≥ 80 %): revalidate policy 12 % overall, 18.7 % day 2 (epoch-only
+    0.6 % with 15-min epochs). The harness draws a random household per trip, so only 26 % of
+    requests repeat a key; 46 % of repeats hit, the rest fail the 115 % re-cost (other time of
+    day); no LRU evictions. Re-measure with daily commuters in M5/M9.
+  - Changes (ADR-0066/0067): exact parallel phases (IDM + flags, apply, junction prepass with
+    same-node re-evaluation) took the step from 1.45–1.71 to 0.58 ms; router CSR + interleaved
+    landmarks, 8 resumable search slots × 1 200 settled nodes per tick (one settled node
+    ≈ 130 ns, so ADR-0048's 50 000-unit budget was ≈ 6.6 ms), async reroutes, cached lane plans;
+    15-min epochs (5k despawns 31 → 8.9 per 1 000 vs 1-h epochs on 0.4 day); gap check: a
+    priority vehicle at the line wanting the same target lane always blocks (ring 512 → 1 572
+    veh/sim-h, saturated ring 46 → 0 despawns per 1 000); ring metering incl. connectors and
+    granted entries at 70 %; equal-priority greedy release (1 222 → 1 846 veh/sim-h); reroute
+    plans admit the current lane; wait-for graph on raw slow time.
+  - Open: permissive signal lefts (protected always until M9 test), cache hit rate with real
+    commuters, junction p95 at 8k+ (next step: parallel grants per node), real-CPU timing on the
+    min-spec PC (UV).
 
 ### M2 — Vertical slice (estimate 12; must look good before moving on)
 Includes enabling work: command framework (ADR-0055), economy stub (money + construction ledger)
@@ -661,3 +698,7 @@ None open. Known gaps (planned):
 - 2026-10-15 — S-G done (ADR-0065 supersedes ADR-0046): road–terrain interface validated on 270
   roads, 30 sloped junctions, bridges and overpasses with an automated LOD0–3 sampler and 12
   lavapipe shots; constrained LOD decimation replaces min-downsampling.
+- 2026-10-15 — S-T done (ADR-0066 supersedes ADR-0047 + the control section of ADR-0063;
+  ADR-0067 supersedes ADR-0048): traffic at 5 000 agents meets every timing, safety and
+  determinism gate without a fallback; despawn gate met at V/C ≤ 1 (0.67 per 1 000); cache hit
+  rate reported only (harness-limited). **Phase S complete**; next M2.

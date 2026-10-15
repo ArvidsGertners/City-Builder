@@ -31,7 +31,12 @@ fn wait_spin(i: &mut u32) {
 
 impl Pool {
     pub fn new(n: usize) -> Self {
-        let shared = Arc::new(Shared { epoch: AtomicU64::new(0), done: AtomicUsize::new(0), quit: AtomicBool::new(false), job: Mutex::new(None) });
+        let shared = Arc::new(Shared {
+            epoch: AtomicU64::new(0),
+            done: AtomicUsize::new(0),
+            quit: AtomicBool::new(false),
+            job: Mutex::new(None),
+        });
         let handles = (1..n)
             .map(|w| {
                 let sh = shared.clone();
