@@ -24,8 +24,9 @@ in the PROGRESS.md log. Values live in code consts or `crates/cb_sim/data/*.ron`
 | Routing budget | 50 000 units/tick | `routing_budget_wall_time` | ≈ 0.65 ms nominal, ≤ 0.8 ms p99 wall (container proxy) |
 | Route cache size | 32 768 | `route_cache_hit_rate` | ≥ 80 % in steady-state 50k bench |
 | Variant cost range | +0…+20 % | `alt_heuristic_admissible_with_variants` | no overestimate |
-| Agent cap default | 5 000 | spike S-Time / `agent_share_at_50k` | ≥ 40 % of peak trips are agents |
-| Shift σ (commercial) | 90 game min | spike S-Time | peak/off-peak ≥ 3; p95 departure ≥ 04:30 |
+| Trip scale | 6 citizens' trips per vehicle trip (ADR-0062) | spike S-Time / `trip_scale_50k_peak` | 50k city: on-time ≥ 90 %, peak concurrent ≤ agent cap, congestion p95 2–4× |
+| Agent cap default | 5 000 | spike S-Time / `agent_share_at_50k` | ≥ 40 % of peak trips are agents (S-Time: 100 % at trip scale 6) |
+| Shift starts | commercial N(08:45, σ 75) [06:30, 11:30]; industry N(07:30, σ 45) [06:00, 11:00] | spike S-Time | night share ≤ 10 %; peak/off-peak (10–13 h) ≥ 3 |
 | Perceived time factor | 0.1 min per sim s | `commute_p50_balance` | p50 12–25 perceived min |
 | Corridor carve / shoulder | 0.15 m / 3.5 m | `road_above_terrain_all_lods` | terrain ≤ road − 0.03 m under carriageway |
 | Landing grade | 4 % | `junction_surface_continuous_8pct` | cut-line step ≤ 2 cm |

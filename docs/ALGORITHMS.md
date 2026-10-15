@@ -410,8 +410,11 @@ terms normalized to [0, 1] unless signed:
 - **Job matching** (hourly, sliced): unemployed adults sorted `(education desc, CitizenId)`;
   candidate workplaces from the per-workplace-segment bounded Dijkstra cache; score
   `= −routed_estimate − 0.2 × level mismatch`; reject estimates > 300 sim s.
-- **Schedules** (ADR-0042): shifts commercial N(08:30, σ 90 game min) truncated [05:30, 11:30]
-  (15 % evening), industry N(07:00, σ 60) (10 % night), schools 08:00 ± 20; shopping with
+- **Trip scale** (ADR-0062): one vehicle-trip entity per 6 citizens' trips of the same household
+  cohort, purpose and departure window; every citizen it represents gets its experienced time.
+- **Schedules** (ADR-0042, data per ADR-0062): shifts commercial N(08:45, σ 75 game min)
+  truncated [06:30, 11:30] (15 % evening), industry N(07:30, σ 45) truncated [06:00, 11:00]
+  (10 % night), schools 08:00 ± 20; shopping with
   probability 0.6 × wealth factor per household-day at N(17:30, 90); leisure to parks every 4th
   day. Departure = target arrival − routed estimate (game min) − slack N(10, 5).
 - **Mode choice** (multinomial logit, β_t = 1.0 per perceived minute, money × 2):

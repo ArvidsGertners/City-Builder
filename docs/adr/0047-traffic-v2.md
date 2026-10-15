@@ -49,3 +49,8 @@ exit-space and leader waits; vehicles as entities were not budgeted.
 
 - Graphics settings no longer affect simulation; lane-change failures and spawn conflicts
   have defined behavior; budgets are deterministic and testable.
+
+## Amendments
+
+- 2026-10-15 (spike S-Time): with trip scale 6 (ADR-0062) a 50k city peaks at ≈ 3 100
+  concurrent vehicle trips, so `p = 1`; sampling stays as the safety valve above `agent_cap`.

@@ -71,3 +71,9 @@ allowed a spiral after hitches.
 - No unit ambiguity; balance and determinism independent of the day-length option.
 - Shorter days cost more CPU at high speed (L = 16 at 4× = 120 ticks/s); settings warn.
 - Vehicles visibly move faster than real at short day lengths (accepted stylization).
+
+## Amendments
+
+- 2026-10-15 (spike S-Time): validated with trip scale 6 (ADR-0062). Free-flow commute p50 = 16
+  perceived min (= 82 game min on the clock); commutes span 1.5–3.3 game hours. Shift data
+  updated per ADR-0062; results are bit-identical for day lengths 16/24/48.

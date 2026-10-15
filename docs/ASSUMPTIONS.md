@@ -15,7 +15,7 @@ blocks M1.
 | B5 | Per-approach stop/yield signs plus all-way stops and lights | DS | ADR-0045 | resolved |
 | B6 | Road geometry can be edited (move node, drag control point) | DS | `EditRoadGeometry` (ADR-0055) | resolved |
 | B7 | Utilities run implicitly along every road; no power lines | DS | ADR-0026 | ❓ confirm (disconnected road networks need their own plants/pumps) |
-| B8 | Beyond `agent_cap`, trips are statistically sampled (camera-independent) rather than "aggregate when off-screen" | DS | ADR-0047; ≥ 40 % of peak trips visible at 50k | ❓ confirm the interpretation of "aggregate off-screen" |
+| B8 | One vehicle trip represents 6 citizens' trips (ADR-0062); beyond `agent_cap` trips are statistically sampled (camera-independent) rather than "aggregate when off-screen" | DS | ADR-0062/0047; at 50k all trips are agents (≈ 3 100 at peak) | ❓ confirm (S-Time showed 1 car per citizen cannot work with the approved pace) |
 | B9 | Routing on a segment-direction link graph with local lane choice (lane plans), not a lane-level graph | DS | ADR-0048 | default |
 | B10 | Pedestrians are visual near the camera, spawned from stop queues and access points | T | ADR-0047 | default |
 | B11 | Reference PC | DS | Ryzen 5 7500F, GTX 1660 Ti, 16 GB DDR5-6000 single-channel = minimum spec (PERFORMANCE §1) | **confirmed by user** |
@@ -44,7 +44,7 @@ blocks M1.
 | B34 | Zoned buildings seeded by LotId (+ level, regrowth) | T | ADR-0043 | resolved |
 | B35 | Household sizes, cars by wealth, lifecycle rates | T | GAME_DESIGN §10 | default |
 | B36 | Logit mode-choice form and β | T | ALGORITHMS §16 | default |
-| B37 | Shift distributions (σ 90 / 60 game min) | T | ADR-0042, spike S-Time | default |
+| B37 | Shift distributions (commercial σ 75, industry σ 45 game min) | T | ADR-0062 (S-Time) | default |
 | B38 | Walking thresholds (800 / 600 / 300 / 400 m) | T | GAME_DESIGN §10 | default |
 | B39 | Commercial opening hours 07–21 (L1–L2), extended for L3 | T | ADR-0018 | default |
 | B40 | Weather Markov tables and effect magnitudes | T | GAME_DESIGN §11 | default |

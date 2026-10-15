@@ -13,15 +13,12 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**Phase S, spike S-Time** (definition below; S-Render passed). First action: create
-`spikes/s_time/` as a standalone crate (own empty `[workspace]`, path dependency on
-`crates/cb_core` for `SimRng`/`derive_seed`/time constants, no Bevy) with `src/main.rs`
-generating the synthetic 50k-citizen city: clustered homes and jobs on 4 × 4 km, a coarse road
-graph (grid of arterials + local links, road speeds 50/30 km/h), trip durations from network
-distance + 20 % junction delay, ADR-0042 schedules (shift starts N(08:30, σ 90) commercial,
-N(07:00, σ 60) industry, schools 08:00 ± 20), a point-queue link model for congestion feedback;
-print the S-Time measurements as `metric=` lines and assert identical results for day lengths
-16/24/48.
+**Phase S, spike S-J — junction geometry** (definition below; S-Render and S-Time done).
+First action: read the S-J definition and ALGORITHMS §8–9 (junctions), then create
+`spikes/s_j/` as a standalone crate (own empty `[workspace]`, path dependency on
+`crates/cb_core`, glam, no Bevy) implementing the cut-back / connector / conflict-zone
+generator on random junctions, with the pass metrics printed as `metric=` lines and an SVG
+dump of failing cases under `target/spikes/s_j/`.
 
 ## Process conventions (ADR-0058)
 
@@ -46,7 +43,7 @@ print the S-Time measurements as `metric=` lines and assert identical results fo
 |---|---|---|---|---|
 | 0 | Phase 1 planning package + independent review | 2 | 2 | ☑ |
 | 1 | Project setup | 4 | 1 | ☑ |
-| S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | | ◐ (S-Render ☑) |
+| S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | | ◐ (S-Render ☑, S-Time ☑ fallback) |
 | 2 | Vertical slice | 12 | | ☐ |
 | 3 | Full road system | 12 | | ☐ |
 | 4 | All zone types, special buildings, leveling visuals | 10 | | ☐ |
@@ -177,7 +174,20 @@ fallbacks require a superseding ADR.
   construction, asserted).
 - Fallback (by measurement): wider shift σ; commute cap in job matching; higher cap with meso
   model (S-T fallback 2); as last resort a different sim/game ratio (superseding ADR-0042).
-- Outcome: _pending_
+- Outcome (2026-10-15, actual 0.3 day): **PASS with fallback (ADR-0062: trip scale 6 +
+  tuned shift data)**; two gates missed and accepted (see below). Code `spikes/s_time/`
+  (deterministic, 2.6 s per run; tag `spike/s-time` before removal).
+  - Baseline as planned (1 car trip per citizen): commute perceived p50/p95 66.8/560.7 min,
+    congestion 5.3×/27.9×, on time 25 %, peak concurrent 45 633, p = 0.11 → **fail**.
+  - Chosen (trip scale 6, commercial N(08:45, σ 75) [06:30, 11:30], industry N(07:30, σ 45)
+    [06:00, 11:00], gravity 1.5 km): perceived p50/p95 18.6/39.5 min (free flow 16.4),
+    congestion p50/p95 1.01/2.83, on time ±30 game min 92.6 % ✓, night share 2.7 % ✓,
+    peak concurrent 3 071 → p = 1.0 ✓, results identical for L = 16/24/48 ✓ (asserted).
+  - Missed: morning departure p05 = 04:05 (gate 04:30) — commutes span 1.5–3.3 game hours on the
+    clock under ADR-0042; peak/off-peak 2.6 over 10–15 h (gate 3) because school returns at
+    14:30 fall into the window; 4.6 over 10–13 h. Accepted in ADR-0062; CONSTANTS updated.
+  - Departures per game hour (chosen setting): `[148,49,36,221,549,1198,1658,1569,616,495,416,673,763,779,2844,1649,1460,729,366,144,57,24,68,155]`.
+
 
 **S-J — junction geometry (4 days)**
 - Build: random junction generator (2–6 approaches, angles 25–180°, widths 6/12/16/22 m + tram,
