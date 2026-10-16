@@ -60,7 +60,7 @@ const fn k(
 /// ART_DIRECTION §3 table.
 pub const KEYFRAMES: [Keyframe; 9] = [
     k(
-        0.0, 0x9DB2DF, 0.10, 0x3A4F80, 0.14, 0x142039, 0x2E4170, 0x263760, 1.2,
+        0.0, 0x9DB2DF, 0.27, 0x3A4F80, 0.50, 0x142039, 0x2E4170, 0x263760, 1.2,
     ),
     k(
         5.0, 0xA9B6E0, 0.08, 0x55618F, 0.16, 0x24325A, 0x8C7FA3, 0x6C6A8E, 1.0,
@@ -78,13 +78,13 @@ pub const KEYFRAMES: [Keyframe; 9] = [
         16.5, 0xFFE4C2, 0.90, 0xC3C7D3, 0.75, 0x6F9AD0, 0xE3E1DC, 0xE2DED6, 0.0,
     ),
     k(
-        19.0, 0xFF9E5E, 0.50, 0xB48A8A, 0.50, 0x4F68A8, 0xFFAE78, 0xE9A882, 0.6,
+        19.0, 0xFF9E5E, 0.50, 0xB48A8A, 0.50, 0x4F68A8, 0xFFAE78, 0xE9A882, 1.4,
     ),
     k(
         20.0, 0xC88AA0, 0.12, 0x6A6A98, 0.18, 0x2A3766, 0xB98AA0, 0x7E7398, 0.9,
     ),
     k(
-        22.0, 0x9DB2DF, 0.10, 0x3A4F80, 0.14, 0x142039, 0x2E4170, 0x263760, 1.2,
+        22.0, 0x9DB2DF, 0.27, 0x3A4F80, 0.50, 0x142039, 0x2E4170, 0x263760, 1.2,
     ),
 ];
 
@@ -92,8 +92,17 @@ pub const KEYFRAMES: [Keyframe; 9] = [
 pub const NOON_SUN_LUX: f32 = 10_000.0;
 /// Ambient brightness at `amb_rel = 1`.
 pub const NOON_AMBIENT: f32 = 650.0;
-/// Fog luminance scale (pre-exposure luminance per unit linear fog colour).
+/// Fog luminance scale (pre-exposure luminance per unit linear fog colour); the sky dome uses
+/// the same scale so the horizon meets the fog.
 pub const FOG_LUMINANCE: f32 = 7_500.0;
+/// Camera EV100 at noon (calibrated in M2 against ADR-0050: lit grass ≈ #8DB06A).
+pub const BASE_EV100: f32 = 10.25;
+
+/// Bevy's exposure factor for an EV100.
+#[must_use]
+pub fn exposure_of(ev100: f32) -> f32 {
+    Exposure { ev100 }.exposure()
+}
 
 /// Interpolated lighting at one time.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -201,16 +210,19 @@ impl Plugin for LightingPlugin {
 }
 
 const DOME_R: f32 = 9_000.0;
-const DOME_RINGS: usize = 12;
+const DOME_RINGS: usize = 18;
 const DOME_SEG: usize = 32;
 
-fn dome_mesh(zenith: Color, horizon: Color) -> Mesh {
+/// Sky dome; colours are scaled to post-exposure luminance (`scale`) because the dome is
+/// unlit and Bevy does not apply exposure to unlit colours.
+fn dome_mesh(zenith: Color, horizon: Color, scale: f32) -> Mesh {
     let (z, hz): (Oklaba, Oklaba) = (zenith.into(), horizon.into());
     let mut pos = Vec::new();
     let mut col = Vec::new();
-    // Rings from below the horizon (−10°) to the zenith.
+    // Rings from the nadir (horizon colour below the horizon: seen past the map edge) to the
+    // zenith.
     for r in 0..=DOME_RINGS {
-        let e = (-10.0 + 100.0 * r as f32 / DOME_RINGS as f32)
+        let e = (-90.0 + 180.0 * r as f32 / DOME_RINGS as f32)
             .min(90.0)
             .to_radians();
         let t = (e.sin().max(0.0)).powf(0.6);
@@ -222,7 +234,7 @@ fn dome_mesh(zenith: Color, horizon: Color) -> Mesh {
                 DOME_R * e.sin(),
                 DOME_R * e.cos() * a.sin(),
             ]);
-            col.push([c.red, c.green, c.blue, 1.0]);
+            col.push([c.red * scale, c.green * scale, c.blue * scale, 1.0]);
         }
     }
     let row = (DOME_SEG + 1) as u32;
@@ -272,7 +284,11 @@ fn spawn_lights(
     ));
     let m = mood(12.0);
     commands.spawn((
-        Mesh3d(meshes.add(dome_mesh(m.zenith, m.horizon))),
+        Mesh3d(meshes.add(dome_mesh(
+            m.zenith,
+            m.horizon,
+            FOG_LUMINANCE * exposure_of(BASE_EV100 - m.ev),
+        ))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::WHITE,
             unlit: true,
@@ -320,13 +336,18 @@ fn apply_lighting(
     }
     ambient.color = m.ambient;
     ambient.brightness = NOON_AMBIENT * m.amb_rel;
-    clear.0 = m.horizon;
+    let h = m.horizon.to_linear() * (FOG_LUMINANCE * exposure_of(BASE_EV100 - m.ev));
+    clear.0 = Color::LinearRgba(h.with_alpha(1.0));
     for mut e in &mut cam_exposure {
-        e.ev100 = Exposure::default().ev100 - m.ev;
+        e.ev100 = BASE_EV100 - m.ev;
     }
     for (mesh, _) in &dome {
         if let Some(mut mm) = meshes.get_mut(&mesh.0) {
-            *mm = dome_mesh(m.zenith, m.horizon);
+            *mm = dome_mesh(
+                m.zenith,
+                m.horizon,
+                FOG_LUMINANCE * exposure_of(BASE_EV100 - m.ev),
+            );
         }
     }
     let f = m.fog.to_linear();
@@ -348,7 +369,7 @@ mod tests {
         assert!((noon.sun_rel - 1.0).abs() < 1e-5 && (noon.amb_rel - 0.8).abs() < 1e-5);
         let late = mood(23.0);
         assert!(
-            (late.sun_rel - 0.10).abs() < 1e-5,
+            (late.sun_rel - 0.27).abs() < 1e-5,
             "22:00 → 24:00 night plateau"
         );
         assert!(light_direction(12.0).y > 0.8);

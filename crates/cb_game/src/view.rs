@@ -39,8 +39,27 @@ pub const TERRAIN_LOD_M: [f32; 3] = [450.0, 1000.0, 2000.0];
 pub const SCATTER_NEAR_M: f32 = 350.0;
 /// Far scatter radius (m).
 pub const SCATTER_FAR_M: f32 = 1300.0;
-/// Chunk rebuilds per frame (terrain, scatter).
+/// Chunk rebuilds per frame at most (terrain, scatter).
 pub const REBUILDS_PER_FRAME: usize = 12;
+/// Main-thread time per frame for chunk rebuilds of one kind (ms); at least one rebuild always
+/// runs. Off-thread meshing replaces this when the M4 city sizes need it (PERFORMANCE §4).
+pub const REBUILD_BUDGET_MS: f32 = 2.0;
+
+/// Shared per-frame rebuild budget of terrain and scatter. The kind that may exceed it with one
+/// forced rebuild alternates per frame, so neither starves while the camera keeps moving.
+#[derive(Default, Debug)]
+struct RebuildBudget {
+    used_ms: f32,
+    terrain_first: bool,
+}
+
+impl RebuildBudget {
+    /// Whether another rebuild may start (`done` rebuilds of this kind so far this frame).
+    fn allows(&self, start: std::time::Instant, done: usize, forced: bool) -> bool {
+        (forced && done == 0)
+            || self.used_ms + start.elapsed().as_secs_f32() * 1000.0 < REBUILD_BUDGET_MS
+    }
+}
 
 /// Per-chunk visual state.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -49,6 +68,8 @@ struct ChunkSlot {
     water: Option<Entity>,
     scatter: Option<(Entity, u8)>,
     dirty: bool,
+    /// Scatter must be regenerated (plots or terrain changed).
+    scatter_stale: bool,
 }
 
 /// Visual registries.
@@ -60,6 +81,7 @@ pub struct ViewState {
     nodes: BTreeMap<NodeId, Entity>,
     buildings: BTreeMap<BuildingId, Entity>,
     scatter_dirty: bool,
+    budget: RebuildBudget,
 }
 
 impl ViewState {
@@ -276,7 +298,15 @@ fn sync_terrain(
     }
     backlog.0 = work.len();
     work.sort_by(|a, b| a.0.total_cmp(&b.0));
-    for &(_, k, lod) in work.iter().take(REBUILDS_PER_FRAME) {
+    let _span = tracing::info_span!("view_terrain_rebuild").entered();
+    let start = std::time::Instant::now();
+    state.budget.terrain_first = !state.budget.terrain_first;
+    state.budget.used_ms = 0.0;
+    let forced = state.budget.terrain_first;
+    for (i, &(_, k, lod)) in work.iter().take(REBUILDS_PER_FRAME).enumerate() {
+        if !state.budget.allows(start, i, forced) {
+            break;
+        }
         let (cx, cz) = (k % per, k / per);
         let cm = chunk_mesh::build(t, cx, cz, lod);
         let mesh = meshes.add(terrain_mesh(&cm));
@@ -314,6 +344,7 @@ fn sync_terrain(
         }
         slot.dirty = false;
     }
+    state.budget.used_ms = start.elapsed().as_secs_f32() * 1000.0;
 }
 
 // ---------- network ----------
@@ -629,7 +660,11 @@ fn sync_scatter(
     let seed = seed.map_or(1, |s| s.0);
     let eye = rig.eye();
     let eye2 = Vec2::new(eye.x, eye.z);
-    let dirty_all = std::mem::take(&mut state.scatter_dirty);
+    if std::mem::take(&mut state.scatter_dirty) {
+        for c in &mut state.chunks {
+            c.scatter_stale = true;
+        }
+    }
     let mut work: Vec<(f32, usize, u8)> = Vec::new();
     for k in 0..per * per {
         let (cx, cz) = (k % per, k / per);
@@ -642,7 +677,11 @@ fn sync_scatter(
             0
         };
         let have = state.chunks[k].scatter.map_or(0, |s| s.1);
-        if want != have || (dirty_all && want > 0) {
+        let stale = state.chunks[k].scatter_stale;
+        if want == 0 && stale {
+            state.chunks[k].scatter_stale = false;
+        }
+        if want != have || (stale && want > 0) {
             work.push((d, k, want));
         }
     }
@@ -660,7 +699,14 @@ fn sync_scatter(
             (l, h, p.polygon().to_vec())
         })
         .collect();
-    for &(_, k, want) in work.iter().take(REBUILDS_PER_FRAME) {
+    let _span = tracing::info_span!("view_scatter_rebuild").entered();
+    let start = std::time::Instant::now();
+    let forced = !state.budget.terrain_first;
+    for (i, &(_, k, want)) in work.iter().take(REBUILDS_PER_FRAME).enumerate() {
+        if !state.budget.allows(start, i, forced) {
+            break;
+        }
+        state.chunks[k].scatter_stale = false;
         if let Some((e, _)) = state.chunks[k].scatter.take() {
             commands.entity(e).despawn();
         }

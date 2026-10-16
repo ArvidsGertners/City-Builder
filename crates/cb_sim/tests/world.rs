@@ -504,3 +504,100 @@ fn same_commands_same_state_hash() {
     };
     assert_eq!(run(), run());
 }
+
+#[test]
+fn edit_plot_keeps_lot_ids_and_previews_agree() {
+    let mut s = Scenario::new(1);
+    let sid = street_with_plot(&mut s);
+    let p = plots(&s)[0].clone();
+    let before: Vec<_> = p.lots().to_vec();
+    let spans = vec![FrontageSpan {
+        segment: sid,
+        left: true,
+        s0: 20.0,
+        s1: 290.0,
+    }];
+    let preview =
+        cb_sim::zoning::preview_edit_plot(s.world(), p.id(), &spans, 30.0).expect("edit preview");
+    // A new plot over the same frontage would overlap the existing one.
+    let fresh = cb_sim::zoning::preview_plot(
+        s.world(),
+        &CreatePlot {
+            zone: ZoneKind::Residential,
+            frontage: spans.clone(),
+            depth_m: 30.0,
+            dn: 0,
+        },
+    );
+    assert!(fresh.is_err(), "{fresh:?}");
+    let hash_before = s.state_hash();
+    ok(
+        &mut s,
+        PlayerCommand::EditPlot {
+            plot: p.id(),
+            frontage: spans,
+            depth_m: 30.0,
+        },
+    );
+    assert_ne!(s.state_hash(), hash_before);
+    let q = plots(&s)[0].clone();
+    let a_prev = cb_geometry::polygon::area(&preview);
+    let a_new = cb_geometry::polygon::area(q.polygon());
+    assert!((a_prev - a_new).abs() < 1.0, "{a_prev} vs {a_new}");
+    assert!((a_new - 270.0 * 30.0).abs() < 30.0, "{a_new}");
+    let kept = q.lots().iter().filter(|l| before.contains(l)).count();
+    assert!(
+        kept * 10 >= before.len() * 7,
+        "only {kept} of {} lot IDs kept",
+        before.len()
+    );
+    // Depth edit: deeper plot, same frontage.
+    let spans = q.spans().to_vec();
+    ok(
+        &mut s,
+        PlayerCommand::EditPlot {
+            plot: q.id(),
+            frontage: spans,
+            depth_m: 40.0,
+        },
+    );
+    let r = plots(&s)[0].clone();
+    assert!((r.depth_m() - 40.0).abs() < 1e-3);
+    assert!((cb_geometry::polygon::area(r.polygon()) - 270.0 * 40.0).abs() < 40.0);
+}
+
+#[test]
+fn road_preview_matches_build() {
+    let mut s = Scenario::new(1);
+    let cmd = BuildRoad {
+        kind: RoadKind::Street,
+        curve: CubicBezier2::straight(Vec2::ZERO, Vec2::new(120.0, 0.0)),
+        start: Endpoint::Free,
+        end: Endpoint::Free,
+    };
+    let pv = cb_sim::roads::preview_road(s.world(), &cmd).expect("preview");
+    let hash = s.state_hash();
+    let _ = cb_sim::roads::preview_road(s.world(), &cmd);
+    assert_eq!(s.state_hash(), hash, "preview must not mutate");
+    let cost = ok(&mut s, PlayerCommand::BuildRoad(cmd));
+    assert_eq!(pv.cost, cost);
+}
+
+#[test]
+fn m2_scripted_scene_has_its_features() {
+    let mut s = Scenario::with_terrain(1234, cb_sim::terrain::TerrainSetup::Generate);
+    let f = cb_sim::citygen::m2_features(s.world_mut(), Vec2::ZERO, Vec2::new(220.0, 120.0));
+    eprintln!("{f:#?}");
+    assert!(f.slope.is_some(), "no slope street");
+    assert!(f.corner.is_some(), "no corner plot");
+    assert!(f.cut.is_some_and(|c| c.depth_m >= 2.0), "cut {:?}", f.cut);
+    assert!(
+        f.fill.is_some_and(|c| c.depth_m >= 1.0),
+        "fill {:?}",
+        f.fill
+    );
+    assert!(f.steep.is_some(), "no steep ground");
+    // Houses only along the slope and side streets here (no town nodes, so no shore street;
+    // the crossings stay bare for the cut and fill shots).
+    assert!(f.report.buildings >= 20, "{:?}", f.report);
+}

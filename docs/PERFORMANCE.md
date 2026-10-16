@@ -185,6 +185,12 @@ components and cost only sim work.
 - `cargo run -p cb_sim --release --example headless_bench -- --city <preset> [--no-traffic]`:
   citygen-built city (M4: 10k buildings; M5+: 50k citizens), per-system p50/p95/p99.9 tick
   times, routing stats, memory.
+- Spans on systems that can exceed 0.5 ms: `view_terrain_rebuild`, `view_scatter_rebuild`
+  (shared 2 ms rebuild budget per frame, `cb_game::view::REBUILD_BUDGET_MS`).
+- 2026-10-16 container baseline (`--benchmark m2_slice --no-gpu-work`, llvmpipe, ≈ 9 fps):
+  main p50 11.2 / p95 16.8 ms; per set p50/p95: pre-update 3.0/5.8, input 0.2/0.9,
+  sim-drive 0.1/0.3, view-sync 3.7/8.4, present 0.0/0.3, post-update 3.3/5.6 ms. Over budget;
+  off-thread chunk meshing + chunk merging are the planned fixes (PROGRESS, Next step).
 - Bench scenarios: `bench_autosave_max` (snapshot p99), `bench_road_commit` (100 random 200 m
   roads; command → visible mesh frames).
 - `tracing` spans on every set and heavy system; Tracy via `--features trace_tracy` (nightly).

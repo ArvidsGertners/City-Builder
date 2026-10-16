@@ -11,16 +11,43 @@ use tracing::{error, info};
 
 use super::screenshot_metrics::{ShotMetrics, metrics_rgba8, to_json};
 use crate::camera::{CameraRig, CameraScripted};
-use crate::scene::{CameraPose, SceneAnchor};
+use crate::picking::ScriptedCursor;
+use crate::render::lighting::LightingState;
+use crate::scene::{CameraPose, SceneAnchor, SceneFeatures};
+use crate::tools::{ActiveTool, PlotTool, RoadTool, UiVisible, ZoningView};
 use crate::view::ViewBacklog;
+
+/// A scripted tool state for a shot.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+pub enum ShotTool {
+    /// Road tool dragging straight up the `steep` feature (invalid ghost, reason and cost).
+    RoadSteep,
+    /// Plot tool with the plot at the `corner` feature selected (handles, ± panel).
+    PlotEdit,
+}
 
 /// One shot.
 #[derive(Clone, Debug, Deserialize)]
 pub struct Shot {
     /// File stem.
     pub name: String,
-    /// Camera.
+    /// Camera (relative to the feature anchor `at`, or the town; yaw relative to the anchor).
     pub camera: CameraPose,
+    /// Feature anchor (`SceneFeatures`); the town anchor when absent.
+    #[serde(default)]
+    pub at: Option<String>,
+    /// Lighting hour (noon when absent).
+    #[serde(default)]
+    pub hour: Option<f32>,
+    /// Draw the game UI.
+    #[serde(default)]
+    pub ui: bool,
+    /// Zoning view on.
+    #[serde(default)]
+    pub zoning: bool,
+    /// Scripted tool state.
+    #[serde(default)]
+    pub tool: Option<ShotTool>,
 }
 
 /// A suite.
@@ -30,6 +57,9 @@ pub struct Suite {
     pub resolution: (u32, u32),
     /// Frames to wait after moving the camera.
     pub settle_frames: u32,
+    /// World seed (unless `--seed` is given).
+    #[serde(default)]
+    pub seed: Option<u64>,
     /// Shots in order.
     pub shots: Vec<Shot>,
 }
@@ -86,6 +116,71 @@ impl Plugin for ScreenshotPlugin {
     }
 }
 
+/// Shot state applied when a shot starts.
+#[derive(bevy::ecs::system::SystemParam)]
+struct ShotState<'w, 's> {
+    lighting: ResMut<'w, LightingState>,
+    ui: ResMut<'w, UiVisible>,
+    zoning: ResMut<'w, ZoningView>,
+    tool: ResMut<'w, ActiveTool>,
+    cursor: ResMut<'w, ScriptedCursor>,
+    features: Option<Res<'w, SceneFeatures>>,
+    ids: Option<Res<'w, cb_sim::ids::Ids>>,
+    plots: Query<'w, 's, &'static cb_sim::zoning::Plot>,
+    terrain: Option<Res<'w, cb_sim::terrain::TerrainRes>>,
+}
+
+impl ShotState<'_, '_> {
+    fn apply(&mut self, shot: &Shot) {
+        self.lighting.hour = shot.hour.unwrap_or(12.0);
+        self.ui.0 = shot.ui;
+        self.zoning.0 = shot.zoning;
+        self.cursor.0 = None;
+        *self.tool = ActiveTool::None;
+        let feature = |name: &str| self.features.as_ref().and_then(|f| f.0.get(name).copied());
+        match shot.tool {
+            None => {}
+            Some(ShotTool::RoadSteep) => {
+                if let Some(f) = feature("steep") {
+                    let p = Vec2::new(f.pos.x, f.pos.z);
+                    // `dir` of the steep feature points uphill.
+                    let up = f.dir;
+                    let (a, b) = (p - up * 40.0, p + up * 40.0);
+                    *self.tool = ActiveTool::Road(Box::new(RoadTool {
+                        points: vec![a],
+                        ..Default::default()
+                    }));
+                    let y = self
+                        .terrain
+                        .as_ref()
+                        .map_or(f.pos.y, |t| t.terrain().height_at(b));
+                    self.cursor.0 = Some(Vec3::new(b.x, y, b.y));
+                }
+            }
+            Some(ShotTool::PlotEdit) => {
+                let c = feature("corner").map(|f| Vec2::new(f.pos.x, f.pos.z));
+                let selected = c.and_then(|c| {
+                    let ids = self.ids.as_ref()?;
+                    ids.plots
+                        .iter()
+                        .filter_map(|(id, e)| {
+                            let p = self.plots.get(e).ok()?;
+                            let n = p.polygon().len().max(1) as f32;
+                            let centroid = p.polygon().iter().copied().sum::<Vec2>() / n;
+                            Some((centroid.distance(c), id))
+                        })
+                        .min_by(|x, y| x.0.total_cmp(&y.0))
+                        .map(|x| x.1)
+                });
+                *self.tool = ActiveTool::Plot(PlotTool {
+                    selected,
+                    ..Default::default()
+                });
+            }
+        }
+    }
+}
+
 fn drive(
     mut commands: Commands,
     mut runner: ResMut<ScreenshotRunner>,
@@ -93,6 +188,7 @@ fn drive(
     anchor: Option<Res<SceneAnchor>>,
     backlog: Res<ViewBacklog>,
     mut exit: MessageWriter<AppExit>,
+    mut state: ShotState,
 ) {
     commands.insert_resource(CameraScripted);
     if let Some(n) = runner.exit_in.as_mut() {
@@ -128,9 +224,22 @@ fn drive(
     };
     if runner.waited == 0 {
         let mut r = shot.camera.rig();
-        // Shots are placed relative to the scene anchor (the starting town).
-        r.focus += anchor.map_or(Vec3::ZERO, |a| a.0);
+        // Shots are placed relative to a feature anchor (yaw relative to it) or the town.
+        let feature = shot.at.as_ref().and_then(|n| {
+            let f = state.features.as_ref().and_then(|f| f.0.get(n).copied());
+            if f.is_none() {
+                error!("shot {}: no feature anchor {n:?}", shot.name);
+            }
+            f
+        });
+        if let Some(f) = feature {
+            r.focus += f.pos;
+            r.yaw_deg += f.yaw_deg;
+        } else {
+            r.focus += anchor.map_or(Vec3::ZERO, |a| a.0);
+        }
         *rig = r;
+        state.apply(&shot);
     }
     runner.waited += 1;
     // Wait for the settle frames and for chunk work near the new view to finish.
@@ -157,10 +266,12 @@ fn drive(
                     .map(|d| metrics_rgba8(size.x, size.y, d.to_rgba8().as_raw()))
                     .unwrap_or_default();
                 info!(
-                    "shot {name}: {}x{} median={} clipped={:.2}% black={:.2}% magenta={}",
+                    "shot {name}: {}x{} median={} lum_mean={:.3} lum_median={:.3} clipped={:.2}% black={:.2}% magenta={}",
                     size.x,
                     size.y,
                     metrics.luma_median,
+                    metrics.lum_mean,
+                    metrics.lum_median,
                     metrics.clipped_pct,
                     metrics.black_pct,
                     metrics.magenta_count
@@ -182,5 +293,9 @@ mod tests {
         assert_eq!(s.resolution, (1600, 900));
         assert!(s.shots.len() >= 3);
         assert!(load_suite("nope").is_err());
+        let m2 = load_suite("M2").unwrap();
+        assert_eq!(m2.shots.len(), 14);
+        assert_eq!(m2.seed, Some(1234));
+        assert!(m2.shots.iter().any(|s| s.tool == Some(ShotTool::PlotEdit)));
     }
 }

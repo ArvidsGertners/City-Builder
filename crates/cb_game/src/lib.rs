@@ -6,11 +6,14 @@ pub mod bootstrap;
 pub mod camera;
 pub mod debug;
 pub mod l10n;
+pub mod overlay;
+pub mod picking;
 pub mod platform;
 pub mod render;
 pub mod scene;
 pub mod settings;
 pub mod states;
+pub mod tools;
 pub mod ui;
 pub mod view;
 
@@ -108,6 +111,16 @@ pub fn run(cli: Cli) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    if let Some(b) = cli.benchmark.as_deref()
+        && !debug::benchmark::SCENES.contains(&b)
+    {
+        error!(
+            "unknown benchmark scene {b:?}; known: {:?}",
+            debug::benchmark::SCENES
+        );
+        return ExitCode::from(2);
+    }
 
     let (log_ring, log_counters) = app::Boot::log_parts(&log);
     let mut app = app::build(app::Boot {

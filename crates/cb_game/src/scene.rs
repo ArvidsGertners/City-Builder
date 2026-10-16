@@ -60,6 +60,23 @@ impl Default for CameraPose {
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct SceneAnchor(pub Vec3);
 
+/// A named place in the starting scene (scripted shots frame it); `yaw_deg` looks across the
+/// road there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FeatureAnchor {
+    /// Ground position.
+    pub pos: Vec3,
+    /// Camera heading looking across the road (degrees).
+    pub yaw_deg: f32,
+    /// Road direction (unit, ground plane).
+    pub dir: Vec2,
+}
+
+/// Named feature anchors of the starting scene (`town`, `slope`, `fill`, `cut`, `shore`,
+/// `corner`, `steep`).
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub struct SceneFeatures(pub std::collections::BTreeMap<String, FeatureAnchor>);
+
 /// Spawns the world camera.
 pub fn setup(mut commands: Commands, rig: Res<CameraRig>) {
     commands.spawn((
@@ -76,7 +93,9 @@ pub fn setup(mut commands: Commands, rig: Res<CameraRig>) {
         Bloom::NATURAL,
         Smaa::default(),
         ScreenSpaceAmbientOcclusion::default(),
-        Exposure::default(),
+        Exposure {
+            ev100: crate::render::lighting::BASE_EV100,
+        },
         rig.transform(),
         WorldCamera,
     ));
@@ -130,9 +149,42 @@ pub fn demo_town(world: &mut World) {
     };
     let rep = cb_sim::citygen::grid(world, &spec);
     tracing::info!("demo town at {site}: {rep:?}");
-    let y = world
-        .get_resource::<TerrainRes>()
-        .map_or(0.0, |t| t.terrain().height_at(site));
+    let half = Vec2::new(spec.blocks.0 as f32, spec.blocks.1 as f32) * spec.block_m * 0.5;
+    let f = cb_sim::citygen::m2_features(world, site, half);
+    tracing::info!("scripted features: {:?}", f.report);
+    let terrain = world.get_resource::<TerrainRes>();
+    let ground = |p: Vec2| terrain.map_or(0.0, |t| t.terrain().height_at(p));
+    let y = ground(site);
+    let mut features = SceneFeatures::default();
+    let mut put = |name: &str, pos: Vec2, dir: Vec2| {
+        // Eye offset (sin yaw, cos yaw) perpendicular to the road.
+        let n = dir.perp();
+        let yaw_deg = n.x.atan2(n.y).to_degrees();
+        features.0.insert(
+            name.to_owned(),
+            FeatureAnchor {
+                pos: Vec3::new(pos.x, ground(pos), pos.y),
+                yaw_deg,
+                dir,
+            },
+        );
+    };
+    put("town", site, Vec2::X);
+    for (name, feat) in [
+        ("slope", f.slope),
+        ("fill", f.fill),
+        ("cut", f.cut),
+        ("shore", f.shore),
+        ("steep", f.steep),
+    ] {
+        if let Some(ft) = feat {
+            put(name, ft.pos, ft.dir);
+        }
+    }
+    if let Some(c) = f.corner {
+        put("corner", c, Vec2::X);
+    }
+    world.insert_resource(features);
     world.insert_resource(SceneAnchor(Vec3::new(site.x, y, site.y)));
     if let Some(mut rig) = world.get_resource_mut::<CameraRig>() {
         *rig = CameraRig {

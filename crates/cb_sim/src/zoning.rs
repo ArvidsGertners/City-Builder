@@ -46,9 +46,15 @@ pub struct Plot {
     pub(crate) intervals: usize,
     pub(crate) lots: Vec<LotId>,
     pub(crate) seed: u64,
+    pub(crate) spans: Vec<FrontageSpan>,
 }
 
 impl Plot {
+    /// The frontage spans it was drawn with (for edits).
+    #[must_use]
+    pub fn spans(&self) -> &[FrontageSpan] {
+        &self.spans
+    }
     /// Stable id.
     #[must_use]
     pub fn id(&self) -> PlotId {
@@ -431,30 +437,102 @@ fn hint_of(p: &Plot, n: usize) -> Option<Hint> {
     })
 }
 
-/// `CreatePlot`.
-///
-/// # Errors
-/// Invalid frontage, too small/large, or overlapping everything.
-pub(crate) fn create_plot(world: &mut World, c: &CreatePlot) -> Result<PlotId, ValidationError> {
+/// Validated plot geometry: frontage polyline, fronted segments, clipped polygon, depth.
+type PlotGeometry = (Vec<Vec2>, SmallVec<[SegmentId; 2]>, Poly, f32);
+
+fn plot_geometry(
+    world: &World,
+    zone: ZoneKind,
+    spans: &[FrontageSpan],
+    depth_m: f32,
+    except: Option<PlotId>,
+) -> Result<PlotGeometry, ValidationError> {
     let cat = world
         .get_resource::<Catalog>()
-        .cloned()
         .ok_or(ValidationError::new("internal-no-catalog"))?;
-    let spec = *cat.zone(c.zone);
-    let depth = c.depth_m.clamp(10.0, spec.d_max);
-    let (frontage, segments) = frontage_polyline(world, &c.frontage)?;
+    let depth = depth_m.clamp(10.0, cat.zone(zone).d_max);
+    let (frontage, segments) = frontage_polyline(world, spans)?;
     let flen: f32 = frontage.windows(2).map(|w| w[0].distance(w[1])).sum();
     if flen < MIN_FRONTAGE_M {
         return Err(ValidationError::new("plot-invalid-frontage"));
     }
     let f = Frontage::new(&[Part::Points(to64(&frontage))], f64::from(depth))
         .ok_or(ValidationError::new("plot-invalid-frontage"))?;
-    let poly = clip_polygon(world, &f, f64::from(depth), None)
+    let poly = clip_polygon(world, &f, f64::from(depth), except)
         .ok_or(ValidationError::new("plot-invalid-overlap"))?;
     let area = d2::area(&poly) as f32;
     if !(PLOT_AREA_M2.0..=PLOT_AREA_M2.1).contains(&area) {
         return Err(ValidationError::new("plot-invalid-size"));
     }
+    Ok((frontage, segments, poly, depth))
+}
+
+/// Read-only preview of a plot (the tool ghost): its clipped polygon.
+///
+/// # Errors
+/// The same reasons as `CreatePlot`.
+pub fn preview_plot(world: &World, c: &CreatePlot) -> Result<Vec<Vec2>, ValidationError> {
+    plot_geometry(world, c.zone, &c.frontage, c.depth_m, None).map(|g| d2::to_f32(&g.2))
+}
+
+/// Read-only preview of an `EditPlot` (the plot itself is excluded from the overlap clip).
+///
+/// # Errors
+/// The same reasons as `EditPlot`.
+pub fn preview_edit_plot(
+    world: &World,
+    id: PlotId,
+    spans: &[FrontageSpan],
+    depth_m: f32,
+) -> Result<Vec<Vec2>, ValidationError> {
+    let zone = world
+        .get_resource::<Ids>()
+        .and_then(|i| i.plots.get(id))
+        .and_then(|e| world.get::<Plot>(e))
+        .map(|p| p.zone)
+        .ok_or(ValidationError::new("plot-invalid-missing"))?;
+    plot_geometry(world, zone, spans, depth_m, Some(id)).map(|g| d2::to_f32(&g.2))
+}
+
+/// `EditPlot`: new frontage and depth; lots keep their IDs where their frontage intervals
+/// overlap the old ones (ADR-0064 edit path).
+///
+/// # Errors
+/// `plot-invalid-missing` or the `CreatePlot` reasons.
+pub(crate) fn edit_plot(
+    world: &mut World,
+    id: PlotId,
+    spans: &[FrontageSpan],
+    depth_m: f32,
+) -> Result<(), ValidationError> {
+    let e = world
+        .get_resource::<Ids>()
+        .and_then(|i| i.plots.get(id))
+        .ok_or(ValidationError::new("plot-invalid-missing"))?;
+    let old = world
+        .get::<Plot>(e)
+        .cloned()
+        .ok_or(ValidationError::new("plot-invalid-missing"))?;
+    let (frontage, segments, poly, depth) =
+        plot_geometry(world, old.zone, spans, depth_m, Some(id))?;
+    if let Some(mut p) = world.get_mut::<Plot>(e) {
+        p.frontage = frontage;
+        p.segments = segments;
+        p.polygon = d2::to_f32(&poly);
+        p.depth_m = depth;
+        p.spans = spans.to_vec();
+    }
+    resubdivide(world, id, hint_of(&old, old.intervals));
+    Ok(())
+}
+
+/// `CreatePlot`.
+///
+/// # Errors
+/// Invalid frontage, too small/large, or overlapping everything.
+pub(crate) fn create_plot(world: &mut World, c: &CreatePlot) -> Result<PlotId, ValidationError> {
+    let (frontage, segments, poly, depth) =
+        plot_geometry(world, c.zone, &c.frontage, c.depth_m, None)?;
     let id = world
         .resource_mut::<Ids>()
         .plots
@@ -479,6 +557,7 @@ pub(crate) fn create_plot(world: &mut World, c: &CreatePlot) -> Result<PlotId, V
         intervals: 0,
         lots: Vec::new(),
         seed,
+        spans: c.frontage.clone(),
     };
     let e = world.spawn(plot).id();
     world.resource_mut::<Ids>().plots.insert(id, e);

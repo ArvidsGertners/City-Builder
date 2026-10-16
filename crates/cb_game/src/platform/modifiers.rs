@@ -111,7 +111,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn primary_is_cmd_on_macos_ctrl_elsewhere() {
+    fn primary_modifier_maps_per_os() {
         let cmd = PhysicalMods {
             super_key: true,
             ..PhysicalMods::default()

@@ -167,3 +167,478 @@ pub fn grid(world: &mut World, spec: &GridSpec) -> CityGenReport {
     }
     report
 }
+
+/// A located scene feature: where to look and along which road direction.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Feature {
+    /// Ground position (m).
+    pub pos: Vec2,
+    /// Road direction at the position (unit).
+    pub dir: Vec2,
+    /// Size of the feature (cut or fill depth, m; 0 when not applicable).
+    pub depth_m: f32,
+}
+
+/// The scripted M2 scene features (PROGRESS M2 shot list).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct M2Features {
+    /// Middle of the curved street on the ~8 % slope.
+    pub slope: Option<Feature>,
+    /// Deepest fill embankment of the scripted roads.
+    pub fill: Option<Feature>,
+    /// Deepest cut of the scripted roads.
+    pub cut: Option<Feature>,
+    /// End of the street at the river or lake shore.
+    pub shore: Option<Feature>,
+    /// The corner plot's junction.
+    pub corner: Option<Vec2>,
+    /// Ground too steep for a street (nothing built; `dir` uphill), for the invalid-ghost shot.
+    pub steep: Option<Feature>,
+    /// Counts.
+    pub report: CityGenReport,
+}
+
+/// Terrain probes for the feature search (pre-build ground).
+struct Probe<'a>(&'a cb_terrain::Terrain);
+
+impl Probe<'_> {
+    fn h(&self, p: Vec2) -> f32 {
+        self.0.height_at(p)
+    }
+    fn wet(&self, p: Vec2) -> bool {
+        self.0.water().is_water(p)
+    }
+    fn half(&self) -> f32 {
+        let h = self.0.height();
+        0.5 * (h.n() - 1) as f32 * h.spacing_m()
+    }
+    /// Mean slope over a 60 m patch, `None` when any probe is wet or off the map.
+    fn patch_slope(&self, c: Vec2) -> Option<f32> {
+        let lim = self.half() - 200.0;
+        let mut sum = 0.0;
+        for j in -2..=2 {
+            for i in -2..=2 {
+                let p = c + Vec2::new(i as f32, j as f32) * 15.0;
+                if p.x.abs() > lim || p.y.abs() > lim || self.wet(p) {
+                    return None;
+                }
+                sum += self.0.height().slope_at(p);
+            }
+        }
+        Some(sum / 25.0)
+    }
+    fn uphill(&self, p: Vec2) -> Vec2 {
+        let d = 10.0;
+        let g = Vec2::new(
+            self.h(p + Vec2::X * d) - self.h(p - Vec2::X * d),
+            self.h(p + Vec2::Y * d) - self.h(p - Vec2::Y * d),
+        );
+        g.try_normalize().unwrap_or(Vec2::X)
+    }
+}
+
+fn segments_snapshot(world: &World) -> Vec<cb_core::ids::SegmentId> {
+    world
+        .get_resource::<Ids>()
+        .map(|i| i.segments.iter().map(|(id, _)| id).collect())
+        .unwrap_or_default()
+}
+
+/// Builds a road and records the deepest cut and fill (against the pre-build ground).
+fn road_measured(
+    world: &mut World,
+    cmd: &BuildRoad,
+    cut: &mut Option<Feature>,
+    fill: &mut Option<Feature>,
+) -> bool {
+    let Ok(pv) = roads::preview_road(world, cmd) else {
+        return false;
+    };
+    if let Some(t) = world.get_resource::<crate::terrain::TerrainRes>() {
+        let t = t.terrain();
+        let len = pv.geom.length();
+        let mut s = 4.0;
+        while s < len - 4.0 {
+            let c = pv.geom.point_at(s);
+            let dir = pv.geom.dir_at(s);
+            let road_h = pv.profile.height_at(s);
+            for off in [-1.0, 0.0, 1.0] {
+                let p = c + dir.perp() * (off * pv.geom.half_width_m);
+                let d = road_h - t.height_at(p);
+                if d > fill.map_or(0.0, |f| f.depth_m) {
+                    *fill = Some(Feature {
+                        pos: c,
+                        dir,
+                        depth_m: d,
+                    });
+                }
+                if -d > cut.map_or(0.0, |f| f.depth_m) {
+                    *cut = Some(Feature {
+                        pos: c,
+                        dir,
+                        depth_m: -d,
+                    });
+                }
+            }
+            s += 2.0;
+        }
+    }
+    let tick = world
+        .get_resource::<crate::SimClock>()
+        .map_or(0, |c| c.tick().0);
+    roads::build_road(world, cmd, tick).is_ok()
+}
+
+fn free(kind: RoadKind, curve: CubicBezier2) -> BuildRoad {
+    BuildRoad {
+        kind,
+        curve,
+        start: Endpoint::Free,
+        end: Endpoint::Free,
+    }
+}
+
+/// Corner plot in the quadrant between two segments leaving `node` (40 m along each).
+fn corner_plot(
+    world: &mut World,
+    node: Vec2,
+    a: cb_core::ids::SegmentId,
+    b: cb_core::ids::SegmentId,
+) -> bool {
+    let geo = |id| {
+        world
+            .get_resource::<Ids>()
+            .and_then(|i| i.segments.get(id))
+            .and_then(|e| world.get::<RoadSegment>(e))
+            .map(|s| s.geom().clone())
+    };
+    let (Some(ga), Some(gb)) = (geo(a), geo(b)) else {
+        return false;
+    };
+    // Away-from-node direction and the node-end arc length of each segment.
+    let away = |g: &cb_network::SegmentGeom| {
+        let len = g.length();
+        if g.point_at(0.0).distance(node) < g.point_at(len).distance(node) {
+            (g.dir_at(0.0), 0.0, len.min(40.0))
+        } else {
+            (-g.dir_at(len), len, (len - 40.0).max(0.0))
+        }
+    };
+    let ((ua, na, fa), (ub, nb, fb)) = (away(&ga), away(&gb));
+    let cross = ua.perp_dot(ub);
+    let inside = |v: Vec2| ua.perp_dot(v) * cross > 0.0 && v.perp_dot(ub) * cross > 0.0;
+    let side = |g: &cb_network::SegmentGeom, s: f32| {
+        let probe = g.point_at(s) + g.dir_at(s).perp() * 10.0;
+        inside(probe - node)
+    };
+    let (ma, mb) = (0.5 * (na + fa), 0.5 * (nb + fb));
+    let c = CreatePlot {
+        zone: ZoneKind::Residential,
+        frontage: vec![
+            FrontageSpan {
+                segment: a,
+                left: side(&ga, ma),
+                s0: fa,
+                s1: na,
+            },
+            FrontageSpan {
+                segment: b,
+                left: side(&gb, mb),
+                s0: nb,
+                s1: fb,
+            },
+        ],
+        depth_m: 30.0,
+        dn: 0,
+    };
+    crate::zoning::create_plot(world, &c).is_ok()
+}
+
+/// The scripted M2 features around a town at `town` with half extent `town_half`: a curved
+/// street on a ~8 % slope with a side street and a corner plot, the straight street over the
+/// most pronounced crest (a cut) and across the deepest dip (a fill), a street to the nearest
+/// shore, plots on all of them and houses on every lot. Sandbox mode; features that find no
+/// site or fail validation are left out.
+pub fn m2_features(world: &mut World, town: Vec2, town_half: Vec2) -> M2Features {
+    let mut out = M2Features::default();
+    let saved = world.get_resource::<SimConfig>().cloned();
+    if let Some(mut c) = world.get_resource_mut::<SimConfig>() {
+        c.sandbox = true;
+    }
+    let Some(terrain) = world
+        .get_resource::<crate::terrain::TerrainRes>()
+        .map(|t| t.terrain().clone())
+    else {
+        return out;
+    };
+    let probe = Probe(&terrain);
+    let before = segments_snapshot(world);
+    let keep_out = town_half + Vec2::splat(140.0);
+    let outside = |p: Vec2, margin: f32| {
+        (p.x - town.x).abs() > keep_out.x + margin || (p.y - town.y).abs() > keep_out.y + margin
+    };
+    let (mut cut, mut fill) = (None, None);
+
+    // 1. Curved street on the ~8 % slope, a side street downhill and a corner plot.
+    let mut best: Option<(f32, Vec2)> = None;
+    for gz in -24..=24 {
+        for gx in -24..=24 {
+            let p = town + Vec2::new(gx as f32, gz as f32) * 40.0;
+            if !outside(p, 80.0) {
+                continue;
+            }
+            if let Some(s) = probe.patch_slope(p) {
+                let score = (s - 0.08).abs() * 20.0 + p.distance(town) / 1000.0;
+                if (0.055..=0.11).contains(&s) && best.is_none_or(|b| score < b.0) {
+                    best = Some((score, p));
+                }
+            }
+        }
+    }
+    if let Some((_, p)) = best {
+        let up = probe.uphill(p);
+        let t = up.perp();
+        let a = p - t * 85.0;
+        let b = p + t * 85.0;
+        let curve = CubicBezier2::from_quadratic(a, p - up * 36.0, b);
+        let mid = curve.eval(0.5);
+        if road_measured(world, &free(RoadKind::Street, curve), &mut cut, &mut fill) {
+            out.report.segments += 1;
+            out.slope = Some(Feature {
+                pos: mid,
+                dir: t,
+                depth_m: 0.0,
+            });
+            let side_end = mid - up * 75.0;
+            let before_side = segments_snapshot(world);
+            if road_measured(
+                world,
+                &free(RoadKind::Street, CubicBezier2::straight(mid, side_end)),
+                &mut cut,
+                &mut fill,
+            ) {
+                out.report.segments += 1;
+                crate::zoning::update_dirty_plots(world);
+                // The side street split the curved street at its middle: corner between the
+                // side street and the half toward `a`.
+                let new: Vec<_> = segments_snapshot(world)
+                    .into_iter()
+                    .filter(|s| !before_side.contains(s))
+                    .collect();
+                let geo_mid = |id| {
+                    world
+                        .get_resource::<Ids>()
+                        .and_then(|i| i.segments.get(id))
+                        .and_then(|e| world.get::<RoadSegment>(e))
+                        .map(|s| s.geom().point_at(0.5 * s.geom().length()))
+                };
+                let side = new.iter().copied().find(|id| {
+                    geo_mid(*id).is_some_and(|m| m.distance(mid.lerp(side_end, 0.5)) < 5.0)
+                });
+                let half_a = new.iter().copied().find(|id| {
+                    geo_mid(*id)
+                        .is_some_and(|m| m.distance(a) < m.distance(b) && m.distance(mid) > 20.0)
+                });
+                if let (Some(sa), Some(ha)) = (side, half_a)
+                    && corner_plot(world, mid, ha, sa)
+                {
+                    out.report.plots += 1;
+                    out.corner = Some(mid);
+                }
+            }
+        }
+    }
+
+    // Steep ground for the road tool's "too steep" ghost.
+    let mut steep: Option<(f32, Vec2)> = None;
+    for gz in -24..=24 {
+        for gx in -24..=24 {
+            let p = town + Vec2::new(gx as f32, gz as f32) * 40.0;
+            if outside(p, 60.0)
+                && let Some(s) = probe.patch_slope(p)
+                && s > 0.16
+                && steep.is_none_or(|b| p.distance(town) < b.0)
+            {
+                steep = Some((p.distance(town), p));
+            }
+        }
+    }
+    out.steep = steep.map(|(_, p)| Feature {
+        pos: p,
+        dir: probe.uphill(p),
+        depth_m: 0.0,
+    });
+
+    // 2. Crest (cut) and dip (fill) crossings, apart from each other and the slope street.
+    let mut taken: Vec<Vec2> = out.slope.iter().map(|f| f.pos).collect();
+    let mut bare: Vec<cb_core::ids::SegmentId> = Vec::new();
+    for sign in [1.0f32, -1.0] {
+        let mut cands: Vec<(f32, Vec2, Vec2)> = Vec::new();
+        for gz in -20..=20 {
+            for gx in -20..=20 {
+                let p = town + Vec2::new(gx as f32, gz as f32) * 45.0;
+                if !outside(p, 100.0) || probe.patch_slope(p).is_none_or(|s| s > 0.12) {
+                    continue;
+                }
+                for k in 0..4 {
+                    let ang = k as f32 * std::f32::consts::FRAC_PI_4;
+                    let d = Vec2::new(cb_core::math::cos(ang), cb_core::math::sin(ang));
+                    let (e0, e1) = (p - d * 55.0, p + d * 55.0);
+                    if [e0, p, e1].iter().any(|q| probe.wet(*q)) {
+                        continue;
+                    }
+                    let bump = sign * (probe.h(p) - 0.5 * (probe.h(e0) + probe.h(e1)));
+                    if bump > 2.5 {
+                        cands.push((bump - p.distance(town) / 400.0, p, d));
+                    }
+                }
+            }
+        }
+        cands.sort_by(|x, y| y.0.total_cmp(&x.0));
+        let mut tries = 0;
+        for (_, p, d) in cands {
+            if tries >= 12 {
+                break;
+            }
+            if taken.iter().any(|q| q.distance(p) < 250.0) {
+                continue;
+            }
+            tries += 1;
+            let cmd = free(
+                RoadKind::Street,
+                CubicBezier2::straight(p - d * 70.0, p + d * 70.0),
+            );
+            let before_crossing = segments_snapshot(world);
+            if road_measured(world, &cmd, &mut cut, &mut fill) {
+                out.report.segments += 1;
+                taken.push(p);
+                // No plots along the crossings: the cut and fill shots look at bare slopes.
+                bare.extend(
+                    segments_snapshot(world)
+                        .into_iter()
+                        .filter(|s| !before_crossing.contains(s)),
+                );
+                break;
+            }
+            out.report.roads_rejected += 1;
+        }
+    }
+
+    // 3. Street to the shore: the shortest street of 80–800 m from an existing node to a point
+    //    14 m before the water.
+    let nodes: Vec<(NodeId, Vec2)> = world
+        .get_resource::<Ids>()
+        .map(|ids| {
+            ids.nodes
+                .iter()
+                .filter_map(|(id, e)| {
+                    world
+                        .get::<RoadNode>(e)
+                        .map(|n| (id, Vec2::new(n.pos().x, n.pos().z)))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut shore: Vec<(f32, NodeId, Vec2, Vec2)> = Vec::new();
+    for k in 0..72 {
+        let ang = k as f32 * std::f32::consts::TAU / 72.0;
+        let d = Vec2::new(cb_core::math::cos(ang), cb_core::math::sin(ang));
+        let mut r = 60.0;
+        while r < 2000.0 {
+            if probe.wet(town + d * r) {
+                let wet = town + d * r;
+                for (nid, np) in &nodes {
+                    let to = wet - *np;
+                    let len = to.length();
+                    let end = wet - to / len.max(1.0) * 14.0;
+                    let l = np.distance(end);
+                    if (80.0..=800.0).contains(&l) {
+                        shore.push((l, *nid, *np, end));
+                    }
+                }
+                break;
+            }
+            r += 10.0;
+        }
+    }
+    shore.sort_by(|x, y| x.0.total_cmp(&y.0));
+    tracing::debug!("shore candidates: {}", shore.len());
+    for (_, nid, np, end) in shore.into_iter().take(12) {
+        let cmd = BuildRoad {
+            kind: RoadKind::Street,
+            curve: CubicBezier2::straight(np, end),
+            start: Endpoint::Node(nid),
+            end: Endpoint::Free,
+        };
+        if road_measured(world, &cmd, &mut None, &mut None) {
+            out.report.segments += 1;
+            out.shore = Some(Feature {
+                pos: end,
+                dir: (end - np).normalize_or_zero(),
+                depth_m: 0.0,
+            });
+            break;
+        }
+        out.report.roads_rejected += 1;
+    }
+    out.cut = cut.filter(|c| c.depth_m > 0.5);
+    out.fill = fill.filter(|f| f.depth_m > 0.5);
+
+    // 4. Plots on every new segment, houses on every new lot.
+    crate::zoning::update_dirty_plots(world);
+    let lots_before: Vec<cb_core::ids::LotId> = world
+        .get_resource::<Ids>()
+        .map(|i| i.lots.iter().map(|(id, _)| id).collect())
+        .unwrap_or_default();
+    let new: Vec<_> = segments_snapshot(world)
+        .into_iter()
+        .filter(|s| !before.contains(s) && !bare.contains(s))
+        .collect();
+    for sid in new {
+        let Some(len) = world
+            .get_resource::<Ids>()
+            .and_then(|i| i.segments.get(sid))
+            .and_then(|e| world.get::<RoadSegment>(e))
+            .map(|s| s.geom().length())
+        else {
+            continue;
+        };
+        for left in [true, false] {
+            let (s0, s1) = if left { (0.0, len) } else { (len, 0.0) };
+            let c = CreatePlot {
+                zone: ZoneKind::Residential,
+                frontage: vec![FrontageSpan {
+                    segment: sid,
+                    left,
+                    s0,
+                    s1,
+                }],
+                depth_m: 30.0,
+                dn: 0,
+            };
+            match crate::zoning::create_plot(world, &c) {
+                Ok(_) => out.report.plots += 1,
+                Err(_) => out.report.plots_rejected += 1,
+            }
+        }
+    }
+    let lots: Vec<cb_core::ids::LotId> = world
+        .get_resource::<Ids>()
+        .map(|i| {
+            i.lots
+                .iter()
+                .map(|(id, _)| id)
+                .filter(|id| !lots_before.contains(id))
+                .collect()
+        })
+        .unwrap_or_default();
+    for l in lots {
+        if crate::buildings::grow_lot(world, l).is_some() {
+            out.report.buildings += 1;
+        }
+    }
+    if let Some(c) = saved {
+        world.insert_resource(c);
+    }
+    out
+}

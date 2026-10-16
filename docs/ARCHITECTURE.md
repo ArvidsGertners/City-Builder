@@ -285,6 +285,14 @@ City-Builder/
                                 semantic class pass), benchmark.rs (--benchmark, --no-gpu-work), smoke.rs
 ```
 
+**M2 state of `cb_game`** (the tree above is the target): `picking.rs` (cursor ray, ground pick,
+`ScriptedCursor` for suites), `tools.rs` (road/plot/bulldoze tools, ghost, toolbar, plot panel,
+cursor label — split into `tools/` when M3 adds more tools), `overlay.rs` (zoning view: draped
+plot fills, outlines, lot lines — becomes `overlays/` with the data views of M5), `view.rs`
+(all view sync; split per kind when chunk merging lands), `render/` (materials, lighting, sky),
+`scene.rs` (camera, demo town + scripted M2 features, `SceneFeatures` anchors),
+`debug/benchmark.rs` (`--benchmark`, `--no-gpu-work`).
+
 ### Crate dependency graph
 
 ```

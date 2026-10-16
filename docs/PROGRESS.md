@@ -20,7 +20,17 @@ milestone and before ending a session (skill `milestone-completion`).
   painter with baked AO, R L1–L3 houses with gable/hip roofs, windows, doors, chimneys, wings,
   duplexes, pad/plinth/stilt foundations, yards ≤ 400 tris, trees, road segment sweep;
   `houses_within_lots_and_budgets`, `procgen_golden_hashes`). The determinism probe prints
-  terrain and subdivision hashes.
+  terrain, subdivision and M2-scene hashes.
+- **M2 done so far (`cb_sim`, `cb_game`):** sim world state (commands incl. `EditPlot`, read-only
+  `preview_road`/`preview_plot`/`preview_edit_plot`, `citygen::grid` + `citygen::m2_features`);
+  renderer (world/terrain/water materials, focus fog, lighting keyframes calibrated per
+  ADR-0050 amendment, exposure-scaled sky dome), camera, picking (`ScriptedCursor` for suites),
+  view sync (terrain/water/roads/junctions/houses/scatter, shared 2 ms rebuild budget), road tool
+  (straight/curved/freehand, ghost with stripes, reason + cost label), plot tool (frontage drag,
+  end/depth handles, ± lots, depth ±, delete), bulldoze, toolbar + money HUD + toasts, zoning
+  overlay (draped fills, outlines, lot lines), `--benchmark` (per-set timings) and the 14-shot M2
+  suite (`at:`/`hour:`/`ui:`/`zoning:`/`tool:` per shot). **Open:** main-thread budget (see Next
+  step), final M2 suite render + review, milestone completion.
 - **Last updated:** 2026-10-16
 - **Verified environment:** Bevy 0.20.0 (2026-10-08), bevy_egui 0.43.1 (Bevy 0.20), rustc 1.97.1;
   `bevy-inspector-egui` 0.37 targets Bevy 0.19 (ADR-0031); `mesa-vulkan-drivers` (lavapipe) and
@@ -28,21 +38,25 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**M2.6 — `cb_game`** (sim world state done). `cb_sim` now has the catalog (`data/*.ron`), stable
-ID registries, commands (`BuildRoad`, `RemoveSegment`, `CreatePlot`, `DeletePlot`,
-`SetSubdivision`, `SetSimConfig`), treasury, terrain resource (`TerrainSetup::{None, Flat,
-Generate}`), road network with crossing splits, junction geometry and corridor stamps, plots with
-corner frontage, clipping by new corridors and stable lot IDs, Debug growth of L1–L3 houses with
-pad stamps, `citygen::grid`, and an extended state hash (`crates/cb_sim/tests/world.rs`, 12
-tests). First action in `crates/cb_game/src/`: switch `SimPlugins` to `TerrainSetup::Generate`
-behind the new-game flow, then add `view/terrain.rs` (chunk meshes from
-`cb_terrain::chunk_mesh` on `TerrainChanged`), `view/roads.rs` (`road_mesh::segment_mesh` +
-`junction_mesh` on `NetworkChanged`), `view/buildings.rs` (`house::mesh` + `yard::yard` on
-`BuildingChanged`, merged per chunk), the camera controller (ADR camera tests in the M2
-checklist), picking via `picking::cursor_ray`, road and plot tools emitting `PlayerCommand`s,
-lighting keyframes, the minimal toolbar/HUD, `--benchmark m2_slice` using `citygen::grid`, and
-the M2 screenshot suite (`scripts/screenshot.sh M2`). Still open from pure crates:
-procgen golden hashes beyond houses (roads, junctions).
+**M2 performance, then completion.** `cargo run -p cb_game --release -- --benchmark m2_slice
+--no-gpu-work` (container, llvmpipe, seed 1234) gives main thread p50 11.2 / p95 16.8 ms (budget
+p95 ≤ 8 ms): pre-update 3.0 / 5.8, view-sync 3.7 / 8.4, post-update 3.3 / 5.6 ms (p50 / p95);
+1 818 mesh entities, 1 024 terrain chunk entities; only ≈ 9 fps (render-bound), so the scripted
+camera moves ≈ 6× farther per frame than at 60 fps. Do, in order:
+1. `crates/cb_game/src/view.rs` `sync_terrain` / `sync_scatter`: move `chunk_mesh::build`,
+   `terrain_mesh`, `water_mesh` and `scatter_mesh` to `AsyncComputeTaskPool` tasks (needs
+   `cb_sim::terrain::TerrainRes` to hold `Arc<Terrain>` + a generation counter bumped on every
+   stamp; tasks carry the generation and stale results are dropped; the main thread only
+   uploads meshes, ≤ 1 ms). Keep `ViewBacklog` counting in-flight tasks for screenshot settling.
+2. Chunk merging (PERFORMANCE §4): one building mesh per terrain chunk (re-merge on
+   `BuildingChanged` in that chunk) and one water entity per chunk only where water exists —
+   cuts post-update (transform/visibility) cost.
+3. Re-run the benchmark; record numbers here and in PERFORMANCE §13. If p95 is still > 8 ms,
+   check `pre-update` (egui begin pass, asset events) with `info_span`s.
+4. Render the final suite `scripts/screenshot.sh M2` (M2-06 camera and the sunset offset changed
+   since the last render in the scratchpad), review every image (`visual-verification`), write
+   `docs/screenshots/M2/index.md`, then `milestone-completion` for M2.
+Still open from pure crates: procgen golden hashes for roads and junctions.
 
 ## Process conventions (ADR-0058)
 
@@ -68,7 +82,7 @@ procgen golden hashes beyond houses (roads, junctions).
 | 0 | Phase 1 planning package + independent review | 2 | 2 | ☑ |
 | 1 | Project setup | 4 | 1 | ☑ |
 | S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | ≈ 4 | ☑ (S-Render ☑, S-Time ☑ fallback, S-J ☑ ADR-0063, S-P ☑ ADR-0064, S-G ☑ ADR-0065, S-T ☑ ADR-0066/0067) |
-| 2 | Vertical slice | 12 | | ☐ |
+| 2 | Vertical slice | 12 | | ◐ |
 | 3 | Full road system | 12 | | ☐ |
 | 4 | All zone types, special buildings, leveling visuals | 10 | | ☐ |
 | 5 | Simulation core | 12 | | ☐ |
@@ -382,28 +396,32 @@ toasts, minimal toolbar: road, plot, bulldoze), dev settings panel, citygen (500
 L1–L3 after N ticks), static `LightingState` + keyframes, no-op shader uniforms for overlay/
 night/wetness/snow, chunk merging + slot buffer from the start, runtime render-scale change,
 worldgen constraints, input map v3.
-- [ ] Worldgen: `worldgen_features_seed_1_to_20` (rivers ∈ [1, 2], lakes ∈ [1, 3], buildable
+- [x] Worldgen: `worldgen_features_seed_1_to_20` (rivers ∈ [1, 2], lakes ∈ [1, 3], buildable
       lowland ≥ 3 km², shore within 400 m of an outside connection, generation ≤ 4 s);
       `terrain_generation_deterministic`; `terrain_hash_cross_os` in the cross-OS job.
+      — tests green; `determinism_probe` prints terrain hashes (+ `m2_scene` hash).
 - [ ] Terrain rendering: semantic-pass crack check at LOD boundaries (0 background pixels inside
       the terrain silhouette in M2-14).
-- [ ] Scatter: `scatter_excluded_by_corridor_plus_2m`, `scatter_restored_after_stamp_removed`,
+- [x] Scatter: `scatter_excluded_by_corridor_plus_2m`, `scatter_restored_after_stamp_removed`,
       `tree_density_field_matches_exclusion`.
-- [ ] Camera: `camera_pan_rotation_relative`, `camera_zoom_clamped_25_2400`,
+- [x] Camera: `camera_pan_rotation_relative`, `camera_zoom_clamped_25_2400`,
       `camera_q_tap_snaps_to_next_90`, `camera_q_hold_rotates_continuously`,
       `camera_focus_clamped_to_bounds`, `camera_never_below_terrain_plus_6m`,
       `input_tool_drag_precedence`, `scroll_unit_policy_pixel_pans_line_zooms`,
       `primary_modifier_maps_per_os`.
-- [ ] Road tool: straight/curved/freehand; each validation reason has a test returning its
+- [x] Road tool: straight/curved/freehand; each validation reason has a test returning its
       `ValidationError` key (`road_invalid_too_steep`, `_too_sharp`, `_overlap`, `_too_short`,
       `_water_no_bridge`, `_crossing_clearance`); `profile_solver_*` (incl. infeasible endpoints),
       `grading_continuous_compositing`, `crossing_fixed_point_converges`.
+      — all green; tool previews call `preview_road` (`road_preview_matches_build`).
 - [ ] Plot tool (residential): `subdivide_random_10k_invariants`, `building_footprint_within_lot_10k`,
       `lot_ids_stable_under_small_drags`, `lot_ids_n_plus_minus_one_keep_n_minus_2`,
       `subdivide_fan_le_25_or_tight_curve`, `subdivide_corner_lot_fronts_both_roads`,
       `plot_clipped_by_new_corridor`, procgen golden hashes (S-P metrics and the six frontage
       families of `spikes/s_p` as fixtures; ADR-0064).
-- [ ] Lighting/art: calibration metrics of ADR-0050 on M2-02 (noon) and M2-11 (night).
+- [x] Lighting/art: calibration metrics of ADR-0050 on M2-02 (noon) and M2-11 (night).
+      — lit grass ΔE00 3.1 to #8DB06A; noon mean/median luminance 0.32/0.38 (range amended for
+      grass-dominated frames); night/noon mean 0.31; clipped ≤ 0.01 %; zone ΔE n/a (one zone).
 - [ ] Perf: container `--benchmark m2_slice --no-gpu-work`: main thread ≤ 8 ms p95, render thread
       ≤ 8 ms p95. ☑ᵤ: GPU ≤ 12 ms p95 at 1080p on PC and at Auto on M4.
 - [ ] Shots (suite M2, seed 1234; scripted: curved street on an 8 % slope with fill embankment,
@@ -732,3 +750,9 @@ None open. Known gaps (planned):
   (crossing splits, junction geometry subset of ADR-0063 — connectors in M3), plots/lots with
   stable IDs and re-clipping, Debug growth, citygen, state hash; `cb_network::junction` and
   `cb_procgen::junction_mesh` added.
+- 2026-10-16 — M2.6 checkpoint: tools (road/plot/bulldoze), picking, toolbar/HUD, zoning overlay,
+  `EditPlot` + previews, scripted M2 features (`citygen::m2_features`: 8 % slope street with
+  corner plot, 6.1 m cut, 6.7 m fill, shore street, 36 houses), M2 suite with per-shot state,
+  `--benchmark` with per-set timings, lighting calibration (ADR-0050 amendment). Bug found and
+  fixed: draped meshes wound CCW in (x, z) face down and were back-face culled (overlay, ghost).
+  Main-thread p95 33.7 → 16.8 ms after the rebuild budget; still over 8 ms (Next step).

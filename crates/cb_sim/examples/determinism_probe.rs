@@ -15,6 +15,23 @@ fn main() {
         }
     }
     println!("probe=subdivision hash={:016x}", subdivision_hash());
+    // M2 scene (roads, grading, junctions, plots, lots, houses on generated terrain).
+    let mut s = Scenario::with_terrain(1234, cb_sim::terrain::TerrainSetup::Generate);
+    let site = glam::Vec2::new(19.2, -1228.8);
+    let grid = cb_sim::citygen::grid(
+        s.world_mut(),
+        &cb_sim::citygen::GridSpec {
+            center: site,
+            blocks: (4, 3),
+            ..Default::default()
+        },
+    );
+    let f = cb_sim::citygen::m2_features(s.world_mut(), site, glam::Vec2::new(220.0, 120.0));
+    println!(
+        "probe=m2_scene seed=1234 buildings={} hash={:016x}",
+        grid.buildings + f.report.buildings,
+        s.state_hash()
+    );
     for seed in SEEDS {
         let mut s = Scenario::new(seed);
         s.run_ticks(2 * TICKS_PER_GAME_DAY);

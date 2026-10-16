@@ -320,7 +320,11 @@ fn node_junction(
 }
 
 /// Plans a new road.
-fn plan_build(world: &World, cmd: &BuildRoad, tick: u64) -> Result<(Plan, Money), ValidationError> {
+fn plan_build(
+    world: &World,
+    cmd: &BuildRoad,
+    tick: u64,
+) -> Result<(Plan, Money, Profile), ValidationError> {
     let Some(cat) = world.get_resource::<Catalog>() else {
         return Err(ValidationError::new("internal-no-catalog"));
     };
@@ -529,7 +533,7 @@ fn plan_build(world: &World, cmd: &BuildRoad, tick: u64) -> Result<(Plan, Money)
             return Err(ValidationError { key: e.key(), at });
         }
     }
-    Ok((plan, road_cost(cat, cmd.kind, len)))
+    Ok((plan, road_cost(cat, cmd.kind, len), profile))
 }
 
 fn corridor_stamp(id: u32, seg: &RoadSegment) -> Stamp {
@@ -711,6 +715,45 @@ fn refresh_node(world: &mut World, id: NodeId) {
     world.write_message(NetworkChanged::Node(id));
 }
 
+/// What building a road would do (the tool preview): cost, geometry and profile.
+#[derive(Clone, Debug)]
+pub struct RoadPreview {
+    /// Construction cost.
+    pub cost: Money,
+    /// Geometry of the new road.
+    pub geom: SegmentGeom,
+    /// Solved surface profile.
+    pub profile: Profile,
+    /// Endpoints after snapping.
+    pub start: Endpoint,
+    /// End after snapping.
+    pub end: Endpoint,
+}
+
+/// Read-only preview of `BuildRoad` with the same planning as the command (validation reasons,
+/// cost, profile). Affordability is reported separately by the tool.
+///
+/// # Errors
+/// The first validation failure, with its location.
+pub fn preview_road(world: &World, cmd: &BuildRoad) -> Result<RoadPreview, ValidationError> {
+    let start = snap_endpoint(world, cmd.start, cmd.curve.start());
+    let end = snap_endpoint(world, cmd.end, cmd.curve.end());
+    let snapped = BuildRoad {
+        start,
+        end,
+        ..cmd.clone()
+    };
+    let (_, cost, profile) = plan_build(world, &snapped, 0)?;
+    let geom = SegmentGeom::new(cmd.curve, CrossSection::of(cmd.kind).half_width_m());
+    Ok(RoadPreview {
+        cost,
+        geom,
+        profile,
+        start,
+        end,
+    })
+}
+
 /// Free endpoints lying on an existing node or segment centreline connect to it.
 fn snap_endpoint(world: &World, ep: Endpoint, p: Vec2) -> Endpoint {
     if ep != Endpoint::Free {
@@ -753,7 +796,7 @@ pub(crate) fn build_road(
         end: snap_endpoint(world, cmd.end, cmd.curve.end()),
         ..cmd.clone()
     };
-    let (plan, cost) = plan_build(world, cmd, tick)?;
+    let (plan, cost, _) = plan_build(world, cmd, tick)?;
     crate::economy::charge(world, cost)?;
     let mut new_ids: Vec<NodeId> = Vec::with_capacity(plan.new_nodes.len());
     for p in &plan.new_nodes {

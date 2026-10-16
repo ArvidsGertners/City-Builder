@@ -225,6 +225,10 @@ pub struct ToolOwnsDrag(pub bool);
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PointerOverUi(pub bool);
 
+/// Camera input and rig application (picking runs after it).
+#[derive(SystemSet, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct CameraSystems;
+
 /// Camera plugin.
 pub struct CameraPlugin;
 
@@ -234,11 +238,10 @@ impl Plugin for CameraPlugin {
             .init_resource::<CameraCtl>()
             .init_resource::<ToolOwnsDrag>()
             .init_resource::<PointerOverUi>()
+            .configure_sets(Update, CameraSystems.in_set(crate::app::GameSet::Input))
             .add_systems(
                 Update,
-                (gather_and_step, apply_rig)
-                    .chain()
-                    .in_set(crate::app::GameSet::Input),
+                (gather_and_step, apply_rig).chain().in_set(CameraSystems),
             );
     }
 }

@@ -82,9 +82,10 @@ pub fn build(boot: Boot) -> App {
     let (width, height) = suite
         .as_ref()
         .map(|s| s.resolution)
+        .or(cli.no_gpu_work.then_some((64, 64)))
         .or(cli.resolution)
         .unwrap_or((settings.display.width, settings.display.height));
-    let verification_run = cli.smoke_test.is_some() || suite.is_some();
+    let verification_run = cli.smoke_test.is_some() || suite.is_some() || cli.benchmark.is_some();
     let title = l10n.0.tr(keys::APP_TITLE);
     info!("window: {width}x{height} \"{title}\"");
 
@@ -106,7 +107,10 @@ pub fn build(boot: Boot) -> App {
     .insert_resource(render_error_handler())
     .add_plugins(EguiPlugin::default())
     .add_plugins(SimPlugins {
-        seed: cli.seed.unwrap_or(1),
+        seed: cli
+            .seed
+            .or(suite.as_ref().and_then(|s| s.seed))
+            .unwrap_or(1),
         terrain: cb_sim::TerrainSetup::Generate,
     })
     .init_state::<AppState>()
@@ -132,6 +136,9 @@ pub fn build(boot: Boot) -> App {
         crate::render::WorldRenderPlugin,
         crate::camera::CameraPlugin,
         crate::view::ViewPlugin,
+        crate::picking::PickingPlugin,
+        crate::tools::ToolsPlugin,
+        crate::overlay::OverlayPlugin,
     ))
     .add_systems(
         Startup,
@@ -155,6 +162,14 @@ pub fn build(boot: Boot) -> App {
             .clone()
             .unwrap_or_else(|| paths.screenshots_dir.clone());
         app.add_plugins(ScreenshotPlugin { suite, out });
+    }
+    if let Some(scene) = cli.benchmark.clone() {
+        app.add_plugins(crate::debug::benchmark::BenchmarkPlugin {
+            scene,
+            no_gpu_work: cli.no_gpu_work,
+            out_dir: paths.logs_dir.clone(),
+            seed: cli.seed.unwrap_or(1),
+        });
     }
     #[cfg(feature = "dev")]
     if !verification_run {

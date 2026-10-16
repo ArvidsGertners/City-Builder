@@ -79,6 +79,15 @@ pub enum PlayerCommand {
     },
     /// Draw a plot.
     CreatePlot(CreatePlot),
+    /// Change a plot's frontage and depth.
+    EditPlot {
+        /// The plot.
+        plot: PlotId,
+        /// New frontage.
+        frontage: Vec<FrontageSpan>,
+        /// New depth (m).
+        depth_m: f32,
+    },
     /// Delete a plot with its lots and buildings.
     DeletePlot {
         /// The plot.
@@ -200,6 +209,11 @@ fn apply(world: &mut World, cmd: &PlayerCommand, tick: u64) -> Result<Money, Val
             crate::roads::remove_segment(world, *segment).map(|()| Money::ZERO)
         }
         PlayerCommand::CreatePlot(c) => crate::zoning::create_plot(world, c).map(|_| Money::ZERO),
+        PlayerCommand::EditPlot {
+            plot,
+            frontage,
+            depth_m,
+        } => crate::zoning::edit_plot(world, *plot, frontage, *depth_m).map(|()| Money::ZERO),
         PlayerCommand::DeletePlot { plot } => {
             crate::zoning::delete_plot(world, *plot).map(|()| Money::ZERO)
         }

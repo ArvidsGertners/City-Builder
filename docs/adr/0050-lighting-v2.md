@@ -41,3 +41,10 @@ had no measurable target.
 - 2026-10-15 (spike S-Render): focus fog is applied after `apply_pbr_lighting`, whose output is
   pre-exposed scene luminance; the fog colour is therefore specified as scene luminance
   (≈ albedo × illuminance / π) and multiplied by `view.exposure`, never as a 0–1 display colour.
+- 2026-10-16 (M2 calibration): base exposure EV100 10.25 at noon (lit grass renders #9AAF71,
+  ΔE00 3.1 to #8DB06A); night keyframes raised to moon 0.27 / ambient 0.50 (pre-exposure) so
+  the night/noon mean-luminance ratio is ≈ 0.30; sunset offset +1.4 EV (was +0.6, too dark after the base change); the noon median-luminance target 0.18–0.24
+  assumed a mixed city frame — for the grass-dominated M2 frames it is 0.30–0.42 (re-check the
+  original range on the dense-city frames of M4). The sky dome and clear colour are unlit, so
+  their colours are scaled by `FOG_LUMINANCE × exposure` to meet the fog at the horizon; the
+  dome continues below the horizon so space beyond the map edge reads as haze.

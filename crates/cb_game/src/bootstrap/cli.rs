@@ -27,6 +27,10 @@ pub struct Cli {
     pub screenshot_suite: Option<String>,
     /// Output directory for screenshots.
     pub out: Option<PathBuf>,
+    /// Run a benchmark scene (`m2_slice`, `bench_city`) and exit with a report.
+    pub benchmark: Option<String>,
+    /// Benchmark with a 64 × 64 window and no shadows/SSAO/bloom (CPU numbers in containers).
+    pub no_gpu_work: bool,
     /// Override the UI language (`en`, `de`).
     pub language: Option<String>,
     /// Print help and exit.
@@ -69,6 +73,8 @@ city-builder [OPTIONS]
   --scene <name>               scene for smoke/screenshot runs (default: smoke)
   --screenshot-suite <name>    render a screenshot suite (e.g. M1) and exit
   --out <dir>                  output directory for --screenshot-suite
+  --benchmark <scene>          60 s camera path over a scene (m2_slice, bench_city), report, exit
+  --no-gpu-work                benchmark at 64x64 without shadows/SSAO/bloom
   --strict-errors              system errors panic (debug builds)
   --debug-panic                panic after start-up (tests the crash reporter)
   --version                    print version
@@ -137,6 +143,8 @@ pub fn parse<'a>(args: impl IntoIterator<Item = &'a str>) -> Result<Cli, CliErro
                 cli.screenshot_suite = Some(value("--screenshot-suite", &mut it)?.to_owned());
             }
             "--out" => cli.out = Some(PathBuf::from(value("--out", &mut it)?)),
+            "--benchmark" => cli.benchmark = Some(value("--benchmark", &mut it)?.to_owned()),
+            "--no-gpu-work" => cli.no_gpu_work = true,
             "--strict-errors" => cli.strict_errors = true,
             "--debug-panic" => cli.debug_panic = true,
             "--version" | "-V" => cli.version = true,
@@ -183,5 +191,16 @@ mod tests {
         let cli = parse(["--screenshot-suite", "M1", "--out", "docs/screenshots/M1"]).unwrap();
         assert_eq!(cli.screenshot_suite.as_deref(), Some("M1"));
         assert_eq!(cli.out, Some(PathBuf::from("docs/screenshots/M1")));
+    }
+
+    #[test]
+    fn cli_benchmark() {
+        let cli = parse(["--benchmark", "m2_slice", "--no-gpu-work"]).unwrap();
+        assert_eq!(cli.benchmark.as_deref(), Some("m2_slice"));
+        assert!(cli.no_gpu_work);
+        assert_eq!(
+            parse(["--benchmark"]),
+            Err(CliError::MissingValue("--benchmark"))
+        );
     }
 }
