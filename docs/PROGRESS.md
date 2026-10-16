@@ -50,11 +50,14 @@ patched in `EditSet::Lanes` (`cb_sim::lanes::patch_lanes`) + lane overlay (F5 in
 (`cb_network::junction::carriageway_triangles`: centre fan + zippered MVC rings, used by mesh
 and terrain stamp; fixes the shading fan and an ear-clipping hole). (7) bridges (`cb_network::bridge`, spans/deck/piers planned in `roads::plan_bridges`,
 ground-run corridors with soft ends + abutment pads + scatter clearing, `cb_procgen::bridge_mesh`).
-Next: M3.5 decorations and surfaces — segment style (`RoadSegment.style`: surface
-dark/light asphalt/cobblestone, per-side grass strip, tree rows 8–24 m, lamps 20–50 m) with a
-`SetSegmentStyle` command, cost per GAME_DESIGN §3, decoration placement in
-`cb_procgen::road_decor` (tests `decor_spacing_within_5pct_on_curves`,
-`decor_height_matches_profile_1cm`); then ray–deck picking for elevated roads (ALGORITHMS §23).
+(8) surfaces and decorations (`cb_network::style`: `SegmentStyle`, `decor_items`;
+`SetSegmentStyle`; `cb_procgen::road_decor` trees/lamps; grass strips and surface colours in
+`road_mesh`) and scripted M3 scenes in `citygen::m3_features` (river bridge, valley viaduct,
+overpass, decorated avenue). Next: M3.6 — `crates/cb_sim/src/save/snapshot.rs` snapshot types
+(segments, nodes incl. control, plots, lots, buildings, treasury) + `cb_sim::history` undo/redo
+(ADR-0055: depth 100, 1 game-day window, refund 100 % → 25 %), `EditRoadGeometry` (node drag /
+control points, re-using `plan_build`), bulldoze dependents (`demolish_validate_lists_dependents`)
+and the bulldoze dialog in `cb_game::tools`; tests listed under M3 Editing/Undo/Bulldoze.
 
 ## Process conventions (ADR-0058)
 
@@ -484,7 +487,8 @@ unlocked" until M7.
       `bridge_abutment_step_le_2cm`, `overpass_does_not_modify_lower_corridor`,
       `bridge_classification_hysteresis` (plus `river_bridge_spans_water_with_clearance_and_piers`,
       `no_junction_on_a_bridge`; synthetic `TerrainSetup::Valley`).
-- [ ] Decorations: `decor_spacing_within_5pct_on_curves`, `decor_height_matches_profile_1cm`.
+- [x] Decorations: `decor_spacing_within_5pct_on_curves`, `decor_height_matches_profile_1cm`
+      (plus `segment_style_costs_decorations_and_slows_cobblestone`).
 - [ ] Editing: `edit_road_geometry_regenerates_junctions`, `edit_road_geometry_repoints_dependents`.
 - [ ] Undo/redo: per command variant `undo_<cmd>_restores_state_hash`, `redo_<cmd>_equals_apply`;
       `undo_depth_limit_100`, `undo_blocked_reports_reason`, `undo_refund_decays`,

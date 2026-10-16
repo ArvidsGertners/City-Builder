@@ -254,3 +254,51 @@ fn downgrade_refund_zero() {
         2
     );
 }
+
+#[test]
+fn segment_style_costs_decorations_and_slows_cobblestone() {
+    use cb_network::style::{RoadSurface, SegmentStyle};
+    let mut s = Scenario::new(1);
+    road(
+        &mut s,
+        RoadKind::Street,
+        Vec2::new(-100.0, 0.0),
+        Vec2::new(100.0, 0.0),
+    );
+    let sid = segs(&s)[0].id();
+    let fancy = SegmentStyle {
+        surface: RoadSurface::Cobblestone,
+        grass_strip: [true, true],
+        tree_spacing_m: Some(12.0),
+        lamp_spacing_m: Some(30.0),
+    };
+    let before = balance(&s);
+    let r = s.command(PlayerCommand::SetSegmentStyle {
+        segment: sid,
+        style: fancy,
+    });
+    let cost = r.outcome.unwrap().cost;
+    // Cobblestone 8/m + 2 grass strips 3/m over 200 m = 2 800, plus 2 × 17 trees at 45 and
+    // 7 + 6 alternating lamps at 60.
+    assert_eq!(cost.0, 280_000 + 34 * 4_500 + 13 * 6_000);
+    assert_eq!(balance(&s), Money(before.0 - cost.0));
+    assert_eq!(*segs(&s)[0].style(), fancy);
+    // Cobblestone lanes are 5 km/h slower.
+    let g = s.world().resource::<LaneNetwork>().graph();
+    let v = g.lane(g.segment_lanes(sid)[0]).unwrap().speed_limit_mps;
+    assert!((v - 45.0 / 3.6).abs() < 1e-3, "{v}");
+    // Removing decorations refunds nothing; invalid styles are rejected.
+    let r = s.command(PlayerCommand::SetSegmentStyle {
+        segment: sid,
+        style: SegmentStyle::default(),
+    });
+    assert_eq!(r.outcome.unwrap().cost, Money::ZERO);
+    let r = s.command(PlayerCommand::SetSegmentStyle {
+        segment: sid,
+        style: SegmentStyle {
+            lamp_spacing_m: Some(5.0),
+            ..SegmentStyle::default()
+        },
+    });
+    assert_eq!(r.outcome.unwrap_err().key, "road-invalid-style-spacing");
+}

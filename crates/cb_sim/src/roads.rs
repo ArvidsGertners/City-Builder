@@ -19,6 +19,7 @@ use cb_network::bridge::{self, Pier};
 use cb_network::control::{ApproachControl, ControlMode, SignalPhase};
 use cb_network::junction::{self, Approach, Junction};
 use cb_network::markings::Markings;
+use cb_network::style::{self, SegmentStyle};
 use cb_network::validation::{self, CrossingKind, Existing, Ground, RoadLimits};
 use cb_network::{CrossSection, Profile, ProfileInput, RoadKind, SegmentGeom, Variant};
 use cb_terrain::stamps::priority;
@@ -139,6 +140,8 @@ pub struct RoadSegment {
     pub(crate) kind: RoadKind,
     /// Bus lanes / tram tracks.
     pub(crate) variant: Variant,
+    /// Surface and decorations.
+    pub(crate) style: SegmentStyle,
     pub(crate) curve: CubicBezier2,
     pub(crate) profile: Profile,
     pub(crate) built_tick: u64,
@@ -202,6 +205,11 @@ impl RoadSegment {
     #[must_use]
     pub fn variant(&self) -> Variant {
         self.variant
+    }
+    /// Surface and decorations.
+    #[must_use]
+    pub fn style(&self) -> &SegmentStyle {
+        &self.style
     }
     /// Bridge spans `[s0, s1]` (arc length; empty for ground roads).
     #[must_use]
@@ -296,6 +304,7 @@ enum NodeRef {
 struct PlannedSeg {
     kind: RoadKind,
     variant: Variant,
+    style: SegmentStyle,
     spans: Vec<(f32, f32)>,
     piers: Vec<Pier>,
     curve: CubicBezier2,
@@ -320,6 +329,7 @@ struct Snap {
     id: SegmentId,
     kind: RoadKind,
     variant: Variant,
+    style: SegmentStyle,
     spans: Vec<(f32, f32)>,
     piers: Vec<Pier>,
     start: NodeId,
@@ -342,6 +352,7 @@ fn snapshot(world: &World) -> (Vec<Snap>, BTreeMap<NodeId, (Vec3, Vec<SegmentId>
             id: s.id,
             kind: s.kind,
             variant: s.variant,
+            style: s.style,
             spans: s.spans.clone(),
             piers: s.piers.clone(),
             start: s.start,
@@ -583,6 +594,7 @@ fn plan_build(
         plan.add.push(PlannedSeg {
             kind: cmd.kind,
             variant: Variant::default(),
+            style: style::default_style(cmd.kind),
             spans: slice_spans(&bplan.spans, s0, s1),
             piers: slice_piers(&bplan.piers, s0, s1),
             curve: piece,
@@ -621,6 +633,7 @@ fn plan_build(
             plan.add.push(PlannedSeg {
                 kind: s.kind,
                 variant: s.variant,
+                style: s.style,
                 spans: slice_spans(&s.spans, s0, s1),
                 piers: slice_piers(&s.piers, s0, s1),
                 curve: piece,
@@ -1071,6 +1084,7 @@ fn spawn_segment(
         end,
         kind: p.kind,
         variant: p.variant,
+        style: p.style,
         curve: p.curve,
         profile: p.profile.clone(),
         built_tick: p.built_tick,
@@ -1672,6 +1686,10 @@ pub(crate) fn set_road_type(
     seg.kind = kind;
     seg.variant = variant;
     seg.geom = geom;
+    // Decorations that do not fit the new type (e.g. no sidewalks) are dropped.
+    if style::style_error(kind, &seg.cross_section(), &seg.style).is_some() {
+        seg.style = style::default_style(kind);
+    }
     add_segment_stamps(world, &mut seg);
     let (lo1, hi1) = cb_geometry::polygon::bounds(&seg.geom.corridor);
     crate::zoning::mark_near(world, lo0.min(lo1), hi0.max(hi1));
@@ -1686,6 +1704,77 @@ pub(crate) fn set_road_type(
     }
     update_rings(world, &[a, b]);
     Ok(preview.cost)
+}
+
+/// Construction cost of a style on a segment of `len_m` (cents): surface extra, grass strips per
+/// side and metre, trees and lamps per item (GAME_DESIGN §3).
+fn style_cost(cat: &Catalog, seg: &RoadSegment, st: &SegmentStyle) -> i64 {
+    let c = cat.decor_costs();
+    let len = seg.geom.length();
+    let (c0, c1) = seg.cut;
+    let per_m = match st.surface {
+        style::RoadSurface::LightAsphalt => c.light_asphalt_cents_per_m,
+        style::RoadSurface::Cobblestone => c.cobblestone_cents_per_m,
+        style::RoadSurface::DarkAsphalt | style::RoadSurface::Dirt => 0,
+    } + c.grass_strip_cents_per_m
+        * st.grass_strip.iter().filter(|g| **g).count() as i64;
+    let items = style::decor_items(
+        &seg.geom,
+        &seg.profile,
+        &seg.cross_section(),
+        st,
+        (c0, len - c1),
+        &seg.spans,
+    );
+    let trees = items
+        .iter()
+        .filter(|i| i.kind == style::DecorKind::Tree)
+        .count() as i64;
+    let lamps = items.len() as i64 - trees;
+    (f64::from(len) * per_m as f64).round() as i64 + trees * c.tree_cents + lamps * c.lamp_cents
+}
+
+/// `SetSegmentStyle`: surface and decorations. Charges what the new style costs beyond the old
+/// one (removing decorations refunds nothing).
+///
+/// # Errors
+/// `road-invalid-target-missing`, a style that does not fit the road type, or
+/// `money-insufficient`.
+pub(crate) fn set_segment_style(
+    world: &mut World,
+    id: SegmentId,
+    st: SegmentStyle,
+) -> Result<Money, ValidationError> {
+    let cost = preview_segment_style(world, id, &st)?;
+    crate::economy::charge(world, cost)?;
+    let Some(e) = segment_entity(world, id) else {
+        return Err(ValidationError::new("road-invalid-target-missing"));
+    };
+    if let Some(mut sg) = world.get_mut::<RoadSegment>(e) {
+        sg.style = st;
+    }
+    world.write_message(NetworkChanged::Segment(id));
+    Ok(cost)
+}
+
+/// Cost of `SetSegmentStyle` without applying it.
+///
+/// # Errors
+/// As [`set_segment_style`] without the money check.
+pub fn preview_segment_style(
+    world: &World,
+    id: SegmentId,
+    st: &SegmentStyle,
+) -> Result<Money, ValidationError> {
+    let Some(cat) = world.get_resource::<Catalog>() else {
+        return Err(ValidationError::new("internal-no-catalog"));
+    };
+    let seg = segment(world, id).ok_or(ValidationError::new("road-invalid-target-missing"))?;
+    if let Some(key) = style::style_error(seg.kind, &seg.cross_section(), st) {
+        return Err(ValidationError::new(key));
+    }
+    let delta = style_cost(cat, seg, st) - style_cost(cat, seg, &seg.style);
+    Ok(Money(delta.max(0)))
 }
 
 /// Outer road edge of a segment side between arc lengths `s0` and `s1` (either order), walked

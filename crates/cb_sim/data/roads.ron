@@ -13,4 +13,7 @@
     variants: (bus_lanes_cents_per_m: 400, tram_tracks_cents_per_m: 4500),
     // Bridges (GAME_DESIGN §3): deck × 4 per m of the road price, 1 200 per pier + 40 per m of height.
     bridge: (cost_factor: 4.0, pier_cents: 120000, pier_cents_per_m: 4000),
+    // Surfaces and decorations (GAME_DESIGN §3): light asphalt +2/m, cobblestone +8/m, grass strip
+    // +3/m per side, 45 per tree, 60 per lamp.
+    decor: (light_asphalt_cents_per_m: 200, cobblestone_cents_per_m: 800, grass_strip_cents_per_m: 300, tree_cents: 4500, lamp_cents: 6000),
 )

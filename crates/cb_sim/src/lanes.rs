@@ -19,6 +19,16 @@ use crate::roads::{NetworkChanged, RoadNode, RoadSegment};
 /// Kilometres per hour → metres per second.
 const KMH_TO_MPS: f32 = 1.0 / 3.6;
 
+/// Lane speed of a segment: the road type's speed, 5 km/h less on cobblestone.
+fn speed_mps(cat: Option<&Catalog>, seg: &RoadSegment) -> f32 {
+    let kmh = cat.map_or(50.0, |c| c.road(seg.kind()).speed_kmh);
+    let cobble = seg.style().surface == cb_network::style::RoadSurface::Cobblestone;
+    (kmh - if cobble { COBBLE_SLOWDOWN_KMH } else { 0.0 }) * KMH_TO_MPS
+}
+
+/// Speed reduction on cobblestone (GAME_DESIGN §3).
+const COBBLE_SLOWDOWN_KMH: f32 = 5.0;
+
 /// The lane graph (derived state; rebuilt from the network, never saved).
 #[derive(Resource, Clone, Debug, Default)]
 pub struct LaneNetwork {
@@ -69,7 +79,7 @@ pub fn patch_lanes(
             continue;
         };
         let cs = seg.cross_section();
-        let speed_mps = cat.as_ref().map_or(50.0, |c| c.road(seg.kind()).speed_kmh) * KMH_TO_MPS;
+        let speed_mps = speed_mps(cat.as_deref(), seg);
         graph.set_segment(SegmentLanes {
             id: sid,
             start: seg.start(),
@@ -100,7 +110,7 @@ pub fn rebuild_all(world: &bevy::ecs::world::World) -> LaneGraph {
     for (sid, e) in ids.segments.iter() {
         if let Some(seg) = world.get::<RoadSegment>(e) {
             let cs = seg.cross_section();
-            let speed_mps = cat.map_or(50.0, |c| c.road(seg.kind()).speed_kmh) * KMH_TO_MPS;
+            let speed_mps = speed_mps(cat, seg);
             graph.set_segment(SegmentLanes {
                 id: sid,
                 start: seg.start(),

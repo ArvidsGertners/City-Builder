@@ -700,6 +700,8 @@ pub struct M3Features {
     pub valley_bridge: Option<Feature>,
     /// Where a street on the valley floor passes under the valley bridge.
     pub overpass: Option<Feature>,
+    /// Middle of a curved, decorated avenue (cobblestone, grass strips, trees, lamps).
+    pub decorated: Option<Feature>,
     /// Counts.
     pub report: CityGenReport,
 }
@@ -873,6 +875,58 @@ pub fn m3_features(world: &mut World, town: Vec2, town_half: Vec2) -> M3Features
                 }
                 out.report.roads_rejected += 1;
             }
+        } else {
+            out.report.roads_rejected += 1;
+        }
+    }
+    // 4. A curved avenue on gentle ground with every decoration.
+    let mut site: Option<(f32, Vec2)> = None;
+    for gz in -24..=24 {
+        for gx in -24..=24 {
+            let p = town + Vec2::new(gx as f32, gz as f32) * 40.0;
+            if !usable(p) {
+                continue;
+            }
+            if let Some(sl) = probe.patch_slope(p)
+                && (0.02..=0.06).contains(&sl)
+            {
+                let score = p.distance(town);
+                if site.is_none_or(|b| score < b.0) {
+                    site = Some((score, p));
+                }
+            }
+        }
+    }
+    if let Some((_, p)) = site {
+        let up = probe.uphill(p);
+        let t = up.perp();
+        let curve = CubicBezier2::from_quadratic(p - t * 90.0, p - up * 30.0, p + t * 90.0);
+        let cmd = BuildRoad {
+            kind: RoadKind::Avenue,
+            curve,
+            start: Endpoint::Free,
+            end: Endpoint::Free,
+        };
+        let before = segments_snapshot(world);
+        if roads::build_road(world, &cmd, tick).is_ok() {
+            out.report.segments += 1;
+            let style = cb_network::style::SegmentStyle {
+                surface: cb_network::style::RoadSurface::Cobblestone,
+                grass_strip: [true, true],
+                tree_spacing_m: Some(12.0),
+                lamp_spacing_m: Some(30.0),
+            };
+            for sid in segments_snapshot(world)
+                .into_iter()
+                .filter(|s| !before.contains(s))
+            {
+                let _ = roads::set_segment_style(world, sid, style);
+            }
+            out.decorated = Some(Feature {
+                pos: curve.eval(0.5),
+                dir: t,
+                depth_m: 0.0,
+            });
         } else {
             out.report.roads_rejected += 1;
         }

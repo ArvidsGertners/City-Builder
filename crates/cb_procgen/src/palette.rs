@@ -157,6 +157,12 @@ pub const DIRT_PATH: Rgb = hex(0xA88A62);
 pub const BALLAST: Rgb = hex(0x8C8478);
 /// Lane markings.
 pub const MARKING: Rgb = hex(0xEDE6D3);
+/// Cobblestone road surface.
+pub const COBBLESTONE: Rgb = hex(0x7D766C);
+/// Street lamp metal.
+pub const LAMP_METAL: Rgb = hex(0x3C4046);
+/// Street lamp glass.
+pub const LAMP_GLASS: Rgb = hex(0xF3E7C4);
 /// Avenue centre double line.
 pub const MARKING_YELLOW: Rgb = hex(0xE3C35A);
 /// Sidewalk.

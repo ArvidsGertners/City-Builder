@@ -85,6 +85,23 @@ struct RoadsFile {
     variants: VariantCosts,
     #[serde(default)]
     bridge: BridgeCosts,
+    #[serde(default)]
+    decor: DecorCosts,
+}
+
+/// Surface and decoration costs (GAME_DESIGN §3, cents).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecorCosts {
+    /// Light asphalt, extra per metre.
+    pub light_asphalt_cents_per_m: i64,
+    /// Cobblestone, extra per metre.
+    pub cobblestone_cents_per_m: i64,
+    /// Grass strip per side and metre.
+    pub grass_strip_cents_per_m: i64,
+    /// Per street tree.
+    pub tree_cents: i64,
+    /// Per street lamp.
+    pub lamp_cents: i64,
 }
 
 /// Bridge costs (GAME_DESIGN §3): deck length × `cost_factor` of the road price, plus per pier
@@ -142,6 +159,7 @@ pub struct Catalog {
     roads: BTreeMap<RoadKind, RoadType>,
     variants: VariantCosts,
     bridge: BridgeCosts,
+    decor: DecorCosts,
     zones: BTreeMap<ZoneKind, ZoneSpec>,
     start_money: StartMoney,
     growth_debug_delay_ticks: u64,
@@ -215,6 +233,7 @@ impl Catalog {
             roads: roads.roads,
             variants: roads.variants,
             bridge: roads.bridge,
+            decor: roads.decor,
             zones: zones.zones,
             start_money: eco.start_money_cents,
             growth_debug_delay_ticks: eco.growth_debug_delay_ticks,
@@ -228,6 +247,12 @@ impl Catalog {
         self.roads
             .get(&k)
             .unwrap_or_else(|| &self.roads[&RoadKind::Street])
+    }
+
+    /// Surface and decoration costs.
+    #[must_use]
+    pub fn decor_costs(&self) -> DecorCosts {
+        self.decor
     }
 
     /// Bridge costs.

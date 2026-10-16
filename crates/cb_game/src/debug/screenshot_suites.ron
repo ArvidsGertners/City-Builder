@@ -22,6 +22,7 @@
                 (name: "markings-corner", at: Some("corner"), camera: (focus: (0.0, 0.0, 0.0), distance: 45.0, pitch_deg: 45.0, yaw_deg: 30.0)),
                 (name: "bridge-river", at: Some("river_bridge"), camera: (focus: (0.0, 0.0, 0.0), distance: 200.0, pitch_deg: 25.0, yaw_deg: 0.0)),
                 (name: "bridge-valley", at: Some("valley_bridge"), camera: (focus: (0.0, 0.0, 0.0), distance: 250.0, pitch_deg: 15.0, yaw_deg: 0.0)),
+                (name: "decorated", at: Some("decorated"), camera: (focus: (0.0, 0.0, 0.0), distance: 50.0, pitch_deg: 30.0, yaw_deg: 20.0)),
                 (name: "bridge-overpass", at: Some("overpass"), camera: (focus: (0.0, 0.0, 0.0), distance: 80.0, pitch_deg: 20.0, yaw_deg: 30.0)),
                 (name: "markings-slope", at: Some("slope"), camera: (focus: (0.0, 0.0, 0.0), distance: 70.0, pitch_deg: 35.0, yaw_deg: 120.0)),
             ],

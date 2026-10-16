@@ -15,6 +15,7 @@ pub mod markings;
 pub mod profile;
 pub mod rings;
 pub mod segment_geom;
+pub mod style;
 pub mod validation;
 
 pub use cross_section::{CrossSection, Dir, LaneKind, LaneSpec, RoadKind, Variant};

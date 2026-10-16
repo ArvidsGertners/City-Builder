@@ -607,6 +607,7 @@ fn sync_network(
             s1_m: len - c1,
             cap_start: dead_end(&all_nodes, seg.start()),
             cap_end: dead_end(&all_nodes, seg.end()),
+            style: *seg.style(),
         };
         let mut md = segment_mesh(seg.geom(), seg.profile(), &seg.cross_section(), &prm, 0);
         if !seg.spans().is_empty() {
@@ -616,6 +617,21 @@ fn sync_network(
                 seg.spans(),
                 seg.piers(),
                 &cb_network::bridge::params(seg.kind()),
+                0,
+            ));
+        }
+        let items = cb_network::style::decor_items(
+            seg.geom(),
+            seg.profile(),
+            &seg.cross_section(),
+            seg.style(),
+            (c0, len - c1),
+            seg.spans(),
+        );
+        if !items.is_empty() {
+            md.append(&cb_procgen::road_decor::decor_mesh(
+                &items,
+                u64::from(sid.get()),
                 0,
             ));
         }

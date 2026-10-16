@@ -15,6 +15,7 @@ use cb_geometry::MeshData;
 use crate::paint::Painter;
 use crate::palette::{self, Rgb};
 use crate::surface::Surface;
+use cb_network::style::{GRASS_STRIP_M, RoadSurface, SegmentStyle};
 
 /// Curb / raised element height (m).
 pub const CURB_H_M: f32 = 0.15;
@@ -40,6 +41,8 @@ pub struct RoadMeshParams {
     pub cap_start: bool,
     /// Close the end with a cap.
     pub cap_end: bool,
+    /// Surface and grass strips.
+    pub style: SegmentStyle,
 }
 
 impl RoadMeshParams {
@@ -51,6 +54,7 @@ impl RoadMeshParams {
             s1_m: len,
             cap_start: true,
             cap_end: true,
+            style: SegmentStyle::default(),
         }
     }
 }
@@ -63,6 +67,7 @@ struct Station {
 }
 
 /// One lateral band of the cross-section.
+#[derive(Clone, Copy)]
 struct Band {
     left: f32,
     right: f32,
@@ -123,7 +128,7 @@ fn stations(g: &SegmentGeom, prof: &Profile, s0: f32, s1: f32) -> Vec<Station> {
     out
 }
 
-fn bands(cs: &CrossSection) -> (Vec<Band>, bool) {
+fn bands(cs: &CrossSection, style: &SegmentStyle) -> (Vec<Band>, bool) {
     use cb_network::LaneKind;
     let lane = |e: &cb_network::cross_section::Element| {
         matches!(e.kind, ElementKind::LaneForward | ElementKind::LaneBackward)
@@ -152,7 +157,11 @@ fn bands(cs: &CrossSection) -> (Vec<Band>, bool) {
                     if dirt {
                         palette::DIRT_PATH
                     } else {
-                        palette::ASPHALT
+                        match style.surface {
+                            RoadSurface::LightAsphalt => palette::ASPHALT_LIGHT,
+                            RoadSurface::Cobblestone => palette::COBBLESTONE,
+                            RoadSurface::DarkAsphalt | RoadSurface::Dirt => palette::ASPHALT,
+                        }
                     },
                     if dirt {
                         Surface::Ground
@@ -169,8 +178,38 @@ fn bands(cs: &CrossSection) -> (Vec<Band>, bool) {
                 kind,
             }
         })
-        .collect();
-    (bands, dirt)
+        .collect::<Vec<Band>>();
+    // Grass strips along the kerb: the curb-side metre of each flagged sidewalk.
+    let n = bands.len();
+    let mut out = Vec::with_capacity(n + 2);
+    for (k, b) in bands.into_iter().enumerate() {
+        let is_walk = b.lift > 0.0 && b.colour == palette::SIDEWALK;
+        let left_side = k == 0;
+        let right_side = k + 1 == n;
+        let grass = palette::GRASS[1];
+        if is_walk && left_side && style.grass_strip[0] {
+            let edge = b.right + GRASS_STRIP_M;
+            out.push(Band { right: edge, ..b });
+            out.push(Band {
+                left: edge,
+                colour: grass,
+                kind: Surface::Foliage,
+                ..b
+            });
+        } else if is_walk && right_side && style.grass_strip[1] {
+            let edge = b.left - GRASS_STRIP_M;
+            out.push(Band {
+                right: edge,
+                colour: grass,
+                kind: Surface::Foliage,
+                ..b
+            });
+            out.push(Band { left: edge, ..b });
+        } else {
+            out.push(b);
+        }
+    }
+    (out, dirt)
 }
 
 /// Builds the mesh of one road segment.
@@ -189,7 +228,7 @@ pub fn segment_mesh(
         return p.finish();
     }
     let st = stations(g, prof, s0, s1);
-    let (bands, dirt) = bands(cs);
+    let (bands, dirt) = bands(cs, &prm.style);
     let at = |s: &Station, off: f32, lift: f32| {
         Vec3::new(s.p.x + s.n.x * off, s.y + lift, s.p.y + s.n.y * off)
     };

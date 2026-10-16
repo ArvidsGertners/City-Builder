@@ -86,6 +86,13 @@ pub enum PlayerCommand {
         /// New variant.
         variant: cb_network::Variant,
     },
+    /// Surface and decorations of a segment.
+    SetSegmentStyle {
+        /// The segment.
+        segment: SegmentId,
+        /// New style.
+        style: cb_network::style::SegmentStyle,
+    },
     /// Junction control: mode plus per-approach classes for `ControlMode::Custom`.
     SetApproachControl {
         /// The junction node.
@@ -231,6 +238,9 @@ fn apply(world: &mut World, cmd: &PlayerCommand, tick: u64) -> Result<Money, Val
             kind,
             variant,
         } => crate::roads::set_road_type(world, *segment, *kind, *variant),
+        PlayerCommand::SetSegmentStyle { segment, style } => {
+            crate::roads::set_segment_style(world, *segment, *style)
+        }
         PlayerCommand::SetApproachControl { node, mode, custom } => {
             crate::roads::set_node_control(world, *node, *mode, custom).map(|()| Money::ZERO)
         }
@@ -291,6 +301,9 @@ pub const ALL_KEYS: &[&str] = &[
     "road-invalid-junction-on-bridge",
     "road-invalid-junction-too-close",
     "road-invalid-overpass-unavailable",
+    "road-invalid-style-no-sidewalk",
+    "road-invalid-style-spacing",
+    "road-invalid-style-surface",
     "road-invalid-target-missing",
     "road-invalid-too-steep",
     "road-invalid-variant",

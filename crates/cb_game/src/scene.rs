@@ -190,6 +190,7 @@ pub fn demo_town(world: &mut World) {
         ("river_bridge", f3.river_bridge),
         ("valley_bridge", f3.valley_bridge),
         ("overpass", f3.overpass),
+        ("decorated", f3.decorated),
     ] {
         if let Some(ft) = feat {
             put(name, ft.pos, ft.dir);
