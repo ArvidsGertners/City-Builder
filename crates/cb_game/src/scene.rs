@@ -191,6 +191,11 @@ pub fn demo_town(world: &mut World) {
         ("valley_bridge", f3.valley_bridge),
         ("overpass", f3.overpass),
         ("decorated", f3.decorated),
+        ("lights_x", f3.lights_x),
+        ("y30", f3.y30),
+        ("five_way", f3.five_way),
+        ("one_way", f3.one_way),
+        ("roundabout", f3.roundabout),
     ] {
         if let Some(ft) = feat {
             put(name, ft.pos, ft.dir);

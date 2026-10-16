@@ -733,3 +733,34 @@ fn road_through_existing_node_joins_it() {
         }
     }
 }
+
+#[test]
+fn m3_scripted_scene_has_its_features() {
+    let mut s = Scenario::with_terrain(1234, cb_sim::terrain::TerrainSetup::Generate);
+    let site = Vec2::new(19.2, -1228.8);
+    let spec = cb_sim::citygen::GridSpec {
+        center: site,
+        blocks: (4, 3),
+        ..Default::default()
+    };
+    cb_sim::citygen::grid(s.world_mut(), &spec);
+    let half = Vec2::new(4.0, 3.0) * spec.block_m * 0.5;
+    cb_sim::citygen::m2_features(s.world_mut(), site, half);
+    let f = cb_sim::citygen::m3_features(s.world_mut(), site, half);
+    for (name, ft) in [
+        ("river bridge", f.river_bridge),
+        ("valley bridge", f.valley_bridge),
+        ("overpass", f.overpass),
+        ("decorated avenue", f.decorated),
+        ("lights X", f.lights_x),
+        ("Y 30°", f.y30),
+        ("5-way", f.five_way),
+        ("one-way pair", f.one_way),
+        ("roundabout", f.roundabout),
+    ] {
+        assert!(ft.is_some(), "no {name}");
+    }
+    s.run_ticks(0);
+    let ring = nodes(&s).iter().filter(|n| n.ring()).count();
+    assert_eq!(ring, 4, "roundabout ring nodes");
+}

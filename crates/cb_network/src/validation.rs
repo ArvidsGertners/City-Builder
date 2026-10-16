@@ -327,11 +327,21 @@ pub fn validate_shape(
     'outer: for ex in existing {
         let min_d = 0.9 * (limits.half_width_m + ex.geom.half_width_m);
         let keep_out = limits.half_width_m + ex.geom.half_width_m + 4.0;
+        // Near a shared node the corridors overlap until they have diverged by their widths,
+        // which takes longer the more acute the angle (a 30° Y needs ≈ 22 m).
+        let node_keep_out = ex.shares_node_at.map(|n| {
+            let s_new = geom.project(n).0;
+            let d_new = geom.dir_at(s_new);
+            let d_ex = ex.geom.dir_at(ex.geom.project(n).0);
+            let sin = d_new.perp_dot(d_ex).abs().max(0.2);
+            keep_out.max(min_d / sin + 4.0)
+        });
         for k in 0..=samples {
             let p = geom.point_at(len * k as f32 / samples as f32);
             if ex
                 .shares_node_at
-                .is_some_and(|n| (n - p).length() < keep_out)
+                .zip(node_keep_out)
+                .is_some_and(|(n, r)| (n - p).length() < r)
                 || crossings.iter().any(|c| (c.at - p).length() < keep_out)
             {
                 continue;
@@ -528,6 +538,28 @@ mod tests {
         let cr = find_crossings(&b, &pb, &ex);
         assert_eq!(cr.len(), 1, "{cr:?}");
         assert!((cr[0].s_other - 150.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn acute_branch_from_shared_node_is_not_an_overlap() {
+        // A street branching off at 30° from a node it shares with an existing street: the
+        // corridors diverge slowly, which is the junction's business, not an overlap.
+        let a = straight(Vec2::new(-100.0, 0.0), Vec2::new(100.0, 0.0));
+        let pa = Profile::flat(a.length(), 10.0);
+        let ex = [Existing {
+            geom: &a,
+            profile: &pa,
+            shares_node_at: Some(Vec2::ZERO),
+        }];
+        let (s30, c30) = (0.5f32, 0.866_025_4f32);
+        let b = straight(Vec2::ZERO, Vec2::new(c30, s30) * 100.0);
+        assert!(validate_shape(&b, &STREET, &flat(), &ex, &[]).is_empty());
+        // Without the shared node the same geometry overlaps.
+        let ex_free = [Existing {
+            shares_node_at: None,
+            ..ex[0].clone()
+        }];
+        assert!(!validate_shape(&b, &STREET, &flat(), &ex_free, &[]).is_empty());
     }
 
     #[test]

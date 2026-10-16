@@ -210,6 +210,7 @@ City-Builder/
     │   │   ├── commands/       mod.rs (PlayerCommand, CommandQueue), history.rs (undo/redo),
     │   │   │                   road.rs, plot.rs, building.rs, transit.rs, policy.rs
     │   │   ├── lanes.rs        LaneNetwork resource: LaneGraph patched from NetworkChanged (M3)
+    │   │   ├── history.rs      Undo/redo stacks (M3; ARCHITECTURE §9)
     │   │   ├── roads/          editor.rs (split/merge/connect), junctions.rs, lanes_sync.rs,
     │   │   │                   connectivity.rs, outside.rs (outside connections)
     │   │   ├── terrain.rs      Terrain resource, stamp application, dirty regions
@@ -495,8 +496,9 @@ Design: ADR-0055 (framework in M2, history in M3).
 
 ```rust
 pub enum PlayerCommand {               // serializable, stable IDs only, versioned with the save format
-    BuildRoad(..), EditRoadGeometry(..), UpgradeRoad(..), SetSegmentStyle(..),
-    DemolishSegments(.. /* cascade policy */), SetNodeControl(..), SetApproachControl(..),
+    BuildRoad(..), EditRoadGeometry(..), SetRoadType(..) /* upgrade/downgrade + variant */,
+    SetSegmentStyle(..), RemoveSegment { segment, remove_plots /* cascade policy */ },
+    SetApproachControl { node, mode /* Auto|Custom|AllWayStop|Lights */, custom },
     CreatePlot(..), EditPlot(..), SetSubdivision(..), DeletePlot(..),
     PlaceBuilding(..), MoveTownHall(..), DemolishBuilding(..), PlaceProp(..), RemoveProp(..),
     PlaceStop(..), RemoveStop(..), CreateLine(..), EditLine(..), DeleteLine(..), SetLineVehicles(..),
@@ -515,7 +517,12 @@ pub trait Command {
 
 - Applied in `EditSet::Commands` in `CommandSeq` order; each records `apply_tick`.
 - Effect logs hold created IDs, removed-object snapshots (`cb_sim::save::snapshot` types, M3),
-  old values, money delta; undo restores **original IDs**.
+  old values, money delta; undo restores **original IDs**. M3 implementation
+  (`cb_sim::history`): the effect log is a pair of object deltas (back/forward) computed by
+  diffing snapshots of the player-built objects before and after the command (plots settled
+  first); restoring a delta rebuilds derived state (junctions, stamps, lanes, rings). Snapshots
+  clone every object per command — fine for M3 cities, to be narrowed to dirty objects when
+  M4's 10k city shows it in the command frame time.
 - Undo window: 1 game day; refund 100 % in the first game hour, linearly to 25 % at expiry;
   evicted households go to `homeless_queue`. Depth 100; cleared on load/new game; policy
   commands not undoable. Failed preconditions → `undo.blocked` with reason.

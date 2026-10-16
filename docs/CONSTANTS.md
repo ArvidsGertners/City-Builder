@@ -62,3 +62,15 @@ in the PROGRESS.md log. Values live in code consts or `crates/cb_sim/data/*.ron`
 | Upload budget | 8 MB/frame | `--benchmark` report | p99 render-thread ≤ budget |
 | Env-map regen | ≤ 1 per 2 real s | `env_map_throttle` | exact |
 | Audio loudness targets | UI −20, one-shots −18, beds −28, sirens −16 LUFS | `audio_loudness_targets` | ±1 LU, peak ≤ −1 dBTP |
+| Connector curvature limits | car 1/5, bus 1/8, tram 1/20 m⁻¹ (ADR-0063) | `junction_random_10k_valid_or_typed_error` | 0 violations; ≥ 33 % of random junctions valid (M3: 5 269 / 10 000) |
+| Connector containment | ≤ 0.3 m outside the carriageway (ADR-0063) | `junction_connectors_cover_all_allowed_movements` | every allowed movement present, none leaves the polygon |
+| Bridge fill threshold / hysteresis | street 6 m, avenue 8 m / −1 m | `bridge_classification_hysteresis` | one span for fills oscillating ±0.6 m around the threshold |
+| Bridge min span / merge gap / abutment | 12 m / 20 m / 4 m | `spans_merge_and_respect_min_length` | no span < 12 m; gaps < 20 m merged |
+| Deck clearance | water 4 m, roads 5.5 m (under an existing deck 4.5 m) | `river_bridge_spans_water_with_clearance_and_piers`, `bridge_piers_outside_corridors` | underside ≥ clearance |
+| Pier spacing / max unsupported | 30 m (street), 36 m (avenue) / 60 m | `bridge_piers_outside_corridors` | 0 piers in another road's footprint |
+| Abutment pad / soft end | 4 m pad, 6 m falloff, below the lowest underside / 4 m blend-only corridor end | `bridge_abutment_step_le_2cm` | no terrain above the deck underside beyond one grid cell from the abutment |
+| Carriageway rings | 4 m ring step, 3 m vertex step, planar tolerance 2 mm | `carriageway_triangles_tile_the_polygon`, `junction_surface_above_terrain` | exact tiling (< 0.2 % area error); terrain ≤ junction − 0.06 m |
+| Undo window / refund | 1 game day; 100 % for 1 game hour, linearly to 25 % | `undo_refund_decays`, `undo_after_window_rejected` | as specified |
+| Undo depth | 100 | `undo_depth_limit_100` | oldest entries dropped |
+| Decoration spacing | trees 8–24 m, lamps 20–50 m, exact along the sidewalk | `decor_spacing_within_5pct_on_curves` | chord spacing within 5 % on r ≥ 60 m curves |
+| Cobblestone slowdown | 5 km/h | `segment_style_costs_decorations_and_slows_cobblestone` | lane speed 45 km/h on a 50 km/h street |

@@ -702,6 +702,16 @@ pub struct M3Features {
     pub overpass: Option<Feature>,
     /// Middle of a curved, decorated avenue (cobblestone, grass strips, trees, lamps).
     pub decorated: Option<Feature>,
+    /// Avenue × street crossing with traffic lights.
+    pub lights_x: Option<Feature>,
+    /// Y junction with a 30° branch.
+    pub y30: Option<Feature>,
+    /// Five-way junction.
+    pub five_way: Option<Feature>,
+    /// A pair of opposite one-way streets and a dirt path, crossed by a street.
+    pub one_way: Option<Feature>,
+    /// A roundabout with four arms.
+    pub roundabout: Option<Feature>,
     /// Counts.
     pub report: CityGenReport,
 }
@@ -931,6 +941,124 @@ pub fn m3_features(world: &mut World, town: Vec2, town_half: Vec2) -> M3Features
             out.report.roads_rejected += 1;
         }
     }
+    // 5. Junction showcases on flat ground, each on its own site away from the others.
+    let mut taken: Vec<Vec2> = [out.river_bridge, out.valley_bridge, out.decorated]
+        .iter()
+        .flatten()
+        .map(|f| f.pos)
+        .collect();
+    let mut flat: Vec<(f32, Vec2)> = Vec::new();
+    for gz in -36..=36 {
+        for gx in -36..=36 {
+            let p = town + Vec2::new(gx as f32, gz as f32) * 40.0;
+            if usable(p)
+                && probe.patch_slope(p).is_some_and(|sl| sl <= 0.035)
+                && [-120.0f32, 0.0, 120.0]
+                    .iter()
+                    .flat_map(|dx| [-120.0f32, 0.0, 120.0].map(|dz| p + Vec2::new(*dx, dz)))
+                    .all(|q| usable(q) && !probe.wet(q))
+            {
+                flat.push((p.distance(town), p));
+            }
+        }
+    }
+    flat.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let site_for =
+        |taken: &mut Vec<Vec2>, world: &mut World, build: &dyn Fn(&mut World, Vec2) -> bool| {
+            for (_, p) in &flat {
+                if taken.iter().any(|t| t.distance(*p) < 380.0) {
+                    continue;
+                }
+                let before = segments_snapshot(world);
+                if build(world, *p) {
+                    taken.push(*p);
+                    return Some(Feature {
+                        pos: *p,
+                        dir: Vec2::X,
+                        depth_m: 0.0,
+                    });
+                }
+                // Undo a partial build.
+                for sid in segments_snapshot(world)
+                    .into_iter()
+                    .filter(|s| !before.contains(s))
+                {
+                    let _ = roads::remove_segment(world, sid);
+                }
+                taken.push(*p); // do not retry this neighbourhood
+                if taken.len() > 80 {
+                    break;
+                }
+            }
+            None
+        };
+    let st = |world: &mut World, kind: RoadKind, a: Vec2, b: Vec2| road(world, kind, a, b);
+    out.lights_x = site_for(&mut taken, world, &|w, p| {
+        let ok = st(
+            w,
+            RoadKind::Avenue,
+            p - Vec2::X * 130.0,
+            p + Vec2::X * 130.0,
+        ) && st(
+            w,
+            RoadKind::Street,
+            p - Vec2::Y * 110.0,
+            p + Vec2::Y * 110.0,
+        );
+        ok && node_at(w, p).is_some_and(|n| {
+            roads::set_node_control(w, n, cb_network::control::ControlMode::Lights, &[]).is_ok()
+        })
+    });
+    out.y30 = site_for(&mut taken, world, &|w, p| {
+        let (s30, c30) = cb_core::math::sin_cos(cb_core::math::to_radians(30.0));
+        st(
+            w,
+            RoadKind::Street,
+            p - Vec2::X * 110.0,
+            p + Vec2::X * 110.0,
+        ) && st(w, RoadKind::Street, p, p + Vec2::new(c30, s30) * 100.0)
+    });
+    out.five_way = site_for(&mut taken, world, &|w, p| {
+        (0..5).all(|k| {
+            let (sn, cs) =
+                cb_core::math::sin_cos(cb_core::math::to_radians(18.0 + 72.0 * k as f32));
+            st(w, RoadKind::Street, p, p + Vec2::new(cs, sn) * 95.0)
+        })
+    });
+    out.one_way = site_for(&mut taken, world, &|w, p| {
+        st(
+            w,
+            RoadKind::OneWayStreet,
+            p + Vec2::new(-130.0, -35.0),
+            p + Vec2::new(130.0, -35.0),
+        ) && st(
+            w,
+            RoadKind::OneWayStreet,
+            p + Vec2::new(130.0, 35.0),
+            p + Vec2::new(-130.0, 35.0),
+        ) && st(
+            w,
+            RoadKind::Dirt,
+            p + Vec2::new(-130.0, 105.0),
+            p + Vec2::new(130.0, 105.0),
+        ) && st(
+            w,
+            RoadKind::Street,
+            p + Vec2::new(0.0, -120.0),
+            p + Vec2::new(0.0, 70.0),
+        )
+    });
+    out.roundabout = site_for(&mut taken, world, &|w, p| roundabout(w, p, 30.0, 70.0));
+    out.report.segments += [
+        out.lights_x,
+        out.y30,
+        out.five_way,
+        out.one_way,
+        out.roundabout,
+    ]
+    .iter()
+    .flatten()
+    .count();
     if let Some(c) = saved {
         world.insert_resource(c);
     }
