@@ -85,6 +85,41 @@ pub fn road(world: &mut World, kind: RoadKind, a: Vec2, b: Vec2) -> bool {
     roads::build_road(world, &cmd, tick).is_ok()
 }
 
+/// A roundabout (ALGORITHMS §1 preset): four one-way quarter arcs of radius `r` around
+/// `center`, counter-clockwise in (x, z), plus a street from each ring node outward by `arm`
+/// metres (none for `arm` ≤ 0). Returns whether every piece was built.
+pub fn roundabout(world: &mut World, center: Vec2, r: f32, arm: f32) -> bool {
+    let k = 0.552_284_8 * r;
+    let dirs = [Vec2::X, Vec2::Y, -Vec2::X, -Vec2::Y];
+    let ep = |w: &World, p: Vec2| node_at(w, p).map_or(Endpoint::Free, Endpoint::Node);
+    let tick = world
+        .get_resource::<crate::SimClock>()
+        .map_or(0, |c| c.tick().0);
+    let mut ok = true;
+    for q in 0..4 {
+        let (a, b) = (dirs[q], dirs[(q + 1) % 4]);
+        let (p0, p3) = (center + a * r, center + b * r);
+        let cmd = BuildRoad {
+            kind: RoadKind::OneWayStreet,
+            curve: CubicBezier2::new(p0, p0 + b * k, p3 + a * k, p3),
+            start: ep(world, p0),
+            end: ep(world, p3),
+        };
+        ok &= roads::build_road(world, &cmd, tick).is_ok();
+    }
+    if arm > 0.0 {
+        for d in dirs {
+            ok &= road(
+                world,
+                RoadKind::Street,
+                center + d * r,
+                center + d * (r + arm),
+            );
+        }
+    }
+    ok
+}
+
 /// Plots on both sides of every segment.
 pub fn plots_along_all(world: &mut World, zone: ZoneKind, depth: f32, report: &mut CityGenReport) {
     let segs: Vec<(cb_core::ids::SegmentId, f32)> = world

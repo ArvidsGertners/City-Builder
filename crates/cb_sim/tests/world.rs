@@ -679,3 +679,52 @@ fn m2_scripted_lots_all_grow() {
         .count();
     assert!(near_corner >= 2, "{near_corner}");
 }
+
+#[test]
+fn road_through_existing_node_joins_it() {
+    // A diagonal road passing exactly through the T node of an east–west street joins that node
+    // (the crossing is reported by both segments meeting there).
+    let mut s = Scenario::new(1);
+    ok(
+        &mut s,
+        road(
+            RoadKind::Street,
+            Vec2::new(-150.0, 0.0),
+            Vec2::new(150.0, 0.0),
+            Endpoint::Free,
+            Endpoint::Free,
+        ),
+    );
+    ok(
+        &mut s,
+        road(
+            RoadKind::Street,
+            Vec2::new(0.0, 0.0),
+            Vec2::new(0.0, 100.0),
+            Endpoint::Free,
+            Endpoint::Free,
+        ),
+    );
+    let before = counts(&s);
+    let r = s.command(road(
+        RoadKind::Street,
+        Vec2::new(-70.0, -70.0),
+        Vec2::new(70.0, 70.0),
+        Endpoint::Free,
+        Endpoint::Free,
+    ));
+    // Either joined (one 5-way node) or rejected for the junction shape — never two nodes on
+    // top of each other.
+    if r.outcome.is_ok() {
+        let (n, sg, ..) = counts(&s);
+        assert_eq!((n, sg), (before.0 + 2, before.1 + 2));
+        let five = nodes(&s).into_iter().find(|n| n.segments().len() == 5);
+        assert!(five.is_some(), "the diagonal joined the existing node");
+    }
+    let ns = nodes(&s);
+    for (i, a) in ns.iter().enumerate() {
+        for b in &ns[i + 1..] {
+            assert!(a.pos().distance(b.pos()) > 1.0, "duplicate nodes");
+        }
+    }
+}

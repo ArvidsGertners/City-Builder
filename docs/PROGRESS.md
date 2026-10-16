@@ -42,17 +42,14 @@ milestone and before ending a session (skill `milestone-completion`).
 (`cb_network::lanes`, `CrossSection::with`), (2) junction connectors + conflict zones
 (`cb_network::connectors`, ADR-0063 growth rules), (3) `cb_network::lane_graph::LaneGraph`
 patched in `EditSet::Lanes` (`cb_sim::lanes::patch_lanes`) + lane overlay (F5 in `dev`, shot flag
-`lanes`). Next: (4) segment style (`RoadSegment.variant`, segments built with
-`CrossSection::with`) and the `SetRoadType { segment, kind, variant }` command in
-`crates/cb_sim/src/roads.rs` (upgrade cost = new − 50 % old, downgrade free; re-plan via
-`plan_build`-style junction validation of both nodes; corridor re-stamp; plots re-clip via
-`zoning::mark_near`) with `upgrade_street_to_avenue_rebuilds_lanes`,
-`upgrade_clips_plots_and_prices_demolition`, `downgrade_refund_zero`; (5) node control
-(`NodeControl`, `SetApproachControl`) + signal phase plans in `cb_network` (tests
-`light_plan_no_conflicting_greens_*`, `every_movement_green_in_some_phase`) + ring detection
-(`ring_detected_as_roundabout`) + markings (crosswalks, stop lines, arrows) and junction mesh
-interior vertices (shading fan); then bridges, decorations, editing, undo/redo, bulldoze
-dialog and the M3 suite.
+`lanes`). (4) `SetRoadType` upgrade/downgrade with bus/tram variants
+(`roads::set_road_type`, `preview_set_road_type`), (5) junction control (`ControlMode`,
+`SetApproachControl`, effective classes, phase plans, markings on `RoadNode`) and ring detection
+(`roads::update_rings`, `citygen::roundabout`). Next: (6) draw markings and signal heads in
+`cb_game` (`crates/cb_game/src/view.rs`: crosswalk/stop-line/arrow decals from
+`RoadNode::markings()`, signal heads on lit junctions with `control::stub_phase_at`) and junction
+mesh interior vertices in `cb_procgen::junction_mesh` (shading fan); then M3.5 bridges
+(`cb_network::bridge`), overpasses, decorations and surfaces.
 
 ## Process conventions (ADR-0058)
 
@@ -469,14 +466,15 @@ Includes enabling work: `cb_sim::save::snapshot` types (for undo), bus/tram cros
 variants (UI hidden until M10) and tram connector radii, signal phase-plan generation with a stub
 phase clock for signal heads, ray–deck picking, LaneGraph `DebugView`, progression default "all
 unlocked" until M7.
-- [ ] Hierarchy + upgrade/downgrade: `upgrade_street_to_avenue_rebuilds_lanes`,
+- [x] Hierarchy + upgrade/downgrade: `upgrade_street_to_avenue_rebuilds_lanes`,
       `upgrade_clips_plots_and_prices_demolition`, `downgrade_refund_zero`.
 - [x] Lanes: `lanes_count_offsets_per_cross_section` (5 types × one-way × bus/tram variants).
-- [ ] Junctions (S-J metrics as tests): `junction_random_10k_valid_or_typed_error`,
+- [x] Junctions (S-J metrics as tests): `junction_random_10k_valid_or_typed_error`,
       `junction_connectors_cover_all_allowed_movements`, `junction_surface_continuous_8pct`,
       `ring_detected_as_roundabout`.
 - [ ] Controls: `light_plan_no_conflicting_greens_{t,x,y,5way,6way}`,
-      `every_movement_green_in_some_phase`, `approach_control_persists_in_snapshot`.
+      `every_movement_green_in_some_phase`, `approach_control_persists_in_snapshot` (first two
+      pass; the snapshot test lands with the snapshot types in M3.6).
 - [ ] Bridges: `bridge_cost_monotonic_in_length`, `bridge_piers_outside_corridors`,
       `bridge_abutment_step_le_2cm`, `overpass_does_not_modify_lower_corridor`,
       `bridge_classification_hysteresis`.

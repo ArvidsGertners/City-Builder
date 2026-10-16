@@ -86,6 +86,15 @@ pub enum PlayerCommand {
         /// New variant.
         variant: cb_network::Variant,
     },
+    /// Junction control: mode plus per-approach classes for `ControlMode::Custom`.
+    SetApproachControl {
+        /// The junction node.
+        node: NodeId,
+        /// Control mode.
+        mode: cb_network::control::ControlMode,
+        /// (segment, node is its start, class) for custom control.
+        custom: Vec<(SegmentId, bool, cb_network::control::ApproachControl)>,
+    },
     /// Draw a plot.
     CreatePlot(CreatePlot),
     /// Change a plot's frontage and depth.
@@ -222,6 +231,9 @@ fn apply(world: &mut World, cmd: &PlayerCommand, tick: u64) -> Result<Money, Val
             kind,
             variant,
         } => crate::roads::set_road_type(world, *segment, *kind, *variant),
+        PlayerCommand::SetApproachControl { node, mode, custom } => {
+            crate::roads::set_node_control(world, *node, *mode, custom).map(|()| Money::ZERO)
+        }
         PlayerCommand::CreatePlot(c) => crate::zoning::create_plot(world, c).map(|_| Money::ZERO),
         PlayerCommand::EditPlot {
             plot,

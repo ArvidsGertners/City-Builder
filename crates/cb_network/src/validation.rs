@@ -179,6 +179,14 @@ pub fn find_crossings(
                     if ex.shares_node_at.is_some_and(|n| (n - at).length() < 1.0) {
                         continue;
                     }
+                    // A crossing exactly on a polyline vertex is found in both adjacent
+                    // pieces; keep one.
+                    if out
+                        .iter()
+                        .any(|c: &Crossing| c.other == k && (c.at - at).length() < 0.5)
+                    {
+                        continue;
+                    }
                     let s_new = ac[i] + t * (ac[i + 1] - ac[i]);
                     let s_other = bc[j] + u * (bc[j + 1] - bc[j]);
                     let dh_m = new_profile.height_at(s_new) - ex.profile.height_at(s_other);
@@ -502,6 +510,24 @@ mod tests {
             prof.height_at(cr[0].0.s_new)
         );
         assert_eq!(classify(6.0), CrossingKind::Overpass);
+    }
+
+    #[test]
+    fn crossing_on_a_polyline_vertex_found_once() {
+        // Regression: a crossing exactly at the middle of a 300 m road lies on a vertex of its
+        // sampled centreline and was reported twice (two nodes, degenerate junction).
+        let a = straight(Vec2::new(-150.0, 0.0), Vec2::new(150.0, 0.0));
+        let pa = Profile::flat(a.length(), 10.0);
+        let ex = [Existing {
+            geom: &a,
+            profile: &pa,
+            shares_node_at: None,
+        }];
+        let b = straight(Vec2::new(0.0, -100.0), Vec2::new(0.0, 100.0));
+        let pb = Profile::flat(b.length(), 10.0);
+        let cr = find_crossings(&b, &pb, &ex);
+        assert_eq!(cr.len(), 1, "{cr:?}");
+        assert!((cr[0].s_other - 150.0).abs() < 0.01);
     }
 
     #[test]

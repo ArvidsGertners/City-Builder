@@ -15,7 +15,9 @@ use bevy::ecs::world::World;
 use cb_core::Money;
 use cb_core::ids::{BuildingId, NodeId, SegmentId};
 use cb_geometry::{CubicBezier2, Polyline2};
+use cb_network::control::{ApproachControl, ControlMode, SignalPhase};
 use cb_network::junction::{self, Approach, Junction};
+use cb_network::markings::Markings;
 use cb_network::validation::{self, CrossingKind, Existing, Ground, RoadLimits};
 use cb_network::{CrossSection, Profile, ProfileInput, RoadKind, SegmentGeom, Variant};
 use cb_terrain::stamps::priority;
@@ -34,6 +36,8 @@ pub const SHOULDER_M: f32 = 3.5;
 pub const CARVE_M: f32 = 0.15;
 /// Endpoint snapping tolerance (m).
 pub const SNAP_TOL_M: f32 = 0.5;
+/// A crossing this close to the end of an existing segment goes through its node (m).
+const NODE_CROSSING_M: f32 = 1.0;
 /// Two segments meeting within this of straight form a plain continuation (no junction patch).
 pub const CONTINUATION_DEG: f32 = 10.0;
 
@@ -48,6 +52,18 @@ pub struct RoadNode {
     pub(crate) approaches: SmallVec<[(SegmentId, bool); 4]>,
     /// Terrain stamp of the junction surface (`priority::JUNCTION`).
     pub(crate) junction_stamp: Option<u32>,
+    /// Player-chosen control mode.
+    pub(crate) control: ControlMode,
+    /// Player-set classes for `ControlMode::Custom`: (segment, node is its start, class).
+    pub(crate) custom: SmallVec<[(SegmentId, bool, ApproachControl); 4]>,
+    /// Effective class per approach (approach order); derived.
+    pub(crate) controls: SmallVec<[ApproachControl; 4]>,
+    /// Signal phases (connector indices of the junction) under `ControlMode::Lights`; derived.
+    pub(crate) phases: Vec<SignalPhase>,
+    /// Crosswalks, stop lines and lane arrows; derived.
+    pub(crate) markings: Markings,
+    /// Member of a detected roundabout ring; derived.
+    pub(crate) ring: bool,
 }
 
 impl RoadNode {
@@ -76,6 +92,36 @@ impl RoadNode {
     #[must_use]
     pub fn approaches(&self) -> &[(SegmentId, bool)] {
         &self.approaches
+    }
+    /// Player-chosen control mode.
+    #[must_use]
+    pub fn control(&self) -> ControlMode {
+        self.control
+    }
+    /// Player-set classes (`ControlMode::Custom`).
+    #[must_use]
+    pub fn custom(&self) -> &[(SegmentId, bool, ApproachControl)] {
+        &self.custom
+    }
+    /// Effective class per approach (approach order).
+    #[must_use]
+    pub fn controls(&self) -> &[ApproachControl] {
+        &self.controls
+    }
+    /// Signal phases (empty unless lights).
+    #[must_use]
+    pub fn phases(&self) -> &[SignalPhase] {
+        &self.phases
+    }
+    /// Junction markings.
+    #[must_use]
+    pub fn markings(&self) -> &Markings {
+        &self.markings
+    }
+    /// Part of a roundabout ring.
+    #[must_use]
+    pub fn ring(&self) -> bool {
+        self.ring
     }
 }
 
@@ -449,12 +495,28 @@ fn plan_build(
     if let Some((k, s)) = split1 {
         splits.entry(k).or_default().push((s, end_ref, h1));
     }
-    // Junction crossings split both roads.
+    // Junction crossings split both roads. A crossing through an existing node (reported once
+    // per segment meeting there) joins that node instead of splitting at a segment end.
     let mut new_cuts: Vec<(f32, NodeRef)> = Vec::new();
     for (c, _) in crossings
         .iter()
         .filter(|(_, k)| *k == CrossingKind::Junction)
     {
+        let other = &snaps[near[c.other]];
+        let olen = other.geom.length();
+        let at_node = if c.s_other < NODE_CROSSING_M {
+            Some(other.start)
+        } else if c.s_other > olen - NODE_CROSSING_M {
+            Some(other.end)
+        } else {
+            None
+        };
+        if let Some(n) = at_node {
+            if !new_cuts.iter().any(|(_, r)| *r == NodeRef::Old(n)) {
+                new_cuts.push((c.s_new, NodeRef::Old(n)));
+            }
+            continue;
+        }
         let h = profile.height_at(c.s_new);
         let r = new_node(&mut plan, Vec3::new(c.at.x, h, c.at.y));
         new_cuts.push((c.s_new, r));
@@ -612,6 +674,12 @@ fn spawn_node(world: &mut World, pos: Vec3) -> Result<NodeId, ValidationError> {
             junction: None,
             approaches: SmallVec::new(),
             junction_stamp: None,
+            control: ControlMode::Auto,
+            custom: SmallVec::new(),
+            controls: SmallVec::new(),
+            phases: Vec::new(),
+            markings: Markings::default(),
+            ring: false,
         })
         .id();
     world.resource_mut::<Ids>().nodes.insert(id, e);
@@ -779,12 +847,163 @@ fn refresh_node(world: &mut World, id: NodeId) {
         terrain::add_stamp(world, st);
         Some(sid)
     });
+    let derived = j
+        .as_ref()
+        .map(|jj| derive_control(&node, &apps, &order, jj));
     if let Some(mut n) = world.get_mut::<RoadNode>(ne) {
         n.junction = j;
         n.approaches = order.into_iter().collect();
         n.junction_stamp = stamp;
+        n.ring = false;
+        let (controls, phases, markings) = derived.unwrap_or_default();
+        n.controls = controls;
+        n.phases = phases;
+        n.markings = markings;
     }
     world.write_message(NetworkChanged::Node(id));
+}
+
+/// Effective approach classes, signal phases and markings of a junction (ALGORITHMS §5–§6).
+fn derive_control(
+    node: &RoadNode,
+    apps: &[(RoadKind, Approach)],
+    order: &[(SegmentId, bool)],
+    j: &Junction,
+) -> (SmallVec<[ApproachControl; 4]>, Vec<SignalPhase>, Markings) {
+    use cb_network::control;
+    let dirs: Vec<Vec2> = apps
+        .iter()
+        .map(|a| a.1.centerline.tangent_at(0.0))
+        .collect();
+    let ranks: Vec<u8> = apps.iter().map(|a| control::rank(a.0)).collect();
+    let auto = control::auto_controls(&ranks, &dirs);
+    let controls: SmallVec<[ApproachControl; 4]> = match node.control {
+        ControlMode::Auto | ControlMode::Lights => auto.into_iter().collect(),
+        ControlMode::AllWayStop => order.iter().map(|_| ApproachControl::Stop).collect(),
+        ControlMode::Custom => order
+            .iter()
+            .zip(auto)
+            .map(|(a, au)| {
+                node.custom
+                    .iter()
+                    .find(|c| (c.0, c.1) == *a)
+                    .map_or(au, |c| c.2)
+            })
+            .collect(),
+    };
+    let phases = if node.control == ControlMode::Lights {
+        control::phase_plan(&j.connectors, &j.zones, &dirs)
+    } else {
+        Vec::new()
+    };
+    let raw: Vec<Approach> = apps.iter().map(|a| a.1.clone()).collect();
+    (controls, phases, cb_network::markings::markings(&raw, j))
+}
+
+/// Detects roundabout rings among the one-way segments near `around` (ADR-0063) and gives
+/// their nodes ring control: ring approaches Priority, entries Yield.
+pub(crate) fn update_rings(world: &mut World, around: &[NodeId]) {
+    let Some(ids) = world.get_resource::<Ids>() else {
+        return;
+    };
+    let pts: Vec<Vec2> = around
+        .iter()
+        .filter_map(|n| node(world, *n).map(|n| Vec2::new(n.pos.x, n.pos.z)))
+        .collect();
+    if pts.is_empty() {
+        return;
+    }
+    let reach = 2.0 * cb_network::rings::RING_MAX_RADIUS_M + 10.0;
+    let mut one_ways = Vec::new();
+    for (_, e) in ids.segments.iter() {
+        let Some(sg) = world.get::<RoadSegment>(e) else {
+            continue;
+        };
+        if !matches!(sg.kind, RoadKind::OneWayStreet | RoadKind::OneWayAvenue) {
+            continue;
+        }
+        let a = sg.curve.start();
+        if pts.iter().all(|p| p.distance(a) > reach) {
+            continue;
+        }
+        one_ways.push(cb_network::rings::OneWay {
+            id: sg.id,
+            from: sg.start,
+            to: sg.end,
+            from_pos: a,
+            mid: sg.geom.point_at(0.5 * sg.geom.length()),
+        });
+    }
+    let was_ring: Vec<NodeId> = ids
+        .nodes
+        .iter()
+        .filter_map(|(id, e)| {
+            let n = world.get::<RoadNode>(e)?;
+            let p = Vec2::new(n.pos.x, n.pos.z);
+            (n.ring && pts.iter().any(|q| q.distance(p) <= reach)).then_some(id)
+        })
+        .collect();
+    let rings = cb_network::rings::detect_rings(&one_ways);
+    // Nodes of rings that no longer exist go back to their own control.
+    for n in was_ring {
+        if !rings.iter().any(|r| r.nodes.contains(&n)) {
+            refresh_node(world, n);
+        }
+    }
+    for ring in rings {
+        for n in &ring.nodes {
+            let Some(ne) = node_entity(world, *n) else {
+                continue;
+            };
+            if let Some(mut nd) = world.get_mut::<RoadNode>(ne) {
+                if nd.ring {
+                    continue;
+                }
+                nd.ring = true;
+                if nd.junction.is_some() && nd.control == ControlMode::Auto {
+                    nd.controls = nd
+                        .approaches
+                        .iter()
+                        .map(|(sid, _)| {
+                            if ring.segments.contains(sid) {
+                                ApproachControl::Priority
+                            } else {
+                                ApproachControl::Yield
+                            }
+                        })
+                        .collect();
+                }
+            }
+            world.write_message(NetworkChanged::Node(*n));
+        }
+    }
+}
+
+/// `SetApproachControl`: control mode of a junction, with per-approach classes for
+/// `ControlMode::Custom` (approaches not listed keep their automatic class).
+///
+/// # Errors
+/// `road-invalid-target-missing` if the node does not exist or is not a junction.
+pub(crate) fn set_node_control(
+    world: &mut World,
+    id: NodeId,
+    mode: ControlMode,
+    custom: &[(SegmentId, bool, ApproachControl)],
+) -> Result<(), ValidationError> {
+    let ne = node_entity(world, id).ok_or(ValidationError::new("road-invalid-target-missing"))?;
+    let has_junction = world
+        .get::<RoadNode>(ne)
+        .is_some_and(|n| n.junction.is_some());
+    if !has_junction {
+        return Err(ValidationError::new("road-invalid-target-missing"));
+    }
+    if let Some(mut n) = world.get_mut::<RoadNode>(ne) {
+        n.control = mode;
+        n.custom = custom.iter().copied().collect();
+    }
+    refresh_node(world, id);
+    update_rings(world, &[id]);
+    Ok(())
 }
 
 /// What building a road would do (the tool preview): cost, geometry and profile.
@@ -892,9 +1111,10 @@ pub(crate) fn build_road(
     }
     touched.sort();
     touched.dedup();
-    for n in touched {
-        refresh_node(world, n);
+    for n in &touched {
+        refresh_node(world, *n);
     }
+    update_rings(world, &touched);
     let _ = added;
     Ok(cost)
 }
@@ -908,9 +1128,10 @@ pub(crate) fn remove_segment(world: &mut World, id: SegmentId) -> Result<(), Val
         despawn_segment(world, id).ok_or(ValidationError::new("road-invalid-target-missing"))?;
     let mut nodes = vec![seg.start, seg.end];
     nodes.dedup();
-    for n in nodes {
-        refresh_node(world, n);
+    for n in &nodes {
+        refresh_node(world, *n);
     }
+    update_rings(world, &nodes);
     Ok(())
 }
 
@@ -1100,6 +1321,7 @@ pub(crate) fn set_road_type(
     if b != a {
         refresh_node(world, b);
     }
+    update_rings(world, &[a, b]);
     Ok(preview.cost)
 }
 
