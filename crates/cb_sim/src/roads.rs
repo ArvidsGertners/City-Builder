@@ -45,6 +45,8 @@ pub struct RoadNode {
     pub(crate) pos: Vec3,
     pub(crate) segments: SmallVec<[SegmentId; 4]>,
     pub(crate) junction: Option<Junction>,
+    /// Terrain stamp of the junction surface (`priority::JUNCTION`).
+    pub(crate) junction_stamp: Option<u32>,
 }
 
 impl RoadNode {
@@ -549,6 +551,25 @@ fn corridor_stamp(id: u32, seg: &RoadSegment) -> Stamp {
     }
 }
 
+/// Terrain stamp keeping the ground below a junction's surface (sidewalks included): the
+/// corridors under it follow their own profiles, which a junction joining several grades does
+/// not, so without it terrain pokes through the junction.
+fn junction_stamp(id: u32, j: &Junction) -> Option<Stamp> {
+    let plan: Vec<Vec2> = j.outer.iter().map(|v| Vec2::new(v.x, v.z)).collect();
+    let triangles: Vec<[Vec3; 3]> = cb_geometry::triangulate::triangulate(&plan)
+        .into_iter()
+        .map(|t| t.map(|i| j.outer[i as usize]))
+        .collect();
+    (!triangles.is_empty()).then_some(Stamp {
+        id,
+        priority: priority::JUNCTION,
+        shape: StampShape::Surface {
+            triangles,
+            carve_m: CARVE_M,
+        },
+    })
+}
+
 fn spawn_node(world: &mut World, pos: Vec3) -> Result<NodeId, ValidationError> {
     let id = world
         .resource_mut::<Ids>()
@@ -561,6 +582,7 @@ fn spawn_node(world: &mut World, pos: Vec3) -> Result<NodeId, ValidationError> {
             pos,
             segments: SmallVec::new(),
             junction: None,
+            junction_stamp: None,
         })
         .id();
     world.resource_mut::<Ids>().nodes.insert(id, e);
@@ -655,6 +677,9 @@ fn refresh_node(world: &mut World, id: NodeId) {
         return;
     };
     if node.segments.is_empty() {
+        if let Some(st) = node.junction_stamp {
+            terrain::remove_stamp(world, st);
+        }
         world.resource_mut::<Ids>().nodes.remove(id);
         world.despawn(ne);
         world.write_message(NetworkChanged::NodeRemoved(id));
@@ -709,8 +734,18 @@ fn refresh_node(world: &mut World, id: NodeId) {
         let (lo, hi) = cb_geometry::polygon::bounds(&outline);
         crate::zoning::mark_near(world, lo, hi);
     }
+    if let Some(st) = node.junction_stamp {
+        terrain::remove_stamp(world, st);
+    }
+    let stamp = j.as_ref().and_then(|jj| {
+        let sid = world.resource_mut::<Ids>().stamp();
+        let st = junction_stamp(sid, jj)?;
+        terrain::add_stamp(world, st);
+        Some(sid)
+    });
     if let Some(mut n) = world.get_mut::<RoadNode>(ne) {
         n.junction = j;
+        n.junction_stamp = stamp;
     }
     world.write_message(NetworkChanged::Node(id));
 }

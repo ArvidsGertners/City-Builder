@@ -601,3 +601,50 @@ fn m2_scripted_scene_has_its_features() {
     // the crossings stay bare for the cut and fill shots).
     assert!(f.report.buildings >= 20, "{:?}", f.report);
 }
+
+/// Highest terrain sample above the junction carriageway (m), over a grid of points inside
+/// every junction of `s`.
+fn junction_terrain_poke(s: &Scenario) -> (f32, Vec2) {
+    let t = s.world().resource::<cb_sim::terrain::TerrainRes>();
+    let mut worst = (f32::NEG_INFINITY, Vec2::ZERO);
+    for n in nodes(s) {
+        let Some(j) = n.junction() else { continue };
+        let plan: Vec<Vec2> = j.inner.iter().map(|v| Vec2::new(v.x, v.z)).collect();
+        for tri in cb_geometry::triangulate::triangulate(&plan) {
+            let v = tri.map(|i| j.inner[i as usize]);
+            for a in 1..10 {
+                for b in 1..(10 - a) {
+                    let (u, w) = (a as f32 / 10.0, b as f32 / 10.0);
+                    let p = v[0] * (1.0 - u - w) + v[1] * u + v[2] * w;
+                    let q = Vec2::new(p.x, p.z);
+                    let d = t.terrain().height_at(q) - p.y;
+                    if d > worst.0 {
+                        worst = (d, q);
+                    }
+                }
+            }
+        }
+    }
+    worst
+}
+
+#[test]
+fn junction_surface_above_terrain() {
+    let mut s = Scenario::with_terrain(1234, cb_sim::terrain::TerrainSetup::Generate);
+    let site = Vec2::new(19.2, -1228.8);
+    cb_sim::citygen::grid(
+        s.world_mut(),
+        &cb_sim::citygen::GridSpec {
+            center: site,
+            blocks: (4, 3),
+            grow: false,
+            plot_depth_m: 0.0,
+            ..Default::default()
+        },
+    );
+    // Plus the T junction on the 8 % slope and the other scripted roads.
+    cb_sim::citygen::m2_features(s.world_mut(), site, Vec2::new(220.0, 120.0));
+    let (d, at) = junction_terrain_poke(&s);
+    eprintln!("worst terrain above junction surface: {d:.3} m at {at}");
+    assert!(d < 0.0, "terrain {d:.3} m above a junction surface at {at}");
+}

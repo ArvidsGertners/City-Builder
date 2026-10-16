@@ -106,6 +106,16 @@ pub enum StampShape {
         /// Blend width outside the polygon (m).
         falloff_m: f32,
     },
+    /// Paved surface given as triangles with heights (junctions): core samples inside any
+    /// triangle take the interpolated height minus `carve_m`, so the terrain stays below a
+    /// surface that is not a single corridor profile. No blend zone (the adjoining corridors
+    /// blend into the surroundings).
+    Surface {
+        /// Triangles `(x, surface height, z)`.
+        triangles: Vec<[Vec3; 3]>,
+        /// Carve below the surface (m).
+        carve_m: f32,
+    },
     /// Clears scatter (trees, rocks) inside the polygon without changing heights.
     Clear {
         /// Polygon.
@@ -113,7 +123,7 @@ pub enum StampShape {
     },
 }
 
-/// Stamp priorities (higher wins on cores): road > abutment > pad.
+/// Stamp priorities (higher wins on cores): junction > road > abutment > pad.
 pub mod priority {
     /// Building pads.
     pub const PAD: u8 = 0;
@@ -121,6 +131,8 @@ pub mod priority {
     pub const ABUTMENT: u8 = 1;
     /// Road corridors.
     pub const ROAD: u8 = 2;
+    /// Junction surfaces (win over the corridors that overlap them).
+    pub const JUNCTION: u8 = 3;
 }
 
 /// A deformation stamp.
@@ -181,6 +193,20 @@ fn inside(poly: &[Vec2], p: Vec2) -> bool {
         }
     }
     c
+}
+
+/// Height of triangle `t` above `p` (plan coordinates), if `p` lies inside it (edges included).
+fn surface_height(t: &[Vec3; 3], p: Vec2) -> Option<f32> {
+    let [a, b, c] = t.map(|v| Vec2::new(v.x, v.z));
+    let den = (b - a).perp_dot(c - a);
+    if den.abs() < 1e-9 {
+        return None;
+    }
+    let u = (p - a).perp_dot(c - a) / den;
+    let v = (b - a).perp_dot(p - a) / den;
+    let eps = 1e-5;
+    (u >= -eps && v >= -eps && u + v <= 1.0 + eps)
+        .then(|| t[0].y + (t[1].y - t[0].y) * u + (t[2].y - t[0].y) * v)
 }
 
 /// Distance from `p` to the polygon boundary.
@@ -357,6 +383,35 @@ fn rasterize_k(stamp: &Stamp, base: &HeightGrid, kmul: f32) -> Raster {
                             earth += (weight * (target_h_m - bh)).abs() * cell;
                         }
                     }
+                }
+            }
+            Raster {
+                rect,
+                entries,
+                earthwork_m3: earth,
+                clear: Vec::new(),
+            }
+        }
+        StampShape::Surface { triangles, carve_m } => {
+            let (lo, hi) = bounds(triangles.iter().flatten().map(|v| Vec2::new(v.x, v.z)));
+            let rect = SampleRect::from_world(base, lo, hi);
+            let mut entries = Vec::new();
+            let mut earth = 0.0;
+            for j in rect.j0..=rect.j1 {
+                for i in rect.i0..=rect.i1 {
+                    let p = base.pos(i, j);
+                    let Some(h) = triangles.iter().find_map(|t| surface_height(t, p)) else {
+                        continue;
+                    };
+                    let target = h - carve_m;
+                    let bh = base.get(i, j);
+                    entries.push(Entry {
+                        idx: base.index(i, j) as u32,
+                        target,
+                        weight: 1.0,
+                        core: true,
+                    });
+                    earth += (target - bh).abs() * cell;
                 }
             }
             Raster {
@@ -628,5 +683,39 @@ mod tests {
             100,
             "10 × 10 samples strictly inside a 20 m square"
         );
+    }
+
+    #[test]
+    fn surface_stamp_follows_triangles_and_wins_over_roads() {
+        let base = HeightGrid::filled(65, 2.0, 5.0);
+        // A tilted quad (two triangles) rising 1 m per 10 m in x.
+        let h = |x: f32| 5.0 + 0.1 * x;
+        let q = [(-20.0, -10.0), (20.0, -10.0), (20.0, 10.0), (-20.0, 10.0)]
+            .map(|(x, z)| Vec3::new(x, h(x), z));
+        let surf = Stamp {
+            id: 9,
+            priority: priority::JUNCTION,
+            shape: StampShape::Surface {
+                triangles: vec![[q[0], q[1], q[2]], [q[0], q[2], q[3]]],
+                carve_m: CARVE_M,
+            },
+        };
+        let r = rasterize(&surf, &base);
+        assert!(!r.entries.is_empty());
+        for e in &r.entries {
+            let i = e.idx as usize % base.n();
+            let j = e.idx as usize / base.n();
+            let p = base.pos(i, j);
+            assert!(p.x.abs() <= 20.0 + 1e-3 && p.y.abs() <= 10.0 + 1e-3);
+            assert!(e.core);
+            assert!(
+                (e.target - (h(p.x) - CARVE_M)).abs() < 1e-4,
+                "{p}: {}",
+                e.target
+            );
+        }
+        // Outside the triangles nothing is touched.
+        assert!(surface_height(&[q[0], q[1], q[2]], Vec2::new(30.0, 0.0)).is_none());
+        const { assert!(priority::JUNCTION > priority::ROAD) };
     }
 }

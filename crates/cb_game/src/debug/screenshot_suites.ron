@@ -34,14 +34,13 @@
             ],
         ),
         "M2cal": (
-            resolution: (800, 450),
+            resolution: (1600, 900),
             settle_frames: 10,
             seed: Some(1234),
             shots: [
-                (name: "cal-noon", at: Some("slope"), zoning: true, camera: (focus: (0.0, 0.0, 0.0), distance: 300.0, pitch_deg: 45.0, yaw_deg: 20.0)),
-                (name: "cal-night", at: Some("slope"), hour: Some(23.0), camera: (focus: (0.0, 0.0, 0.0), distance: 300.0, pitch_deg: 45.0, yaw_deg: 20.0)),
-                (name: "cal-road-tool", at: Some("steep"), ui: true, tool: Some(RoadSteep), camera: (focus: (0.0, 0.0, 0.0), distance: 150.0, pitch_deg: 40.0, yaw_deg: 0.0)),
-                (name: "cal-overview", camera: (focus: (0.0, 0.0, 0.0), distance: 2000.0, pitch_deg: 60.0, yaw_deg: 0.0)),
+                (name: "cal-block-yaw0", at: Some("slope"), camera: (focus: (0.0, 0.0, 0.0), distance: 120.0, pitch_deg: 35.0, yaw_deg: 0.0)),
+                (name: "cal-block-yaw120", at: Some("slope"), camera: (focus: (0.0, 0.0, 0.0), distance: 120.0, pitch_deg: 35.0, yaw_deg: 120.0)),
+                (name: "cal-town-junction", camera: (focus: (-90.8, 0.0, 40.0), distance: 60.0, pitch_deg: 40.0, yaw_deg: 30.0)),
             ],
         ),
         "M1": (

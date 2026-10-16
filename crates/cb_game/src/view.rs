@@ -8,11 +8,14 @@
 //! (PERFORMANCE §4).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use bevy::asset::RenderAssetUsages;
 use bevy::light::NotShadowCaster;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
+use bevy::tasks::futures::check_ready;
+use bevy::tasks::{AsyncComputeTaskPool, Task};
 use cb_core::ids::{BuildingId, NodeId, SegmentId};
 use cb_core::rng::Pcg32;
 use cb_geometry::MeshData;
@@ -39,26 +42,35 @@ pub const TERRAIN_LOD_M: [f32; 3] = [450.0, 1000.0, 2000.0];
 pub const SCATTER_NEAR_M: f32 = 350.0;
 /// Far scatter radius (m).
 pub const SCATTER_FAR_M: f32 = 1300.0;
-/// Chunk rebuilds per frame at most (terrain, scatter).
-pub const REBUILDS_PER_FRAME: usize = 12;
-/// Main-thread time per frame for chunk rebuilds of one kind (ms); at least one rebuild always
-/// runs. Off-thread meshing replaces this when the M4 city sizes need it (PERFORMANCE §4).
-pub const REBUILD_BUDGET_MS: f32 = 2.0;
+/// Chunk meshing jobs in flight at most, per kind (terrain, scatter). Meshing runs on the
+/// async compute pool from an `Arc<Terrain>` snapshot; the main thread only uploads results.
+pub const MAX_JOBS_IN_FLIGHT: usize = 8;
 
-/// Shared per-frame rebuild budget of terrain and scatter. The kind that may exceed it with one
-/// forced rebuild alternates per frame, so neither starves while the camera keeps moving.
-#[derive(Default, Debug)]
-struct RebuildBudget {
-    used_ms: f32,
-    terrain_first: bool,
+/// Far terrain (LOD ≥ [`MERGE_FROM_LOD`]) is drawn as one entity per block of
+/// `SUPER × SUPER` chunks, which cuts ~850 of 1 024 terrain entities (PERFORMANCE §4).
+pub const SUPER: usize = 4;
+/// Lowest LOD whose chunks are merged into super-chunks.
+pub const MERGE_FROM_LOD: u32 = 2;
+/// Super-chunk jobs in flight at most.
+pub const MAX_SUPER_JOBS: usize = 2;
+
+/// A merged far-terrain block: ground entity, optional water entity, LOD.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct SuperSlot {
+    merged: Option<(Entity, Option<Entity>, u32)>,
 }
 
-impl RebuildBudget {
-    /// Whether another rebuild may start (`done` rebuilds of this kind so far this frame).
-    fn allows(&self, start: std::time::Instant, done: usize, forced: bool) -> bool {
-        (forced && done == 0)
-            || self.used_ms + start.elapsed().as_secs_f32() * 1000.0 < REBUILD_BUDGET_MS
-    }
+/// A finished terrain chunk: ground mesh and optional water mesh at `lod`.
+struct TerrainJob {
+    lod: u32,
+    ground: Mesh,
+    water: Option<Mesh>,
+}
+
+/// A finished scatter chunk (`None` when the chunk has nothing to scatter).
+struct ScatterJob {
+    level: u8,
+    mesh: Option<Mesh>,
 }
 
 /// Per-chunk visual state.
@@ -66,11 +78,15 @@ impl RebuildBudget {
 struct ChunkSlot {
     terrain: Option<(Entity, u32)>,
     water: Option<Entity>,
-    scatter: Option<(Entity, u8)>,
+    /// Scatter entity (none for empty chunks) and its level (1 far, 2 near).
+    scatter: Option<(Option<Entity>, u8)>,
     dirty: bool,
     /// Scatter must be regenerated (plots or terrain changed).
     scatter_stale: bool,
 }
+
+/// Plot polygons with bounds (scatter exclusion), shared with scatter jobs.
+type PlotShapes = Arc<Vec<(Vec2, Vec2, Vec<Vec2>)>>;
 
 /// Visual registries.
 #[derive(Resource, Default)]
@@ -81,7 +97,11 @@ pub struct ViewState {
     nodes: BTreeMap<NodeId, Entity>,
     buildings: BTreeMap<BuildingId, Entity>,
     scatter_dirty: bool,
-    budget: RebuildBudget,
+    terrain_jobs: BTreeMap<usize, Task<TerrainJob>>,
+    supers: Vec<SuperSlot>,
+    super_jobs: BTreeMap<usize, Task<TerrainJob>>,
+    scatter_jobs: BTreeMap<usize, Task<ScatterJob>>,
+    plot_shapes: Option<PlotShapes>,
 }
 
 impl ViewState {
@@ -90,10 +110,11 @@ impl ViewState {
     pub fn building_count(&self) -> usize {
         self.buildings.len()
     }
-    /// Resident terrain chunk-LODs.
+    /// Terrain entities (individual chunks + merged far blocks).
     #[must_use]
     pub fn terrain_chunks(&self) -> usize {
         self.chunks.iter().filter(|c| c.terrain.is_some()).count()
+            + self.supers.iter().filter(|s| s.merged.is_some()).count()
     }
     /// Whether every visible chunk is up to date (screenshot settling).
     #[must_use]
@@ -178,17 +199,49 @@ fn terrain_mesh(cm: &chunk_mesh::ChunkMesh) -> Mesh {
     .with_inserted_indices(Indices::U32(cm.indices.clone()))
 }
 
+/// Water surface buffers (positions, colours, indices).
+#[derive(Default)]
+struct WaterData {
+    pos: Vec<[f32; 3]>,
+    col: Vec<[f32; 4]>,
+    idx: Vec<u32>,
+}
+
+impl WaterData {
+    fn into_mesh(self) -> Option<Mesh> {
+        if self.idx.is_empty() {
+            return None;
+        }
+        let normals = vec![[0.0, 1.0, 0.0]; self.pos.len()];
+        Some(
+            Mesh::new(
+                PrimitiveTopology::TriangleList,
+                RenderAssetUsages::RENDER_WORLD,
+            )
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.pos)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.col)
+            .with_inserted_indices(Indices::U32(self.idx)),
+        )
+    }
+}
+
 /// Water surface of one chunk: cells with a wet corner, at that water level; vertex colour
 /// r = depth / 6 m, g = foam weight.
 fn water_mesh(t: &cb_terrain::Terrain, cx: usize, cz: usize, lod: u32) -> Option<Mesh> {
+    let mut d = WaterData::default();
+    water_data(t, cx, cz, lod, &mut d);
+    d.into_mesh()
+}
+
+/// Appends one chunk's water surface to `out`.
+fn water_data(t: &cb_terrain::Terrain, cx: usize, cz: usize, lod: u32, out: &mut WaterData) {
     let h = t.height();
     let w = t.water();
     let n = h.n();
     let step = 1usize << lod.min(2);
     let (i0, j0) = (cx * CHUNK_CELLS, cz * CHUNK_CELLS);
-    let mut pos: Vec<[f32; 3]> = Vec::new();
-    let mut col: Vec<[f32; 4]> = Vec::new();
-    let mut idx: Vec<u32> = Vec::new();
+    let WaterData { pos, col, idx } = out;
     let mut j = j0;
     while j < (j0 + CHUNK_CELLS).min(n - 1) {
         let mut i = i0;
@@ -215,20 +268,6 @@ fn water_mesh(t: &cb_terrain::Terrain, cx: usize, cz: usize, lod: u32) -> Option
         }
         j += step;
     }
-    if idx.is_empty() {
-        return None;
-    }
-    let normals = vec![[0.0, 1.0, 0.0]; pos.len()];
-    Some(
-        Mesh::new(
-            PrimitiveTopology::TriangleList,
-            RenderAssetUsages::RENDER_WORLD,
-        )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, col)
-        .with_inserted_indices(Indices::U32(idx)),
-    )
 }
 
 fn chunk_center(t: &cb_terrain::Terrain, cx: usize, cz: usize) -> Vec2 {
@@ -263,6 +302,8 @@ fn sync_terrain(
             };
             per * per
         ];
+        state.terrain_jobs.clear();
+        state.scatter_jobs.clear();
     }
     for msg in changed.read() {
         let r = msg.rect;
@@ -276,44 +317,27 @@ fn sync_terrain(
         );
         for cz in d0..=d1 {
             for cx in c0..=c1 {
+                // A job already in flight meshes the old terrain; rebuild after it lands.
                 state.chunks[cz * per + cx].dirty = true;
             }
         }
         state.scatter_dirty = true;
     }
-    let eye = rig.eye();
-    let eye2 = Vec2::new(eye.x, eye.z);
-    // Chunks needing work, nearest first.
-    let mut work: Vec<(f32, usize, u32)> = Vec::new();
-    for cz in 0..per {
-        for cx in 0..per {
-            let k = cz * per + cx;
-            let d = chunk_center(t, cx, cz).distance(eye2);
-            let lod = TERRAIN_LOD_M.iter().filter(|l| d > **l).count() as u32;
-            let slot = state.chunks[k];
-            if slot.dirty || slot.terrain.map(|x| x.1) != Some(lod) {
-                work.push((d, k, lod));
-            }
-        }
-    }
-    backlog.0 = work.len();
-    work.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let _span = tracing::info_span!("view_terrain_rebuild").entered();
-    let start = std::time::Instant::now();
-    state.budget.terrain_first = !state.budget.terrain_first;
-    state.budget.used_ms = 0.0;
-    let forced = state.budget.terrain_first;
-    for (i, &(_, k, lod)) in work.iter().take(REBUILDS_PER_FRAME).enumerate() {
-        if !state.budget.allows(start, i, forced) {
-            break;
-        }
-        let (cx, cz) = (k % per, k / per);
-        let cm = chunk_mesh::build(t, cx, cz, lod);
-        let mesh = meshes.add(terrain_mesh(&cm));
+    let _span = tracing::info_span!("view_terrain_sync").entered();
+    // 1. Upload finished jobs.
+    let done: Vec<(usize, TerrainJob)> = state
+        .terrain_jobs
+        .iter_mut()
+        .filter_map(|(k, task)| check_ready(task).map(|j| (*k, j)))
+        .collect();
+    for (k, job) in done {
+        state.terrain_jobs.remove(&k);
+        let mesh = meshes.add(job.ground);
         let slot = &mut state.chunks[k];
         match slot.terrain {
             Some((e, _)) => {
                 commands.entity(e).insert(Mesh3d(mesh));
+                slot.terrain = Some((e, job.lod));
             }
             None => {
                 let e = commands
@@ -323,14 +347,13 @@ fn sync_terrain(
                         Transform::default(),
                     ))
                     .id();
-                slot.terrain = Some((e, lod));
+                slot.terrain = Some((e, job.lod));
             }
         }
-        slot.terrain = slot.terrain.map(|(e, _)| (e, lod));
         if let Some(e) = slot.water.take() {
             commands.entity(e).despawn();
         }
-        if let Some(wm) = water_mesh(t, cx, cz, lod) {
+        if let Some(wm) = job.water {
             slot.water = Some(
                 commands
                     .spawn((
@@ -342,9 +365,178 @@ fn sync_terrain(
                     .id(),
             );
         }
-        slot.dirty = false;
     }
-    state.budget.used_ms = start.elapsed().as_secs_f32() * 1000.0;
+    // 2. Desired LOD per chunk and merge decision per super-chunk.
+    let eye = rig.eye();
+    let eye2 = Vec2::new(eye.x, eye.z);
+    let dist: Vec<f32> = (0..per * per)
+        .map(|k| chunk_center(t, k % per, k / per).distance(eye2))
+        .collect();
+    let want: Vec<u32> = dist
+        .iter()
+        .map(|d| TERRAIN_LOD_M.iter().filter(|l| *d > **l).count() as u32)
+        .collect();
+    let sp = per.div_ceil(SUPER);
+    if state.supers.len() != sp * sp {
+        for sl in std::mem::take(&mut state.supers) {
+            if let Some((e, w, _)) = sl.merged {
+                commands.entity(e).despawn();
+                if let Some(w) = w {
+                    commands.entity(w).despawn();
+                }
+            }
+        }
+        state.supers = vec![SuperSlot::default(); sp * sp];
+        state.super_jobs.clear();
+    }
+    let members = |s: usize| {
+        let (sx, sz) = (s % sp, s / sp);
+        (sz * SUPER..((sz + 1) * SUPER).min(per)).flat_map(move |cz| {
+            (sx * SUPER..((sx + 1) * SUPER).min(per)).map(move |cx| cz * per + cx)
+        })
+    };
+    let super_of = |k: usize| (k / per / SUPER) * sp + (k % per) / SUPER;
+    let merge_want: Vec<Option<u32>> = (0..sp * sp)
+        .map(|s| {
+            let l = want[members(s).next()?];
+            (l >= MERGE_FROM_LOD && members(s).all(|k| want[k] == l)).then_some(l)
+        })
+        .collect();
+    // 3. Upload finished super jobs.
+    let done: Vec<(usize, TerrainJob)> = state
+        .super_jobs
+        .iter_mut()
+        .filter_map(|(s, task)| check_ready(task).map(|j| (*s, j)))
+        .collect();
+    for (si, job) in done {
+        state.super_jobs.remove(&si);
+        if let Some((e, w, _)) = state.supers[si].merged.take() {
+            commands.entity(e).despawn();
+            if let Some(w) = w {
+                commands.entity(w).despawn();
+            }
+        }
+        let e = commands
+            .spawn((
+                Mesh3d(meshes.add(job.ground)),
+                MeshMaterial3d(mats.terrain.clone()),
+                Transform::default(),
+            ))
+            .id();
+        let w = job.water.map(|wm| {
+            commands
+                .spawn((
+                    Mesh3d(meshes.add(wm)),
+                    MeshMaterial3d(mats.water.clone()),
+                    Transform::default(),
+                    NotShadowCaster,
+                ))
+                .id()
+        });
+        state.supers[si].merged = Some((e, w, job.lod));
+    }
+    // 4. Hand-over: a merged block replaces its members once it exists at the wanted LOD; a
+    //    block that should split stays until every member has its own mesh (no holes).
+    for (si, mw) in merge_want.iter().enumerate() {
+        let merged = state.supers[si].merged;
+        match (*mw, merged) {
+            (Some(l), Some((_, _, ml))) if l == ml => {
+                for k in members(si) {
+                    let slot = &mut state.chunks[k];
+                    if let Some((e, _)) = slot.terrain.take() {
+                        commands.entity(e).despawn();
+                    }
+                    if let Some(e) = slot.water.take() {
+                        commands.entity(e).despawn();
+                    }
+                }
+            }
+            (None, Some((e, w, _))) if members(si).all(|k| state.chunks[k].terrain.is_some()) => {
+                commands.entity(e).despawn();
+                if let Some(w) = w {
+                    commands.entity(w).despawn();
+                }
+                state.supers[si].merged = None;
+            }
+            _ => {}
+        }
+    }
+    // 5. Work: individual chunks outside merged blocks, and merged blocks (nearest first).
+    let mut work: Vec<(f32, usize, u32)> = Vec::new();
+    for k in 0..per * per {
+        if state.terrain_jobs.contains_key(&k) || merge_want[super_of(k)].is_some() {
+            continue;
+        }
+        let slot = state.chunks[k];
+        if slot.dirty || slot.terrain.map(|x| x.1) != Some(want[k]) {
+            work.push((dist[k], k, want[k]));
+        }
+    }
+    let mut super_work: Vec<(f32, usize, u32)> = Vec::new();
+    for (si, mw) in merge_want.iter().enumerate() {
+        let Some(l) = *mw else { continue };
+        if state.super_jobs.contains_key(&si) {
+            continue;
+        }
+        let have = state.supers[si].merged.map(|m| m.2);
+        if have != Some(l) || members(si).any(|k| state.chunks[k].dirty) {
+            let d = members(si).map(|k| dist[k]).fold(f32::INFINITY, f32::min);
+            super_work.push((d, si, l));
+        }
+    }
+    backlog.0 = work.len() + state.terrain_jobs.len() + super_work.len() + state.super_jobs.len();
+    work.sort_by(|a, b| a.0.total_cmp(&b.0));
+    super_work.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // 6. Start jobs from the current snapshot.
+    let pool = AsyncComputeTaskPool::get();
+    let free = MAX_JOBS_IN_FLIGHT.saturating_sub(state.terrain_jobs.len());
+    for &(_, k, lod) in work.iter().take(free) {
+        state.chunks[k].dirty = false;
+        let snap = terrain.snapshot();
+        let (cx, cz) = (k % per, k / per);
+        let task = pool.spawn(async move {
+            let cm = chunk_mesh::build(&snap, cx, cz, lod);
+            TerrainJob {
+                lod,
+                ground: terrain_mesh(&cm),
+                water: water_mesh(&snap, cx, cz, lod),
+            }
+        });
+        state.terrain_jobs.insert(k, task);
+    }
+    let free = MAX_SUPER_JOBS.saturating_sub(state.super_jobs.len());
+    for &(_, si, lod) in super_work.iter().take(free) {
+        let ks: Vec<usize> = members(si).collect();
+        for &k in &ks {
+            state.chunks[k].dirty = false;
+        }
+        let snap = terrain.snapshot();
+        let task = pool.spawn(async move {
+            let mut all = chunk_mesh::ChunkMesh {
+                positions: Vec::new(),
+                normals: Vec::new(),
+                materials: Vec::new(),
+                indices: Vec::new(),
+            };
+            let mut water = WaterData::default();
+            for k in ks {
+                let (cx, cz) = (k % per, k / per);
+                let cm = chunk_mesh::build(&snap, cx, cz, lod);
+                let base = all.positions.len() as u32;
+                all.positions.extend_from_slice(&cm.positions);
+                all.normals.extend_from_slice(&cm.normals);
+                all.materials.extend_from_slice(&cm.materials);
+                all.indices.extend(cm.indices.iter().map(|i| i + base));
+                water_data(&snap, cx, cz, lod, &mut water);
+            }
+            TerrainJob {
+                lod,
+                ground: terrain_mesh(&all),
+                water: water.into_mesh(),
+            }
+        });
+        state.super_jobs.insert(si, task);
+    }
 }
 
 // ---------- network ----------
@@ -657,16 +849,44 @@ fn sync_scatter(
     if per == 0 {
         return;
     }
+    let _span = tracing::info_span!("view_scatter_sync").entered();
     let seed = seed.map_or(1, |s| s.0);
-    let eye = rig.eye();
-    let eye2 = Vec2::new(eye.x, eye.z);
     if std::mem::take(&mut state.scatter_dirty) {
         for c in &mut state.chunks {
             c.scatter_stale = true;
         }
+        state.plot_shapes = None;
     }
+    // 1. Upload finished jobs.
+    let done: Vec<(usize, ScatterJob)> = state
+        .scatter_jobs
+        .iter_mut()
+        .filter_map(|(k, task)| check_ready(task).map(|j| (*k, j)))
+        .collect();
+    for (k, job) in done {
+        state.scatter_jobs.remove(&k);
+        if let Some((Some(e), _)) = state.chunks[k].scatter.take() {
+            commands.entity(e).despawn();
+        }
+        let e = job.mesh.map(|m| {
+            commands
+                .spawn((
+                    Mesh3d(meshes.add(m)),
+                    MeshMaterial3d(mats.world.clone()),
+                    Transform::default(),
+                ))
+                .id()
+        });
+        state.chunks[k].scatter = Some((e, job.level));
+    }
+    // 2. Chunks whose scatter level changed or is stale.
+    let eye = rig.eye();
+    let eye2 = Vec2::new(eye.x, eye.z);
     let mut work: Vec<(f32, usize, u8)> = Vec::new();
     for k in 0..per * per {
+        if state.scatter_jobs.contains_key(&k) {
+            continue;
+        }
         let (cx, cz) = (k % per, k / per);
         let d = chunk_center(t, cx, cz).distance(eye2);
         let want = if d < SCATTER_NEAR_M {
@@ -678,54 +898,54 @@ fn sync_scatter(
         };
         let have = state.chunks[k].scatter.map_or(0, |s| s.1);
         let stale = state.chunks[k].scatter_stale;
-        if want == 0 && stale {
+        if want == 0 {
+            // Out of range: drop immediately (cheap, no job).
+            if let Some((e, _)) = state.chunks[k].scatter.take()
+                && let Some(e) = e
+            {
+                commands.entity(e).despawn();
+            }
             state.chunks[k].scatter_stale = false;
+            continue;
         }
-        if want != have || (stale && want > 0) {
+        if want != have || stale {
             work.push((d, k, want));
         }
     }
-    backlog.0 += work.len();
+    backlog.0 += work.len() + state.scatter_jobs.len();
     if work.is_empty() {
         return;
     }
     work.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let plots: Vec<(Vec2, Vec2, Vec<Vec2>)> = ids
-        .plots
-        .iter()
-        .filter_map(|(_, e)| plots_q.get(e).ok())
-        .map(|p| {
-            let (l, h) = cb_geometry::polygon::bounds(p.polygon());
-            (l, h, p.polygon().to_vec())
+    let plots = state
+        .plot_shapes
+        .get_or_insert_with(|| {
+            Arc::new(
+                ids.plots
+                    .iter()
+                    .filter_map(|(_, e)| plots_q.get(e).ok())
+                    .map(|p| {
+                        let (l, h) = cb_geometry::polygon::bounds(p.polygon());
+                        (l, h, p.polygon().to_vec())
+                    })
+                    .collect(),
+            )
         })
-        .collect();
-    let _span = tracing::info_span!("view_scatter_rebuild").entered();
-    let start = std::time::Instant::now();
-    let forced = !state.budget.terrain_first;
-    for (i, &(_, k, want)) in work.iter().take(REBUILDS_PER_FRAME).enumerate() {
-        if !state.budget.allows(start, i, forced) {
-            break;
-        }
+        .clone();
+    // 3. Start jobs.
+    let pool = AsyncComputeTaskPool::get();
+    let free = MAX_JOBS_IN_FLIGHT.saturating_sub(state.scatter_jobs.len());
+    for &(_, k, want) in work.iter().take(free) {
         state.chunks[k].scatter_stale = false;
-        if let Some((e, _)) = state.chunks[k].scatter.take() {
-            commands.entity(e).despawn();
-        }
-        if want == 0 {
-            continue;
-        }
-        let md = scatter_mesh(t, seed, k % per, k / per, want == 2, &plots);
-        if md.triangle_count() > 0 {
-            let e = commands
-                .spawn((
-                    Mesh3d(meshes.add(world_mesh(&md))),
-                    MeshMaterial3d(mats.world.clone()),
-                    Transform::default(),
-                ))
-                .id();
-            state.chunks[k].scatter = Some((e, want));
-        } else {
-            let e = commands.spawn(Transform::default()).id();
-            state.chunks[k].scatter = Some((e, want));
-        }
+        let snap = terrain.snapshot();
+        let plots = Arc::clone(&plots);
+        let task = pool.spawn(async move {
+            let md = scatter_mesh(&snap, seed, k % per, k / per, want == 2, &plots);
+            ScatterJob {
+                level: want,
+                mesh: (md.triangle_count() > 0).then(|| world_mesh(&md)),
+            }
+        });
+        state.scatter_jobs.insert(k, task);
     }
 }

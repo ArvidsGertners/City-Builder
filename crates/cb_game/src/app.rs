@@ -164,6 +164,9 @@ pub fn build(boot: Boot) -> App {
         app.add_plugins(ScreenshotPlugin { suite, out });
     }
     if let Some(scene) = cli.benchmark.clone() {
+        if scene == "empty" {
+            app.insert_resource(scene::NoDemoTown);
+        }
         app.add_plugins(crate::debug::benchmark::BenchmarkPlugin {
             scene,
             no_gpu_work: cli.no_gpu_work,

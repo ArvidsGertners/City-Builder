@@ -668,7 +668,18 @@ Includes: agent state saved, garbage trucks replace analytic collection, vehicle
 
 ## Known bugs
 
-None open. Known gaps (planned):
+- (minor, M2) Junction asphalt shows a faint radial shading fan: the carriageway is one
+  ear-clipped polygon with large, slightly non-planar triangles and flat (derivative) normals.
+  Plan: add interior vertices (subdivide to ≤ 4 m edges, heights from the junction surface) in
+  `cb_procgen::junction_mesh`.
+
+Fixed:
+- 2026-10-16 — Ground clipping through junctions (reported by the user on M2-04; also M2-03,
+  M2-13): terrain under a junction came only from the segment corridors, up to 0.16 m above the
+  junction surface. Fixed with junction surface stamps (ADR-0065 amendment); regression test
+  `junction_surface_above_terrain` (worst now 0.02 m below).
+
+Known gaps (planned):
 - Settings `window_mode`, `frame_cap`, `render_scale`, `preset`, audio and accessibility values
   are stored and validated but not applied yet (vsync and size are): S-Render/M2 (ADR-0053),
   M13 (audio), M15 (accessibility).
@@ -756,3 +767,8 @@ None open. Known gaps (planned):
   `--benchmark` with per-set timings, lighting calibration (ADR-0050 amendment). Bug found and
   fixed: draped meshes wound CCW in (x, z) face down and were back-face culled (overlay, ghost).
   Main-thread p95 33.7 → 16.8 ms after the rebuild budget; still over 8 ms (Next step).
+- 2026-10-16 — Off-thread terrain/water/scatter meshing (`AsyncComputeTaskPool`, `TerrainRes`
+  holds `Arc<Terrain>`), far terrain merged into 4×4 super-chunks (1 800 → 1 027 meshes);
+  benchmark `m2_slice` main p50 8.9 / p95 14.5 ms, view-sync 0.65 / 2.45 ms; new `empty`
+  baseline scene p50 7.0 / p95 11.2 ms (engine pre/post-update dominate in the contended
+  container). User-reported junction ground clipping fixed (Known bugs).

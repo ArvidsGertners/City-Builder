@@ -72,8 +72,8 @@ pub struct FeatureAnchor {
     pub dir: Vec2,
 }
 
-/// Named feature anchors of the starting scene (`town`, `slope`, `fill`, `cut`, `shore`,
-/// `corner`, `steep`).
+/// Named feature anchors of the starting scene (`town`, `map` (centre), `slope`, `fill`, `cut`,
+/// `shore`, `corner`, `steep`).
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct SceneFeatures(pub std::collections::BTreeMap<String, FeatureAnchor>);
 
@@ -134,8 +134,15 @@ pub fn find_site(t: &cb_terrain::Terrain, size_m: f32) -> Vec2 {
     best.1
 }
 
+/// Marker: start without the demo town (the `empty` benchmark scene).
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct NoDemoTown;
+
 /// Builds the demo town and points the camera at it.
 pub fn demo_town(world: &mut World) {
+    if world.contains_resource::<NoDemoTown>() {
+        return;
+    }
     let Some(site) = world
         .get_resource::<TerrainRes>()
         .map(|t| find_site(t.terrain(), 420.0))
@@ -170,6 +177,7 @@ pub fn demo_town(world: &mut World) {
         );
     };
     put("town", site, Vec2::X);
+    put("map", Vec2::ZERO, Vec2::X);
     for (name, feat) in [
         ("slope", f.slope),
         ("fill", f.fill),

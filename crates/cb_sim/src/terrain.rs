@@ -7,6 +7,8 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use cb_network::validation::Ground;
 use cb_terrain::{SampleRect, Stamp, Terrain, WorldGenParams};
+use std::sync::Arc;
+
 use glam::Vec2;
 
 /// How the sim gets its terrain.
@@ -28,10 +30,11 @@ pub enum TerrainSetup {
     Generate,
 }
 
-/// The terrain.
+/// The terrain. Held behind an `Arc` so presentation can mesh chunks off the main thread from
+/// a snapshot; edits copy on write (`Arc::make_mut`) only while such a snapshot is alive.
 #[derive(Resource)]
 pub struct TerrainRes {
-    pub(crate) t: Terrain,
+    pub(crate) t: Arc<Terrain>,
 }
 
 impl TerrainRes {
@@ -39,6 +42,12 @@ impl TerrainRes {
     #[must_use]
     pub fn terrain(&self) -> &Terrain {
         &self.t
+    }
+
+    /// A shared read-only snapshot of the current terrain (for background meshing).
+    #[must_use]
+    pub fn snapshot(&self) -> Arc<Terrain> {
+        Arc::clone(&self.t)
     }
 }
 
@@ -72,13 +81,13 @@ pub fn build(
                 *h,
             );
             Some(TerrainRes {
-                t: Terrain::from_world(w),
+                t: Arc::new(Terrain::from_world(w)),
             })
         }
         TerrainSetup::Generate => {
             let w = cb_terrain::generate(&WorldGenParams::default(), seed)?;
             Some(TerrainRes {
-                t: Terrain::from_world(w),
+                t: Arc::new(Terrain::from_world(w)),
             })
         }
     })
@@ -104,14 +113,14 @@ impl Ground for GroundView<'_> {
 /// Ground view of a world.
 #[must_use]
 pub fn ground(world: &World) -> GroundView<'_> {
-    GroundView(world.get_resource::<TerrainRes>().map(|r| &r.t))
+    GroundView(world.get_resource::<TerrainRes>().map(|r| &*r.t))
 }
 
 /// Adds a stamp and reports the dirty rect.
 pub(crate) fn add_stamp(world: &mut World, stamp: Stamp) {
     let rect = world
         .get_resource_mut::<TerrainRes>()
-        .map(|mut r| r.t.add_stamp(stamp));
+        .map(|mut r| Arc::make_mut(&mut r.t).add_stamp(stamp));
     if let Some(rect) = rect {
         world.write_message(TerrainChanged { rect });
     }
@@ -121,7 +130,7 @@ pub(crate) fn add_stamp(world: &mut World, stamp: Stamp) {
 pub(crate) fn remove_stamp(world: &mut World, id: u32) {
     let rect = world
         .get_resource_mut::<TerrainRes>()
-        .and_then(|mut r| r.t.remove_stamp(id));
+        .and_then(|mut r| Arc::make_mut(&mut r.t).remove_stamp(id));
     if let Some(rect) = rect {
         world.write_message(TerrainChanged { rect });
     }

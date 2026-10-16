@@ -85,3 +85,12 @@ found:
   a simplified junction surface (angular blend; ADR-0063 defines the real one), synthetic terrain.
 - Revisit if terrain generation (§7) produces sharper features than the spike's (skirt depths are
   data-driven), or if retaining walls are added.
+
+## Amendments
+
+- 2026-10-16 (M2, bug "ground clipping through junctions"): junctions get their own stamp —
+  `StampShape::Surface` (triangulated junction outer polygon with heights; core samples take the
+  interpolated height − `CARVE_M`, no blend zone) at the new priority `JUNCTION` (3, above
+  `ROAD`). Segment corridors each follow their own profile, so where a junction joins several
+  grades its flat surface triangles could sit up to 0.16 m below the composited corridor ground.
+  Regression test `junction_surface_above_terrain` (cb_sim `tests/world.rs`).
