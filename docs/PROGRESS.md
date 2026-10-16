@@ -496,8 +496,16 @@ unlocked" until M7.
       `undo_depth_limit_100`, `undo_blocked_reports_reason`, `undo_refund_decays`,
       `undo_after_window_rejected`, `replay_command_log_reproduces_hash`
       (`crates/cb_sim/tests/undo.rs`).
-- [ ] Bulldoze: `demolish_validate_lists_dependents` (passes); dialog shot M3-12 (suite, M3.7).
-- [ ] Shots (noon clear; d in m; pitch 40° unless noted):
+- [x] Bulldoze: `demolish_validate_lists_dependents`; dialog shot M3-12 (three choices, dependent
+      plots outlined).
+- [x] Road tools in the game (added in M3.8 — the commands above had no UI): road tool
+      roundabout preset (`BuildRoundabout`, atomic, one undo step:
+      `build_roundabout_command_makes_entries_and_undoes_in_one_step`,
+      `build_roundabout_rolls_back_when_an_arc_fails`); Edit road tool (U) — upgrade/downgrade,
+      decorate, junction control, move node — with sim previews (shots M3-17, M3-18).
+- [x] Markings follow control (`markings_follow_control_and_ring_roles`; ring entries with
+      give-way lines and splitter islands, nothing on the ring).
+- [x] Shots (noon clear; d in m; pitch 40° unless noted):
 
   | ID | Subject | Must be visible |
   |---|---|---|
@@ -505,16 +513,18 @@ unlocked" until M7.
   | M3-02 | X avenue×street with lights d 80 | median opening, signal heads, turn arrows |
   | M3-03 | Y at 30° d 60 | no overlapping meshes, clean acute corner |
   | M3-04 | 5-way d 80 | simple polygon, crosswalks on all arms |
-  | M3-05 | junction on 8 % slope d 40, pitch 15° | no steps between approaches and junction surface |
+  | M3-05 | junction on 8 % slope d 50, pitch 18°, yaw 90° (houses blocked lower views) | no steps between approaches and junction surface |
   | M3-06 | river bridge with 3 piers d 200, pitch 25° | deck, railings, piers in water, abutments meeting embankments |
   | M3-07 | valley bridge, piers > 25 m, d 250 | tapered tall piers, smooth deck profile |
   | M3-08 | overpass over a street d 80, pitch 20° | lower road unaffected, clearance visible |
   | M3-09 | decorated avenue (tree rows, lamps, grass strip, cobblestone) d 50 | even spacing on a curve; lamps upright on slope |
   | M3-10 | lanes/connectors/conflicts debug overlay on the 5-way d 60, UI on | all connectors drawn, zones distinct |
-  | M3-11 | one-way pair + dirt path d 120 | arrows; dirt path material |
+  | M3-11 | one-way pair + dirt path d 150, pitch 55° | arrows; dirt path material |
   | M3-12 | bulldoze dialog, UI on | three choices, dependents highlighted |
   | M3-13/14/15 | M3-02 at yaw 0/120/240 | consistent from all sides |
   | M3-16 | roundabout d 80 | ring, yield markings on entries, splitter islands |
+  | M3-17 | edit tool, upgrade a street to avenue, UI on | segment highlight, cost label, mode bar |
+  | M3-18 | road tool, roundabout preset r 35, UI on | ring ghost, radius and cost label |
 
 ### M4 — All zone types, special buildings, leveling visuals (estimate 10)
 Includes: citygen 10k scene, `DebugCommand::{SetBuildingLevel, SetCondition}`, free decoration
