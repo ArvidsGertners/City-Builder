@@ -10,7 +10,9 @@ authors.workspace = true
 
 [dependencies]
 cb_core.workspace = true
+cb_geometry.workspace = true
 glam.workspace = true
+serde.workspace = true
 
 [lints]
 workspace = true

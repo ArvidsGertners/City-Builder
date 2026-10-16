@@ -1745,7 +1745,9 @@ name = "cb_network"
 version = "0.1.0"
 dependencies = [
  "cb_core",
+ "cb_geometry",
  "glam",
+ "serde",
 ]
 
 [[package]]
