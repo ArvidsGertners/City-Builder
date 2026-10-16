@@ -45,7 +45,7 @@ in the PROGRESS.md log. Values live in code consts or `crates/cb_sim/data/*.ron`
 | Cut-back growth step | 2 m, ≤ 40 iterations | `junction_generation_p99` | p99 ≤ 0.4 ms (S-J: 1.4 ms, M3 optimization) |
 | Ray de-crossing | 8 × 5° | `subdivide_random_10k_invariants` | no crossing rays; ≤ 3 % merged lots (S-P: never triggered, 1.5 % merged) |
 | Ray rule | mean inward normal over ±½ narrower lot, no PCA blend (ADR-0064) | `subdivide_random_10k_invariants` | rect ≥ 0.55 for ≥ 95 % before merging (S-P: 99.2 %) |
-| Fan cap | 25° frontage turn per lot, lot ≥ w_min + 2 m on tight curves | `subdivide_fan_le_25_or_tight_curve` | fan ≤ max(25°, 1.2 · w_min / r) (S-P: max 27°) |
+| Fan cap | 25° frontage turn per lot, lot ≥ w_min + 2 m on tight curves | `subdivide_fan_le_25_or_tight_curve` | fan ≤ max(25°, w_dense / r), w_dense = max(w_min + 2, L/⌊L/w_min⌋), merges exempt; > 25° on ≤ 2 % (S-P 0.74 %, crate 0.60 %) |
 | Corner lot | fillet + 0.65 · w_target each side | `subdivide_corner_lot_fronts_both_roads` | corner lots front both roads (S-P: 4/4) |
 | Edit slack / repair hysteresis | ×1.1 on w_max and fan cap; rect 0.50, area 0.9 a_min for existing lots | `lot_ids_stable_under_small_drags` | ≤ 1 m drags keep ≥ 90 % IDs (S-P: 99.8 %) |
 | Rectangularity min | 0.55 | `subdivide_random_10k_invariants` | ≥ 95 % of lots pass before merging |

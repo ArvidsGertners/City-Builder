@@ -122,3 +122,79 @@ mod tests {
         assert!((areas[0] - 40.0).abs() < 1e-3 && (areas[1] - 60.0).abs() < 1e-3);
     }
 }
+
+/// `f64` boolean helpers for the plot/lot pipeline (same 1 mm grid). Results are outer
+/// contours and the number of holes dropped.
+pub mod f64ops {
+    use glam::DVec2;
+    use i_overlay::core::fill_rule::FillRule;
+    use i_overlay::core::overlay_rule::OverlayRule;
+    use i_overlay::float::scale::FixedScaleFloatOverlay;
+    use i_overlay::float::slice::FloatSlice;
+
+    use super::SCALE;
+    use crate::d2::Poly;
+
+    fn arr(p: &[DVec2]) -> Vec<[f64; 2]> {
+        p.iter().map(|v| [v.x, v.y]).collect()
+    }
+
+    fn outers(shapes: Vec<Vec<Vec<[f64; 2]>>>) -> (Vec<Poly>, usize) {
+        let mut holes = 0;
+        let out = shapes
+            .into_iter()
+            .filter_map(|s| {
+                holes += s.len().saturating_sub(1);
+                s.into_iter()
+                    .next()
+                    .map(|c| c.iter().map(|a| DVec2::new(a[0], a[1])).collect())
+            })
+            .collect();
+        (out, holes)
+    }
+
+    /// Union of polygons.
+    #[must_use]
+    pub fn union_all(polys: &[Poly]) -> (Vec<Poly>, usize) {
+        let subj: Vec<Vec<[f64; 2]>> = polys.iter().map(|p| arr(p)).collect();
+        let empty: Vec<Vec<[f64; 2]>> = Vec::new();
+        outers(
+            subj.overlay_with_fixed_scale(&empty, OverlayRule::Subject, FillRule::NonZero, SCALE)
+                .unwrap_or_default(),
+        )
+    }
+
+    /// Intersection.
+    #[must_use]
+    pub fn intersect(a: &Poly, b: &Poly) -> Vec<Poly> {
+        outers(
+            arr(a)
+                .overlay_with_fixed_scale(&arr(b), OverlayRule::Intersect, FillRule::NonZero, SCALE)
+                .unwrap_or_default(),
+        )
+        .0
+    }
+
+    /// Difference `a − ∪ b`.
+    #[must_use]
+    pub fn difference(a: &Poly, b: &[Poly]) -> Vec<Poly> {
+        let clip: Vec<Vec<[f64; 2]>> = b.iter().map(|p| arr(p)).collect();
+        outers(
+            arr(a)
+                .overlay_with_fixed_scale(&clip, OverlayRule::Difference, FillRule::NonZero, SCALE)
+                .unwrap_or_default(),
+        )
+        .0
+    }
+
+    /// Slices a polygon by open polylines.
+    #[must_use]
+    pub fn slice(poly: &Poly, lines: &[Vec<DVec2>]) -> (Vec<Poly>, usize) {
+        let strings: Vec<Vec<[f64; 2]>> = lines.iter().map(|l| arr(l)).collect();
+        outers(
+            arr(poly)
+                .slice_by_fixed_scale(&strings, FillRule::NonZero, SCALE)
+                .unwrap_or_default(),
+        )
+    }
+}

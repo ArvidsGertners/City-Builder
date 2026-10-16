@@ -100,3 +100,17 @@ before the lot stays green.
   than the plot tool.
 - Revisit if the plot tool adds polygon-mode plots with frontage on two roads that are not joined
   by a fillet (two frontage chains), or if building fitting moves to async spawn time.
+
+## Amendments
+
+- 2026-10-16 (M2 port to `cb_geometry`): the fan bound `1.2 · w_min / r` is not achievable when
+  the frontage fits too few whole lots (a 68 m industrial frontage on r = 58 m holds at most two
+  34 m lots). Stated precisely: non-merged, non-corner lots have `fan ≤ max(25°, w_dense / r)`
+  with `w_dense = max(w_min + 2 m, L / ⌊L / w_min⌋)`. When the solver stays infeasible after the
+  added splits, creation uses the densest layout (equal lots of about `w_min` between pinned
+  splits, corner lots whole) instead of the unconstrained jittered widths. Frontages are built
+  from polyline parts plus explicit fillet arcs; concave runs in polylines are detected from
+  same-sign vertex turns (radius = run length / turn, centre = circumcentre of the run's first,
+  middle and last vertex). Crate results on the S-P random set: 86 602 lots, area error ≤ 0.006 %,
+  0 overlaps, rectangularity pass 99.2 %, 1.5 % merged, 98.3 % R fit, fan > 25° on 0.60 %,
+  ≤ 1 m drags keep 99.9 % IDs, N ± 1 meets `(N − 2)/N` on 99.5 %.

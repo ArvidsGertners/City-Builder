@@ -5,24 +5,37 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Current status
 
-- **Phase:** S (risk spikes) ☑ — S-Render ☑, S-Time ☑ (fallback ADR-0062), S-J ☑ (ADR-0063),
-  S-P ☑ (ADR-0064), S-G ☑ (ADR-0065), S-T ☑ (ADR-0066/0067); next: **M2 vertical slice**.
-- **Last updated:** 2026-10-15
+- **Phase:** M2 vertical slice (in progress). Phase S ☑ — S-Render ☑, S-Time ☑ (fallback
+  ADR-0062), S-J ☑ (ADR-0063), S-P ☑ (ADR-0064), S-G ☑ (ADR-0065), S-T ☑ (ADR-0066/0067).
+- **M2 done so far (pure crates):** `cb_terrain` (worldgen with rivers/lakes/outside connections,
+  stamps + order-independent compositing, chunk meshes LOD0–3 with skirts, raycast, scatter;
+  `worldgen_features_seed_1_to_20`, `terrain_generation_deterministic` pass, worst generation
+  1.75 s); `cb_geometry` (Béziers, arc length, polylines, polygons, i_overlay booleans, ear
+  clipping, MeshData, Schneider fitting, **frontage + ADR-0064 subdivision + building fitting**:
+  `subdivide_random_10k_invariants`, `building_footprint_within_lot_10k`,
+  `lot_ids_stable_under_small_drags`, `lot_ids_n_plus_minus_one_keep_n_minus_2`,
+  `subdivide_fan_le_25_or_tight_curve`, `subdivide_corner_lot_fronts_both_roads` pass);
+  `cb_network` (cross-sections, segment geometry, profile solver, validation reasons with l10n
+  keys, crossing fixed point). The determinism probe prints terrain and subdivision hashes.
+- **Last updated:** 2026-10-16
 - **Verified environment:** Bevy 0.20.0 (2026-10-08), bevy_egui 0.43.1 (Bevy 0.20), rustc 1.97.1;
   `bevy-inspector-egui` 0.37 targets Bevy 0.19 (ADR-0031); `mesa-vulkan-drivers` (lavapipe) and
   Xvfb installable in the container for rendering without a GPU.
 
 ## Next step
 
-**M2 — vertical slice**, first item *Worldgen* (ALGORITHMS §7, ADR-0065; spike code in
-`spikes/s_g/src/terrain.rs` shows the validated approach but is not promoted as-is).
-First action: in `crates/cb_terrain` (layout ARCHITECTURE §3) add `heightfield.rs`
-(`Heightfield` on the 2 m grid with bilinear sampling, normals, slope via `cb_core::math`),
-`noise.rs` (gradient noise, fBm, ridged, domain warp), then `generate.rs`
-(`pub fn generate(params: &WorldGenParams, seed: u64) -> Result<World, TerrainError>`, steps 1–8
-of ALGORITHMS §7 over 64 row partitions, with `rivers.rs` and `lakes.rs`), then the tests `worldgen_features_seed_1_to_20` and
-`terrain_generation_deterministic` (M2 checklist below). Read ADR-0065, ADR-0043 (seeds) and
-the M2 section before starting; traffic work (ADR-0066/0067) resumes in M5/M9.
+**M2.4 — `cb_procgen`** (crate is an empty skeleton): houses L1–L3 on fitted footprints, yards
+(fence, shed, garden, driveway), trees, road meshes. First action: add
+`crates/cb_procgen/src/building/{mod.rs,massing.rs,roofs.rs}` with
+`pub fn massing(footprint: [DVec2; 4], level: u8, seed: u64) -> Massing` (OBB modules + height)
+and `pub fn house_mesh(&Massing, lot: &[DVec2], heights, seed) -> MeshData` in the 20 B vertex
+format (ART_DIRECTION house palette, gable/hip roofs), then `yard.rs`, `trees.rs`,
+`road_mesh.rs` (sweep of `cb_network::CrossSection` along `SegmentGeom` + `Profile`), with
+golden-hash tests and triangle budgets (TESTING §2, PERFORMANCE). Afterwards M2.5 `cb_sim`
+(commands ADR-0055, terrain resource, roads, plots/lots via `cb_geometry::subdivide`, growth
+stub, economy stub, citygen) and M2.6 `cb_game`. Still open in pure crates for the M2 checklist:
+`plot_clipped_by_new_corridor` (sim level, M2.5), `grading_continuous_compositing`,
+procgen golden hashes.
 
 ## Process conventions (ADR-0058)
 
@@ -702,3 +715,6 @@ None open. Known gaps (planned):
   ADR-0067 supersedes ADR-0048): traffic at 5 000 agents meets every timing, safety and
   determinism gate without a fallback; despawn gate met at V/C ≤ 1 (0.67 per 1 000); cache hit
   rate reported only (harness-limited). **Phase S complete**; next M2.
+- 2026-10-16 — M2 pure crates: `cb_terrain`, `cb_geometry` (incl. the ADR-0064 port) and
+  `cb_network` landed with their tests; ADR-0064 amended (achievable fan bound, densest fallback,
+  frontage detection from polylines). Next `cb_procgen`.

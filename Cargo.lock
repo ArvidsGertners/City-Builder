@@ -1765,6 +1765,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "cb_core",
+ "cb_geometry",
  "cb_terrain",
  "serde",
  "thiserror 2.0.21",

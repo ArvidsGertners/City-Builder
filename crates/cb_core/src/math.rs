@@ -124,6 +124,27 @@ pub fn cos_f64(x: f64) -> f64 {
     libm::cos(x)
 }
 
+/// `f64` sine.
+#[inline]
+#[must_use]
+pub fn sin_f64(x: f64) -> f64 {
+    libm::sin(x)
+}
+
+/// `f64` sine and cosine.
+#[inline]
+#[must_use]
+pub fn sin_cos_f64(x: f64) -> (f64, f64) {
+    (libm::sin(x), libm::cos(x))
+}
+
+/// `f64` four-quadrant arctangent of `y / x`.
+#[inline]
+#[must_use]
+pub fn atan2_f64(y: f64, x: f64) -> f64 {
+    libm::atan2(y, x)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

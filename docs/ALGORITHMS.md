@@ -299,7 +299,8 @@ for pollution absorption and land value comes from a deterministic 8 m density f
 
 ## 10. Plot subdivision — `cb_geometry::subdivide` (ADR-0064)
 
-Input: plot polygon `P` (CCW), frontage polyline(s) `F`, target lot count `N` (player) or
+Input: plot polygon `P` (CCW), frontage polyline(s) `F` (`cb_geometry::frontage`: polyline parts
+plus explicit fillet arcs; curved runs in polylines are detected from same-sign vertex turns), target lot count `N` (player) or
 `round(len(F) / w_target)`, zone parameters `(w_min, w_target, w_max, d_max, a_min)`, seed, and
 for edits the plot's persisted split state (pre-repair split positions on the road edge, the
 splits its repair removed, lot count).
@@ -308,7 +309,9 @@ splits its repair removed, lot count).
    projection of split positions onto per-lot bounds, ≤ 400 passes, pinned splits fixed)
    enforces `[w_min, hi]`, `hi = min(w_max, max(w · 25° / turn(lot), w_min + 2 m))`, so lots on
    curves narrow until their frontage turns ≤ 25° (where whole lots ≥ `w_min` allow it:
-   `fan ≤ max(25°, 1.2 · w_min / r)`). Infeasible → add a split in the widest lot (≤ 4×).
+   `fan ≤ max(25°, w_dense / r)`, `w_dense = max(w_min + 2 m, L / ⌊L / w_min⌋)`). Infeasible →
+   add a split in the widest lot (≤ 4×); still infeasible → the densest layout (equal lots of
+   about `w_min` between pinned splits, corner lots whole).
    **Kinks** (non-corner arcs turning 25–45° over < 10 m) get a pinned split at their midpoint.
    **Corners** (concave fillet turning ≥ 45°): the corner lot spans the fillet plus
    `0.65 · w_target` on each side (pinned); the arms are subdivided separately.

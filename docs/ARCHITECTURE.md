@@ -122,8 +122,10 @@ City-Builder/
     │       ├── polygon.rs      Simple polygon: area, orientation, contains, convexity, inset, repair
     │       ├── boolean.rs      Wrapper over i_overlay (union/intersection/difference/offset) with snapping
     │       ├── triangulate.rs  Ear clipping (with hole bridging) for meshing polygons
-    │       ├── rect_fit.rs     Largest inscribed oriented rectangle in polygon
-    │       ├── subdivide.rs    Frontage-strip lot subdivision (ADR-0064)
+    │       ├── d2.rs           f64 planar helpers (hull, min OBB, rectangularity) for plots/lots
+    │       ├── frontage.rs     Frontage analysis: arc length, seams, kinks, plot polygon (ADR-0064)
+    │       ├── rect_fit.rs     Setback inset + largest inscribed oriented rectangle (building fitting)
+    │       ├── subdivide.rs    Frontage-strip lot subdivision, stable lot IDs (ADR-0064)
     │       ├── predicates.rs   Robust orientation/intersection tests (f64, epsilon policy)
     │       ├── sweep.rs        Sweep a 2D cross-section along a 3D curve (road/bridge/railing meshes)
     │       ├── mesh.rs         MeshData (positions, normals, colors, custom attributes, indices) + builders
