@@ -5,7 +5,7 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Current status
 
-- **Phase:** M3 full road system ☑ (user verification UV-10 open; CI see log) → M4 next. M2 ☑
+- **Phase:** M3 full road system ☑ (user verification UV-10 open; CI green on all three OSes) → M4 next. M2 ☑
   (UV-2/3/4 open). Phase S ☑ — S-Render ☑, S-Time ☑ (fallback
   ADR-0062), S-J ☑ (ADR-0063), S-P ☑ (ADR-0064), S-G ☑ (ADR-0065), S-T ☑ (ADR-0066/0067).
 - **M2 done so far (pure crates):** `cb_terrain` (worldgen with rivers/lakes/outside connections,
@@ -856,7 +856,7 @@ Known gaps (planned):
   tool roundabout preset (`BuildRoundabout`, atomic with rollback, removes road pieces inside the
   ring, one undo step) and the Edit road tool (U: upgrade, decorate, junction control, move node)
   with sim previews. Benchmark report gained per-`ViewStep` timings.
-- 2026-10-16 — **M3 done** (CI pending). Evidence: fmt; clippy default + `dev` clean; `cargo test
+- 2026-10-16 — **M3 done**. Evidence: fmt; clippy default + `dev` clean; `cargo test
   --workspace` and `--features dev` green (36 binaries, 280 tests each); sim isolation ok; release
   smoke `frames=60 validation_errors=0`; determinism probe (Linux): terrain/subdivision/clock
   hashes unchanged from M2, m2_scene `e817d82b5c004d7b` (289 buildings; changes with junction
@@ -864,3 +864,7 @@ Known gaps (planned):
   (3.67–4.81), `m2_slice` 4.07–4.17 ms, `empty` 2.57 ms — over the 4 ms container budget, logged
   in Known bugs with a plan (terrain hand-over, M2 code). Suite M3 metrics: magenta 0, holes 0,
   black 0, clipped ≤ 0.01 %.
+- 2026-10-16 — M3 CI confirmed on `02af6b5`: `ci.yml` run 56 green
+  (https://github.com/ArvidsGertners/City-Builder/actions/runs/38955953609); `nightly.yml`
+  dispatch run 4 green — macOS check default + dev, determinism probe on Linux/Windows/macOS
+  with matching hashes (https://github.com/ArvidsGertners/City-Builder/actions/runs/38955970587).
