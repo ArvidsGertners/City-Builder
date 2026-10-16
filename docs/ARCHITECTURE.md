@@ -288,7 +288,8 @@ City-Builder/
 ```
 
 **M2 state of `cb_game`** (the tree above is the target): `picking.rs` (cursor ray, ground pick,
-`ScriptedCursor` for suites), `tools.rs` (road/plot/bulldoze tools, ghost, toolbar, plot panel,
+`ScriptedCursor` for suites), `tools.rs` (road tool incl. roundabout preset, road edit tool — upgrade, decorate, junction
+control, move node —, plot/bulldoze tools, ghost, toolbar, plot panel,
 cursor label — split into `tools/` when M3 adds more tools), `overlay.rs` (zoning view: draped
 plot fills, outlines, lot lines — becomes `overlays/` with the data views of M5), `view.rs`
 (all view sync; split per kind when chunk merging lands), `render/` (materials, lighting, sky),
@@ -496,7 +497,8 @@ Design: ADR-0055 (framework in M2, history in M3).
 
 ```rust
 pub enum PlayerCommand {               // serializable, stable IDs only, versioned with the save format
-    BuildRoad(..), EditRoadGeometry(..), SetRoadType(..) /* upgrade/downgrade + variant */,
+    BuildRoad(..), BuildRoundabout { center, radius_m } /* atomic preset, one undo step */,
+    EditRoadGeometry(..), SetRoadType(..) /* upgrade/downgrade + variant */,
     SetSegmentStyle(..), RemoveSegment { segment, remove_plots /* cascade policy */ },
     SetApproachControl { node, mode /* Auto|Custom|AllWayStop|Lights */, custom },
     CreatePlot(..), EditPlot(..), SetSubdivision(..), DeletePlot(..),

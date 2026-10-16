@@ -39,7 +39,9 @@ samples by length) with binary search + linear interpolation for `t(s)`.
 - *Freehand*: samples every ≥ 2 m while dragging, Chaikin ×2, Schneider fitting (max error
   0.75 m, G1 at splits); pieces become segments with continuation nodes.
 - *Roundabout preset*: click center, drag radius (15–60 m) → ring of 4 one-way arcs; entries
-  are created where existing roads cross the ring (ADR-0063 ring detection applies).
+  are created where existing roads cross the ring (ADR-0063 ring detection applies) and the
+  road pieces inside the ring are removed. One command (`BuildRoundabout`), all or nothing:
+  a rejected step rolls back the whole ring, money included; one undo step.
 - Long curves are split **evenly** into `ceil(len / 120 m)` pieces, also if turning > 90°;
   never below 6 m.
 
