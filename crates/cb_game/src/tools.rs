@@ -146,6 +146,28 @@ pub enum ActiveTool {
     Bulldoze,
 }
 
+/// Open bulldoze dialog (ALGORITHMS §14): the segment and the plots fronting it.
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub struct BulldozeDialog {
+    /// Segment to bulldoze (`None`: closed).
+    pub segment: Option<SegmentId>,
+    /// Plots fronting it.
+    pub plots: Vec<PlotId>,
+    /// Houses on those plots.
+    pub houses: usize,
+}
+
+impl BulldozeDialog {
+    /// Opens the dialog for `segment` with its dependents.
+    pub fn open(&mut self, segment: SegmentId, plots: Vec<PlotId>, houses: usize) {
+        *self = Self {
+            segment: Some(segment),
+            plots,
+            houses,
+        };
+    }
+}
+
 /// Zoning view toggle (plots and lot lines; always on with the plot tool).
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ZoningView(pub bool);
@@ -175,6 +197,7 @@ impl Plugin for ToolsPlugin {
             .init_resource::<ZoningView>()
             .init_resource::<Toast>()
             .init_resource::<UiVisible>()
+            .init_resource::<BulldozeDialog>()
             .add_systems(Startup, setup_ghost)
             .add_systems(
                 Update,
@@ -203,6 +226,7 @@ fn tool_keys(
     logical: Res<ButtonInput<Key>>,
     mut tool: ResMut<ActiveTool>,
     mut zoning: ResMut<ZoningView>,
+    mut queue: ResMut<CommandQueue>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         match &mut *tool {
@@ -221,6 +245,27 @@ fn tool_keys(
     }
     // Mnemonic shortcuts bind logical keys (CLAUDE.md platform rules).
     let ch = |c: &str| logical.just_pressed(Key::Character(c.into()));
+    let held = |a: KeyCode, b: KeyCode| keys.pressed(a) || keys.pressed(b);
+    let mods = crate::platform::modifiers::logical_mods(
+        crate::platform::Os::current(),
+        crate::platform::modifiers::PhysicalMods {
+            shift: held(KeyCode::ShiftLeft, KeyCode::ShiftRight),
+            ctrl: held(KeyCode::ControlLeft, KeyCode::ControlRight),
+            alt: held(KeyCode::AltLeft, KeyCode::AltRight),
+            super_key: held(KeyCode::SuperLeft, KeyCode::SuperRight),
+        },
+    );
+    use crate::platform::modifiers::Mods;
+    if mods.contains(Mods::PRIMARY) {
+        // Undo: Primary+Z; redo: Primary+Shift+Z or Primary+Y (ADR-0055).
+        let z = ch("z") || ch("Z");
+        if z && !mods.contains(Mods::SHIFT) {
+            queue.push(PlayerCommand::Undo);
+        } else if (z && mods.contains(Mods::SHIFT)) || ch("y") || ch("Y") {
+            queue.push(PlayerCommand::Redo);
+        }
+        return;
+    }
     if ch("r") {
         *tool = ActiveTool::Road(Box::default());
     } else if ch("z") {
@@ -295,7 +340,9 @@ fn tool_input(
     nodes: Query<&RoadNode>,
     segs: Query<&RoadSegment>,
     plots: Query<&Plot>,
+    lots: Query<&cb_sim::zoning::Lot>,
     ids: Option<Res<Ids>>,
+    mut dialog: ResMut<BulldozeDialog>,
 ) {
     owns.0 = matches!(&*tool, ActiveTool::Plot(_))
         || matches!(&*tool, ActiveTool::Road(r) if r.mode == RoadMode::Freehand);
@@ -484,20 +531,29 @@ fn tool_input(
             }
         }
         ActiveTool::Bulldoze => {
-            if buttons.just_pressed(MouseButton::Left) && !alt {
+            if buttons.just_pressed(MouseButton::Left) && !alt && dialog.segment.is_none() {
                 // A bridge deck under the cursor wins over the ground below it.
-                if let Some((sid, _)) = pick.deck {
-                    queue.push(PlayerCommand::RemoveSegment { segment: sid });
-                    return;
-                }
-                let seg = segs.iter().find(|s| {
-                    s.geom().project(p).1.abs() < s.geom().half_width_m && {
-                        let sp = s.geom().project(p).0;
-                        sp > 0.0 && sp < s.geom().length()
-                    }
+                let seg = pick.deck.map(|d| d.0).or_else(|| {
+                    segs.iter()
+                        .find(|s| {
+                            s.geom().project(p).1.abs() < s.geom().half_width_m && {
+                                let sp = s.geom().project(p).0;
+                                sp > 0.0 && sp < s.geom().length()
+                            }
+                        })
+                        .map(RoadSegment::id)
                 });
-                if let Some(s) = seg {
-                    queue.push(PlayerCommand::RemoveSegment { segment: s.id() });
+                if let Some(sid) = seg {
+                    // Plots fronting the road: ask what to do with them (ALGORITHMS §14).
+                    let (deps, houses) = segment_dependents(sid, &plots, &lots, ids.as_deref());
+                    if deps.is_empty() {
+                        queue.push(PlayerCommand::RemoveSegment {
+                            segment: sid,
+                            remove_plots: false,
+                        });
+                    } else {
+                        dialog.open(sid, deps, houses);
+                    }
                 } else if let Some(id) = ids.as_ref().and_then(|i| {
                     i.plots.iter().find_map(|(id, e)| {
                         plots
@@ -512,6 +568,31 @@ fn tool_input(
             }
         }
     }
+}
+
+/// Plots fronting a segment and the houses on their lots.
+fn segment_dependents(
+    sid: SegmentId,
+    plots: &Query<&Plot>,
+    lots: &Query<&cb_sim::zoning::Lot>,
+    ids: Option<&Ids>,
+) -> (Vec<PlotId>, usize) {
+    let mut deps = Vec::new();
+    let mut houses = 0;
+    for p in plots.iter().filter(|p| p.segments().contains(&sid)) {
+        deps.push(p.id());
+        houses += p
+            .lots()
+            .iter()
+            .filter(|l| {
+                ids.and_then(|i| i.lots.get(**l))
+                    .and_then(|e| lots.get(e).ok())
+                    .is_some_and(|l| l.building().is_some())
+            })
+            .count();
+    }
+    deps.sort();
+    (deps, houses)
 }
 
 /// Edit handles of a plot: frontage start, frontage end, depth handle (+ inward normal).
@@ -740,9 +821,24 @@ fn draw_gizmos(
     terrain: Option<Res<TerrainRes>>,
     ids: Option<Res<Ids>>,
     plots: Query<&Plot>,
+    dialog: Res<BulldozeDialog>,
 ) {
     let ground = |q: Vec2| terrain.as_ref().map_or(0.0, |t| t.terrain().height_at(q)) + 0.4;
     let p3 = |q: Vec2| Vec3::new(q.x, ground(q), q.y);
+    // Bulldoze dialog: highlight the plots that would go with the road.
+    for pid in &dialog.plots {
+        if let Some(plot) = ids
+            .as_ref()
+            .and_then(|i| i.plots.get(*pid))
+            .and_then(|e| plots.get(e).ok())
+        {
+            let mut pts: Vec<Vec3> = plot.polygon().iter().map(|q| p3(*q)).collect();
+            if let Some(f) = pts.first().copied() {
+                pts.push(f);
+            }
+            gizmos.linestrip(pts, Color::srgb_u8(0xD0, 0x64, 0x3B));
+        }
+    }
     let teal = Color::srgb_u8(0x4F, 0xB3, 0xB0);
     let coral = Color::srgb_u8(0xD0, 0x64, 0x3B);
     match &*tool {
@@ -962,6 +1058,9 @@ fn toolbar_ui(
     plots: Query<&Plot>,
     catalog: Option<Res<Catalog>>,
     visible: Res<UiVisible>,
+    mut dialog: ResMut<BulldozeDialog>,
+    history: Option<Res<cb_sim::history::History>>,
+    clock: Option<Res<cb_sim::SimClock>>,
 ) {
     if !visible.0 {
         over_ui.0 = false;
@@ -1055,6 +1154,85 @@ fn toolbar_ui(
                     pt.selected = None;
                 }
             });
+    }
+    // Undo / redo with the action and the refund it would bring now (ADR-0055).
+    if let Some(h) = history.as_deref() {
+        let now = clock.as_ref().map_or(0, |c| c.tick().0);
+        let undo = h.undo_entries().last().and_then(|e| {
+            cb_sim::history::refund_for(e.cost, now.saturating_sub(e.apply_tick))
+                .map(|r| (e.label, r))
+        });
+        let redo = h.redo_entries().last().map(|e| e.label);
+        if undo.is_some() || redo.is_some() {
+            egui::Area::new(egui::Id::new("undo-bar"))
+                .anchor(egui::Align2::LEFT_TOP, egui::vec2(12.0, 56.0))
+                .show(ctx, |ui| {
+                    egui::Frame::window(ui.style()).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if let Some((label, refund)) = undo {
+                                let text = l.tr_args(
+                                    keys::UNDO_BUTTON,
+                                    &[
+                                        ("action", Arg::from(l.tr(LKey(label)).as_str())),
+                                        ("refund", Arg::from(format::money(loc, refund).as_str())),
+                                    ],
+                                );
+                                if ui.button(text).clicked() {
+                                    queue.push(PlayerCommand::Undo);
+                                }
+                            }
+                            if let Some(label) = redo {
+                                let text = l.tr_args(
+                                    keys::REDO_BUTTON,
+                                    &[("action", Arg::from(l.tr(LKey(label)).as_str()))],
+                                );
+                                if ui.button(text).clicked() {
+                                    queue.push(PlayerCommand::Redo);
+                                }
+                            }
+                        });
+                    });
+                });
+        }
+    }
+    // Bulldoze dialog: road and plots / road only / cancel.
+    if let Some(sid) = dialog.segment {
+        let mut close = false;
+        egui::Window::new(l.tr(keys::BULLDOZE_TITLE))
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .resizable(false)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.label(l.tr_args(
+                    keys::BULLDOZE_DEPENDENTS,
+                    &[
+                        ("plots", Arg::from(dialog.plots.len() as i64)),
+                        ("houses", Arg::from(dialog.houses as i64)),
+                    ],
+                ));
+                ui.horizontal(|ui| {
+                    if ui.button(l.tr(keys::BULLDOZE_ROAD_AND_PLOTS)).clicked() {
+                        queue.push(PlayerCommand::RemoveSegment {
+                            segment: sid,
+                            remove_plots: true,
+                        });
+                        close = true;
+                    }
+                    if ui.button(l.tr(keys::BULLDOZE_ROAD_ONLY)).clicked() {
+                        queue.push(PlayerCommand::RemoveSegment {
+                            segment: sid,
+                            remove_plots: false,
+                        });
+                        close = true;
+                    }
+                    if ui.button(l.tr(keys::BULLDOZE_CANCEL)).clicked() {
+                        close = true;
+                    }
+                });
+            });
+        if close {
+            *dialog = BulldozeDialog::default();
+        }
     }
     // Cursor label: invalid reason or cost.
     if let (ActiveTool::Road(r), Some(cursor)) = (&*tool, pick.cursor)

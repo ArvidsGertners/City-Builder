@@ -24,6 +24,9 @@ pub enum ShotTool {
     RoadSteep,
     /// Plot tool with the plot at the `corner` feature selected (handles, ± panel).
     PlotEdit,
+    /// Bulldozer with the dialog open for the street nearest the `slope` feature (dependent
+    /// plots highlighted).
+    BulldozeDialog,
 }
 
 /// One shot.
@@ -136,6 +139,9 @@ struct ShotState<'w, 's> {
     features: Option<Res<'w, SceneFeatures>>,
     ids: Option<Res<'w, cb_sim::ids::Ids>>,
     plots: Query<'w, 's, &'static cb_sim::zoning::Plot>,
+    lots: Query<'w, 's, &'static cb_sim::zoning::Lot>,
+    segs: Query<'w, 's, &'static cb_sim::roads::RoadSegment>,
+    dialog: ResMut<'w, crate::tools::BulldozeDialog>,
     terrain: Option<Res<'w, cb_sim::terrain::TerrainRes>>,
     clear: ResMut<'w, ClearColor>,
     dome: Query<'w, 's, &'static mut Visibility, With<crate::render::lighting::SkyDome>>,
@@ -167,6 +173,7 @@ impl ShotState<'_, '_> {
         self.lanes.0 = shot.lanes;
         self.cursor.0 = None;
         *self.tool = ActiveTool::None;
+        *self.dialog = crate::tools::BulldozeDialog::default();
         let feature = |name: &str| self.features.as_ref().and_then(|f| f.0.get(name).copied());
         match shot.tool {
             None => {}
@@ -206,6 +213,41 @@ impl ShotState<'_, '_> {
                     selected,
                     ..Default::default()
                 });
+            }
+            Some(ShotTool::BulldozeDialog) => {
+                let Some(c) = feature("slope").map(|f| Vec2::new(f.pos.x, f.pos.z)) else {
+                    return;
+                };
+                *self.tool = ActiveTool::Bulldoze;
+                // The street nearest the feature that has plots along it.
+                let mut best: Option<(f32, cb_core::ids::SegmentId)> = None;
+                for seg in &self.segs {
+                    let d = seg.geom().project(c).1.abs();
+                    let fronted = self.plots.iter().any(|p| p.segments().contains(&seg.id()));
+                    if fronted && best.is_none_or(|b| d < b.0) {
+                        best = Some((d, seg.id()));
+                    }
+                }
+                if let Some((_, sid)) = best {
+                    let mut deps = Vec::new();
+                    let mut houses = 0;
+                    for p in self.plots.iter().filter(|p| p.segments().contains(&sid)) {
+                        deps.push(p.id());
+                        houses += p
+                            .lots()
+                            .iter()
+                            .filter(|l| {
+                                self.ids
+                                    .as_ref()
+                                    .and_then(|i| i.lots.get(**l))
+                                    .and_then(|e| self.lots.get(e).ok())
+                                    .is_some_and(|l| l.building().is_some())
+                            })
+                            .count();
+                    }
+                    deps.sort();
+                    self.dialog.open(sid, deps, houses);
+                }
             }
         }
     }

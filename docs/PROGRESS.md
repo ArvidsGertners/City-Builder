@@ -53,11 +53,14 @@ ground-run corridors with soft ends + abutment pads + scatter clearing, `cb_proc
 (8) surfaces and decorations (`cb_network::style`: `SegmentStyle`, `decor_items`;
 `SetSegmentStyle`; `cb_procgen::road_decor` trees/lamps; grass strips and surface colours in
 `road_mesh`) and scripted M3 scenes in `citygen::m3_features` (river bridge, valley viaduct,
-overpass, decorated avenue). Next: M3.6 — `crates/cb_sim/src/save/snapshot.rs` snapshot types
-(segments, nodes incl. control, plots, lots, buildings, treasury) + `cb_sim::history` undo/redo
-(ADR-0055: depth 100, 1 game-day window, refund 100 % → 25 %), `EditRoadGeometry` (node drag /
-control points, re-using `plan_build`), bulldoze dependents (`demolish_validate_lists_dependents`)
-and the bulldoze dialog in `cb_game::tools`; tests listed under M3 Editing/Undo/Bulldoze.
+overpass, decorated avenue). (9) M3.6: undo/redo (`cb_sim::save::snapshot`, `cb_sim::history`, toolbar buttons with refund,
+Primary+Z / Primary+Shift+Z / Primary+Y), `EditRoadGeometry` (move node / reshape), bulldoze
+dependents + dialog (`RemoveSegment { remove_plots }`, `tools::BulldozeDialog`, shot tool
+`BulldozeDialog`). Next: M3.7 — scripted M3 scene completion in `citygen::m3_features` (T/X with
+lights on an avenue, Y 30°, 5-way, junction on 8 % slope, one-way pair + dirt path, roundabout),
+the 16-shot `M3` suite in `screenshot_suites.ron` per the shot table below, then the
+`milestone-completion` skill (fmt, clippy ×2, tests ×2, benchmark game sets, determinism probe,
+visual review in `docs/screenshots/M3/`, PROGRESS, CI on all three OSes).
 
 ## Process conventions (ADR-0058)
 
@@ -493,7 +496,7 @@ unlocked" until M7.
       `undo_depth_limit_100`, `undo_blocked_reports_reason`, `undo_refund_decays`,
       `undo_after_window_rejected`, `replay_command_log_reproduces_hash`
       (`crates/cb_sim/tests/undo.rs`).
-- [ ] Bulldoze: `demolish_validate_lists_dependents`; dialog shot M3-12.
+- [ ] Bulldoze: `demolish_validate_lists_dependents` (passes); dialog shot M3-12 (suite, M3.7).
 - [ ] Shots (noon clear; d in m; pitch 40° unless noted):
 
   | ID | Subject | Must be visible |

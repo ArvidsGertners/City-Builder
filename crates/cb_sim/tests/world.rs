@@ -461,7 +461,13 @@ fn removing_a_segment_rebuilds_the_junction() {
         .find(|g| g.geom().point_at(g.geom().length() * 0.5).y > 20.0)
         .unwrap()
         .id();
-    ok(&mut s, PlayerCommand::RemoveSegment { segment: north });
+    ok(
+        &mut s,
+        PlayerCommand::RemoveSegment {
+            segment: north,
+            remove_plots: false,
+        },
+    );
     let (n, sg, ..) = counts(&s);
     assert_eq!((n, sg), (4, 3));
     let t = nodes(&s)

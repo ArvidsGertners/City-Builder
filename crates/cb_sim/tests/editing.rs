@@ -147,3 +147,58 @@ fn edit_road_geometry_repoints_dependents() {
         .unwrap();
     assert_eq!(lot.plot(), plot.id());
 }
+
+#[test]
+fn demolish_validate_lists_dependents() {
+    let build = || {
+        let mut s = Scenario::new(1);
+        road(&mut s, Vec2::new(-150.0, 0.0), Vec2::new(150.0, 0.0));
+        road(&mut s, Vec2::new(-150.0, 200.0), Vec2::new(150.0, 200.0));
+        let sid = segs(&s)[0].id();
+        let r = s.command(PlayerCommand::CreatePlot(CreatePlot {
+            zone: ZoneKind::Residential,
+            frontage: vec![FrontageSpan {
+                segment: sid,
+                left: true,
+                s0: 20.0,
+                s1: 280.0,
+            }],
+            depth_m: 30.0,
+            dn: 0,
+        }));
+        assert!(r.outcome.is_ok());
+        s.run_ticks(800);
+        (s, sid)
+    };
+    let (mut s, sid) = build();
+    let deps = cb_sim::roads::demolish_dependents(s.world(), sid);
+    let ids = s.world().resource::<Ids>();
+    assert_eq!(deps.plots.len(), 1);
+    assert_eq!(deps.buildings.len(), ids.buildings.len());
+    assert!(deps.buildings.len() >= 10);
+    // The other street has none.
+    let other = segs(&s)[1].id();
+    assert_eq!(
+        cb_sim::roads::demolish_dependents(s.world(), other),
+        Default::default()
+    );
+    // "Remove road and plots" takes the houses too.
+    let r = s.command(PlayerCommand::RemoveSegment {
+        segment: sid,
+        remove_plots: true,
+    });
+    assert!(r.outcome.is_ok());
+    let ids = s.world().resource::<Ids>();
+    assert!(ids.plots.is_empty() && ids.lots.is_empty() && ids.buildings.is_empty());
+    // "Road only" leaves the plot and its houses standing.
+    let (mut s, sid) = build();
+    let houses = s.world().resource::<Ids>().buildings.len();
+    let r = s.command(PlayerCommand::RemoveSegment {
+        segment: sid,
+        remove_plots: false,
+    });
+    assert!(r.outcome.is_ok());
+    let ids = s.world().resource::<Ids>();
+    assert_eq!(ids.plots.len(), 1);
+    assert_eq!(ids.buildings.len(), houses);
+}

@@ -112,7 +112,10 @@ fn lane_graph_follows_network_edits() {
         .unwrap()
         .0;
     let v = graph(&s).version();
-    let r = s.command(PlayerCommand::RemoveSegment { segment: north });
+    let r = s.command(PlayerCommand::RemoveSegment {
+        segment: north,
+        remove_plots: false,
+    });
     assert!(r.outcome.is_ok());
     assert_matches_rebuild(&s);
     let g = graph(&s);

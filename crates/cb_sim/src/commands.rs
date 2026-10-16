@@ -97,6 +97,10 @@ pub enum PlayerCommand {
     RemoveSegment {
         /// The segment.
         segment: SegmentId,
+        /// Also delete the plots fronting it, with their lots and buildings (bulldoze dialog,
+        /// ALGORITHMS §14).
+        #[serde(default)]
+        remove_plots: bool,
     },
     /// Move a node or reshape a segment.
     EditRoadGeometry(GeometryEdit),
@@ -278,7 +282,15 @@ impl CommandLog {
 fn apply(world: &mut World, cmd: &PlayerCommand, tick: u64) -> Result<Money, ValidationError> {
     match cmd {
         PlayerCommand::BuildRoad(b) => crate::roads::build_road(world, b, tick),
-        PlayerCommand::RemoveSegment { segment } => {
+        PlayerCommand::RemoveSegment {
+            segment,
+            remove_plots,
+        } => {
+            if *remove_plots {
+                for p in crate::roads::demolish_dependents(world, *segment).plots {
+                    let _ = crate::zoning::delete_plot(world, p);
+                }
+            }
             crate::roads::remove_segment(world, *segment).map(|()| Money::ZERO)
         }
         PlayerCommand::SetRoadType {
@@ -372,8 +384,18 @@ pub const ALL_KEYS: &[&str] = &[
     "road-invalid-too-steep",
     "road-invalid-variant",
     "road-invalid-water-no-bridge",
+    "undo-build-road",
+    "undo-create-plot",
+    "undo-delete-plot",
+    "undo-edit-plot",
+    "undo-edit-road",
     "undo-empty",
     "undo-expired",
+    "undo-remove-segment",
+    "undo-set-control",
+    "undo-set-road-type",
+    "undo-set-segment-style",
+    "undo-set-subdivision",
 ];
 
 #[cfg(test)]

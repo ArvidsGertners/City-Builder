@@ -191,7 +191,10 @@ fn ring_detected_as_roundabout() {
         .find(|(id, _)| seg_kind(&s, *id) == RoadKind::OneWayStreet)
         .unwrap()
         .0;
-    let r = s.command(PlayerCommand::RemoveSegment { segment: arc });
+    let r = s.command(PlayerCommand::RemoveSegment {
+        segment: arc,
+        remove_plots: false,
+    });
     assert!(r.outcome.is_ok());
     assert!(nodes(&s).iter().all(|n| !n.ring()));
 }

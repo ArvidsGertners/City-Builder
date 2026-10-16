@@ -139,6 +139,7 @@ fn undo_build_road_restores_state_hash() {
 fn undo_remove_segment_restores_state_hash() {
     roundtrip("remove_segment", |s| PlayerCommand::RemoveSegment {
         segment: west_id(s),
+        remove_plots: false,
     });
 }
 

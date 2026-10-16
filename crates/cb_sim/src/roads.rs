@@ -1496,6 +1496,45 @@ pub(crate) fn build_road(
     Ok(cost)
 }
 
+/// What bulldozing a segment affects (ALGORITHMS §14 demolish validation).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Dependents {
+    /// Plots fronting the segment.
+    pub plots: Vec<cb_core::ids::PlotId>,
+    /// Buildings on those plots' lots.
+    pub buildings: Vec<BuildingId>,
+}
+
+/// Plots fronting `segment` and the buildings on their lots, in id order.
+#[must_use]
+pub fn demolish_dependents(world: &World, segment: SegmentId) -> Dependents {
+    let mut out = Dependents::default();
+    let Some(ids) = world.get_resource::<Ids>() else {
+        return out;
+    };
+    for (pid, e) in ids.plots.iter() {
+        let Some(p) = world.get::<crate::zoning::Plot>(e) else {
+            continue;
+        };
+        if !p.segments().contains(&segment) {
+            continue;
+        }
+        out.plots.push(pid);
+        for l in p.lots() {
+            if let Some(b) = ids
+                .lots
+                .get(*l)
+                .and_then(|le| world.get::<crate::zoning::Lot>(le))
+                .and_then(crate::zoning::Lot::building)
+            {
+                out.buildings.push(b);
+            }
+        }
+    }
+    out.buildings.sort();
+    out
+}
+
 /// `RemoveSegment` (bulldoze): removes the segment, its stamp and orphaned nodes.
 ///
 /// # Errors
