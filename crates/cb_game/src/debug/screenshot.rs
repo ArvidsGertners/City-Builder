@@ -48,6 +48,9 @@ pub struct Shot {
     /// Scripted tool state.
     #[serde(default)]
     pub tool: Option<ShotTool>,
+    /// Render with a magenta background and no sky dome; the `holes` metric must be 0.
+    #[serde(default)]
+    pub crack_check: bool,
 }
 
 /// A suite.
@@ -91,6 +94,7 @@ pub struct ScreenshotRunner {
     pending: bool,
     results: Vec<(String, ShotMetrics)>,
     exit_in: Option<u32>,
+    saved_clear: Option<Color>,
 }
 
 /// Screenshot plugin.
@@ -111,6 +115,7 @@ impl Plugin for ScreenshotPlugin {
             pending: false,
             results: Vec::new(),
             exit_in: None,
+            saved_clear: None,
         })
         .add_systems(Last, drive);
     }
@@ -128,9 +133,29 @@ struct ShotState<'w, 's> {
     ids: Option<Res<'w, cb_sim::ids::Ids>>,
     plots: Query<'w, 's, &'static cb_sim::zoning::Plot>,
     terrain: Option<Res<'w, cb_sim::terrain::TerrainRes>>,
+    clear: ResMut<'w, ClearColor>,
+    dome: Query<'w, 's, &'static mut Visibility, With<crate::render::lighting::SkyDome>>,
 }
 
 impl ShotState<'_, '_> {
+    /// Crack-check background (re-applied every frame: lighting may rewrite the clear colour).
+    fn background(&mut self, crack_check: bool, saved: &mut Option<Color>) {
+        let want = if crack_check {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        for mut v in &mut self.dome {
+            v.set_if_neq(want);
+        }
+        if crack_check {
+            saved.get_or_insert(self.clear.0);
+            self.clear.0 = Color::srgb(1.0, 0.0, 1.0);
+        } else if let Some(c) = saved.take() {
+            self.clear.0 = c;
+        }
+    }
+
     fn apply(&mut self, shot: &Shot) {
         self.lighting.hour = shot.hour.unwrap_or(12.0);
         self.ui.0 = shot.ui;
@@ -241,6 +266,9 @@ fn drive(
         *rig = r;
         state.apply(&shot);
     }
+    let mut saved = runner.saved_clear.take();
+    state.background(shot.crack_check, &mut saved);
+    runner.saved_clear = saved;
     runner.waited += 1;
     // Wait for the settle frames and for chunk work near the new view to finish.
     if runner.waited < runner.suite.settle_frames || (backlog.0 > 0 && runner.waited < 600) {
@@ -266,7 +294,7 @@ fn drive(
                     .map(|d| metrics_rgba8(size.x, size.y, d.to_rgba8().as_raw()))
                     .unwrap_or_default();
                 info!(
-                    "shot {name}: {}x{} median={} lum_mean={:.3} lum_median={:.3} clipped={:.2}% black={:.2}% magenta={}",
+                    "shot {name}: {}x{} median={} lum_mean={:.3} lum_median={:.3} clipped={:.2}% black={:.2}% magenta={} holes={}",
                     size.x,
                     size.y,
                     metrics.luma_median,
@@ -274,7 +302,8 @@ fn drive(
                     metrics.lum_median,
                     metrics.clipped_pct,
                     metrics.black_pct,
-                    metrics.magenta_count
+                    metrics.magenta_count,
+                    metrics.holes
                 );
                 runner.results.push((name.clone(), metrics));
                 runner.pending = false;
@@ -294,7 +323,7 @@ mod tests {
         assert!(s.shots.len() >= 3);
         assert!(load_suite("nope").is_err());
         let m2 = load_suite("M2").unwrap();
-        assert_eq!(m2.shots.len(), 14);
+        assert_eq!(m2.shots.len(), 16);
         assert_eq!(m2.seed, Some(1234));
         assert!(m2.shots.iter().any(|s| s.tool == Some(ShotTool::PlotEdit)));
     }

@@ -18,6 +18,10 @@ pub struct ShotMetrics {
     pub black_pct: f64,
     /// Pixels that look like the missing-material magenta (or NaN output).
     pub magenta_count: u64,
+    /// Magenta pixels enclosed above and below by geometry in their column: with the clear
+    /// colour set to magenta and no sky (`crack_check` shots), background showing through the
+    /// terrain silhouette — LOD cracks or holes.
+    pub holes: u64,
     /// Mean linear luminance (sRGB decoded, Rec. 709) — ADR-0050 calibration.
     pub lum_mean: f64,
     /// Median linear luminance (from 256 bins of the encoded luma).
@@ -32,6 +36,35 @@ fn srgb_to_linear(v: u32) -> f64 {
     } else {
         ((s + 0.055) / 1.055).powf(2.4)
     }
+}
+
+/// Magenta after tonemapping: pure #FF00FF renders as ≈ (198, 75, 195) through TonyMcMapface,
+/// so the test is by hue (red ≈ blue, both strong, green well below) rather than by value.
+/// No palette colour (ART_DIRECTION) satisfies it.
+fn is_magenta(px: &[u8]) -> bool {
+    let (r, g, b) = (u32::from(px[0]), u32::from(px[1]), u32::from(px[2]));
+    r > 150 && b > 150 && r.abs_diff(b) < 30 && g * 3 < r.min(b) * 2
+}
+
+/// Magenta pixels with non-magenta pixels both above and below them in the same column (space
+/// beside the map edge is open to the image border and does not count).
+#[must_use]
+pub fn holes_rgba8(width: u32, height: u32, rgba: &[u8]) -> u64 {
+    let (w, h) = (width as usize, height as usize);
+    if rgba.len() < w * h * 4 {
+        return 0;
+    }
+    let mut holes = 0;
+    for x in 0..w {
+        let solid = |y: usize| !is_magenta(&rgba[(y * w + x) * 4..(y * w + x) * 4 + 4]);
+        let (Some(first), Some(last)) =
+            ((0..h).find(|&y| solid(y)), (0..h).rev().find(|&y| solid(y)))
+        else {
+            continue;
+        };
+        holes += (first..=last).filter(|&y| !solid(y)).count() as u64;
+    }
+    holes
 }
 
 /// Computes metrics for tightly packed RGBA8 pixels.
@@ -61,7 +94,7 @@ pub fn metrics_rgba8(width: u32, height: u32, rgba: &[u8]) -> ShotMetrics {
         if r.max(g).max(b) < 8 {
             black += 1;
         }
-        if r > 230 && b > 230 && g < 30 {
+        if is_magenta(px) {
             m.magenta_count += 1;
         }
         n += 1;
@@ -69,6 +102,7 @@ pub fn metrics_rgba8(width: u32, height: u32, rgba: &[u8]) -> ShotMetrics {
     if n == 0 {
         return m;
     }
+    m.holes = holes_rgba8(width, height, rgba);
     let half = n.div_ceil(2);
     let mut acc = 0;
     for (v, c) in counts.iter().enumerate() {
@@ -97,13 +131,14 @@ pub fn metrics_rgba8(width: u32, height: u32, rgba: &[u8]) -> ShotMetrics {
 pub fn to_json(name: &str, m: &ShotMetrics) -> String {
     let hist: Vec<String> = m.luma_histogram.iter().map(u32::to_string).collect();
     format!(
-        "{{\"name\":{name:?},\"width\":{},\"height\":{},\"luma_median\":{},\"clipped_pct\":{:.3},\"black_pct\":{:.3},\"magenta_count\":{},\"lum_mean\":{:.4},\"lum_median\":{:.4},\"luma_histogram\":[{}]}}",
+        "{{\"name\":{name:?},\"width\":{},\"height\":{},\"luma_median\":{},\"clipped_pct\":{:.3},\"black_pct\":{:.3},\"magenta_count\":{},\"holes\":{},\"lum_mean\":{:.4},\"lum_median\":{:.4},\"luma_histogram\":[{}]}}",
         m.width,
         m.height,
         m.luma_median,
         m.clipped_pct,
         m.black_pct,
         m.magenta_count,
+        m.holes,
         m.lum_mean,
         m.lum_median,
         hist.join(",")
@@ -122,6 +157,21 @@ mod tests {
         ];
         let m = metrics_rgba8(2, 2, &px);
         assert_eq!(m.magenta_count, 1);
+        // Tonemapped magenta counts too.
+        assert_eq!(metrics_rgba8(1, 1, &[198, 75, 195, 255]).magenta_count, 1);
+        // Terracotta roof, sage wall, sky: not magenta.
+        for c in [[182, 101, 74], [183, 195, 160], [214, 230, 242]] {
+            assert_eq!(
+                metrics_rgba8(1, 1, &[c[0], c[1], c[2], 255]).magenta_count,
+                0
+            );
+        }
+        // Column: magenta sky, terrain, magenta crack, terrain, magenta beyond the edge -> one hole.
+        let col = [
+            255, 0, 255, 255, 90, 120, 60, 255, 255, 0, 255, 255, 90, 120, 60, 255, 255, 0, 255,
+            255,
+        ];
+        assert_eq!(holes_rgba8(1, 5, &col), 1);
         assert!((m.black_pct - 50.0).abs() < 1e-9);
         assert!((m.clipped_pct - 25.0).abs() < 1e-9);
         assert_eq!(m.luma_histogram.iter().sum::<u32>(), 4);

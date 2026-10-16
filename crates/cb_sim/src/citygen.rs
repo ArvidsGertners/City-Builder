@@ -373,6 +373,12 @@ pub fn m2_features(world: &mut World, town: Vec2, town_half: Vec2) -> M2Features
     };
     let probe = Probe(&terrain);
     let before = segments_snapshot(world);
+    // Lots of the existing town; every lot created below (incl. the corner plot) grows a house.
+    let lots_before: Vec<cb_core::ids::LotId> = world
+        .get_resource::<Ids>()
+        .map(|i| i.lots.iter().map(|(id, _)| id).collect())
+        .unwrap_or_default();
+
     let keep_out = town_half + Vec2::splat(140.0);
     let outside = |p: Vec2, margin: f32| {
         (p.x - town.x).abs() > keep_out.x + margin || (p.y - town.y).abs() > keep_out.y + margin
@@ -472,6 +478,7 @@ pub fn m2_features(world: &mut World, town: Vec2, town_half: Vec2) -> M2Features
     // 2. Crest (cut) and dip (fill) crossings, apart from each other and the slope street.
     let mut taken: Vec<Vec2> = out.slope.iter().map(|f| f.pos).collect();
     let mut bare: Vec<cb_core::ids::SegmentId> = Vec::new();
+    let mut one_sided: Vec<cb_core::ids::SegmentId> = Vec::new();
     for sign in [1.0f32, -1.0] {
         let mut cands: Vec<(f32, Vec2, Vec2)> = Vec::new();
         for gz in -20..=20 {
@@ -512,12 +519,17 @@ pub fn m2_features(world: &mut World, town: Vec2, town_half: Vec2) -> M2Features
             if road_measured(world, &cmd, &mut cut, &mut fill) {
                 out.report.segments += 1;
                 taken.push(p);
-                // No plots along the crossings: the cut and fill shots look at bare slopes.
-                bare.extend(
-                    segments_snapshot(world)
-                        .into_iter()
-                        .filter(|s| !before_crossing.contains(s)),
-                );
+                // The cut crossing stays bare (its shot looks at the cut face); the fill crossing
+                // gets houses on its left side only, so the fill shot sees the embankment in
+                // front and houses on plinths or stilts behind it.
+                let added = segments_snapshot(world)
+                    .into_iter()
+                    .filter(|s| !before_crossing.contains(s));
+                if sign > 0.0 {
+                    bare.extend(added);
+                } else {
+                    one_sided.extend(added);
+                }
                 break;
             }
             out.report.roads_rejected += 1;
@@ -586,10 +598,6 @@ pub fn m2_features(world: &mut World, town: Vec2, town_half: Vec2) -> M2Features
 
     // 4. Plots on every new segment, houses on every new lot.
     crate::zoning::update_dirty_plots(world);
-    let lots_before: Vec<cb_core::ids::LotId> = world
-        .get_resource::<Ids>()
-        .map(|i| i.lots.iter().map(|(id, _)| id).collect())
-        .unwrap_or_default();
     let new: Vec<_> = segments_snapshot(world)
         .into_iter()
         .filter(|s| !before.contains(s) && !bare.contains(s))
@@ -603,7 +611,12 @@ pub fn m2_features(world: &mut World, town: Vec2, town_half: Vec2) -> M2Features
         else {
             continue;
         };
-        for left in [true, false] {
+        let sides: &[bool] = if one_sided.contains(&sid) {
+            &[true]
+        } else {
+            &[true, false]
+        };
+        for &left in sides {
             let (s0, s1) = if left { (0.0, len) } else { (len, 0.0) };
             let c = CreatePlot {
                 zone: ZoneKind::Residential,

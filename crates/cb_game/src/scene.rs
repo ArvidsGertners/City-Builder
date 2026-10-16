@@ -178,6 +178,7 @@ pub fn demo_town(world: &mut World) {
     };
     put("town", site, Vec2::X);
     put("map", Vec2::ZERO, Vec2::X);
+    put("map", Vec2::ZERO, Vec2::X);
     for (name, feat) in [
         ("slope", f.slope),
         ("fill", f.fill),

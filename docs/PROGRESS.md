@@ -5,7 +5,7 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Current status
 
-- **Phase:** M2 vertical slice (in progress). Phase S ☑ — S-Render ☑, S-Time ☑ (fallback
+- **Phase:** M2 vertical slice ☑ (CI pending; user verification UV-2/3/4 open) → M3 next. Phase S ☑ — S-Render ☑, S-Time ☑ (fallback
   ADR-0062), S-J ☑ (ADR-0063), S-P ☑ (ADR-0064), S-G ☑ (ADR-0065), S-T ☑ (ADR-0066/0067).
 - **M2 done so far (pure crates):** `cb_terrain` (worldgen with rivers/lakes/outside connections,
   stamps + order-independent compositing, chunk meshes LOD0–3 with skirts, raycast, scatter;
@@ -29,8 +29,8 @@ milestone and before ending a session (skill `milestone-completion`).
   (straight/curved/freehand, ghost with stripes, reason + cost label), plot tool (frontage drag,
   end/depth handles, ± lots, depth ±, delete), bulldoze, toolbar + money HUD + toasts, zoning
   overlay (draped fills, outlines, lot lines), `--benchmark` (per-set timings) and the 14-shot M2
-  suite (`at:`/`hour:`/`ui:`/`zoning:`/`tool:` per shot). **Open:** main-thread budget (see Next
-  step), final M2 suite render + review, milestone completion.
+  suite (`at:`/`hour:`/`ui:`/`zoning:`/`tool:`/`crack_check:` per shot), off-thread chunk
+  meshing, merged far terrain, junction terrain stamps. M2 complete; CI confirmation pending.
 - **Last updated:** 2026-10-16
 - **Verified environment:** Bevy 0.20.0 (2026-10-08), bevy_egui 0.43.1 (Bevy 0.20), rustc 1.97.1;
   `bevy-inspector-egui` 0.37 targets Bevy 0.19 (ADR-0031); `mesa-vulkan-drivers` (lavapipe) and
@@ -38,25 +38,16 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**M2 performance, then completion.** `cargo run -p cb_game --release -- --benchmark m2_slice
---no-gpu-work` (container, llvmpipe, seed 1234) gives main thread p50 11.2 / p95 16.8 ms (budget
-p95 ≤ 8 ms): pre-update 3.0 / 5.8, view-sync 3.7 / 8.4, post-update 3.3 / 5.6 ms (p50 / p95);
-1 818 mesh entities, 1 024 terrain chunk entities; only ≈ 9 fps (render-bound), so the scripted
-camera moves ≈ 6× farther per frame than at 60 fps. Do, in order:
-1. `crates/cb_game/src/view.rs` `sync_terrain` / `sync_scatter`: move `chunk_mesh::build`,
-   `terrain_mesh`, `water_mesh` and `scatter_mesh` to `AsyncComputeTaskPool` tasks (needs
-   `cb_sim::terrain::TerrainRes` to hold `Arc<Terrain>` + a generation counter bumped on every
-   stamp; tasks carry the generation and stale results are dropped; the main thread only
-   uploads meshes, ≤ 1 ms). Keep `ViewBacklog` counting in-flight tasks for screenshot settling.
-2. Chunk merging (PERFORMANCE §4): one building mesh per terrain chunk (re-merge on
-   `BuildingChanged` in that chunk) and one water entity per chunk only where water exists —
-   cuts post-update (transform/visibility) cost.
-3. Re-run the benchmark; record numbers here and in PERFORMANCE §13. If p95 is still > 8 ms,
-   check `pre-update` (egui begin pass, asset events) with `info_span`s.
-4. Render the final suite `scripts/screenshot.sh M2` (M2-06 camera and the sunset offset changed
-   since the last render in the scratchpad), review every image (`visual-verification`), write
-   `docs/screenshots/M2/index.md`, then `milestone-completion` for M2.
-Still open from pure crates: procgen golden hashes for roads and junctions.
+**M3 — Full road system.** First confirm CI for the M2 commit (Linux + Windows `ci.yml`, one
+`nightly.yml` dispatch for macOS + 3-OS determinism) and record the run URLs in the log. Then, in
+order: (1) `crates/cb_network/src/lanes.rs` — lane layout per cross-section (`CrossSection::of`
++ one-way/bus/tram variants) with `lanes_count_offsets_per_cross_section`; (2) junction
+connectors and conflict zones in `cb_network::junction` from the S-J spike (`spikes/s_j`,
+ADR-0063: per-kind connector radii, connector-driven growth), with
+`junction_connectors_cover_all_allowed_movements` and `junction_random_10k_valid_or_typed_error`;
+(3) `cb_network::lane_graph` (ADR-0008) built incrementally from `NetworkChanged`; (4) road
+hierarchy upgrade/downgrade commands; (5) junction mesh interior vertices (fixes the known shading
+fan); then controls, bridges, decorations, editing, undo/redo, bulldoze dialog and the M3 suite.
 
 ## Process conventions (ADR-0058)
 
@@ -84,7 +75,7 @@ Still open from pure crates: procgen golden hashes for roads and junctions.
 | 0 | Phase 1 planning package + independent review | 2 | 2 | ☑ |
 | 1 | Project setup | 4 | 1 | ☑ |
 | S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | ≈ 4 | ☑ (S-Render ☑, S-Time ☑ fallback, S-J ☑ ADR-0063, S-P ☑ ADR-0064, S-G ☑ ADR-0065, S-T ☑ ADR-0066/0067) |
-| 2 | Vertical slice | 12 | | ◐ |
+| 2 | Vertical slice | 12 | ≈ 6 | ☑ CI-pending (☑ᵤ UV-2/3/4) |
 | 3 | Full road system | 12 | | ☐ |
 | 4 | All zone types, special buildings, leveling visuals | 10 | | ☐ |
 | 5 | Simulation core | 12 | | ☐ |
@@ -402,8 +393,11 @@ worldgen constraints, input map v3.
       lowland ≥ 3 km², shore within 400 m of an outside connection, generation ≤ 4 s);
       `terrain_generation_deterministic`; `terrain_hash_cross_os` in the cross-OS job.
       — tests green; `determinism_probe` prints terrain hashes (+ `m2_scene` hash).
-- [ ] Terrain rendering: semantic-pass crack check at LOD boundaries (0 background pixels inside
+- [x] Terrain rendering: semantic-pass crack check at LOD boundaries (0 background pixels inside
       the terrain silhouette in M2-14).
+      — implemented as `crack_check` shots (magenta background, no sky dome; `holes` metric =
+      magenta enclosed by geometry in its column): M2-14b and the whole-map M2-14c, holes 0.
+      The full flat-colour semantic pass arrives with its first class assertions (M5/M8).
 - [x] Scatter: `scatter_excluded_by_corridor_plus_2m`, `scatter_restored_after_stamp_removed`,
       `tree_density_field_matches_exclusion`.
 - [x] Camera: `camera_pan_rotation_relative`, `camera_zoom_clamped_25_2400`,
@@ -416,19 +410,26 @@ worldgen constraints, input map v3.
       `_water_no_bridge`, `_crossing_clearance`); `profile_solver_*` (incl. infeasible endpoints),
       `grading_continuous_compositing`, `crossing_fixed_point_converges`.
       — all green; tool previews call `preview_road` (`road_preview_matches_build`).
-- [ ] Plot tool (residential): `subdivide_random_10k_invariants`, `building_footprint_within_lot_10k`,
+- [x] Plot tool (residential): `subdivide_random_10k_invariants`, `building_footprint_within_lot_10k`,
       `lot_ids_stable_under_small_drags`, `lot_ids_n_plus_minus_one_keep_n_minus_2`,
       `subdivide_fan_le_25_or_tight_curve`, `subdivide_corner_lot_fronts_both_roads`,
       `plot_clipped_by_new_corridor`, procgen golden hashes (S-P metrics and the six frontage
       families of `spikes/s_p` as fixtures; ADR-0064).
+      — all green; golden hash `subdivision_golden_hash_six_families` (fixture
+      `cb_geometry::subdivide::reference_families_hash`, also in the cross-OS probe); house
+      golden hashes `procgen_golden_hashes`; plot tool UI: drag, end/depth handles, ± lots,
+      depth ±, delete, `EditPlot` (`edit_plot_keeps_lot_ids_and_previews_agree`).
 - [x] Lighting/art: calibration metrics of ADR-0050 on M2-02 (noon) and M2-11 (night).
       — lit grass ΔE00 3.1 to #8DB06A; noon mean/median luminance 0.32/0.38 (range amended for
       grass-dominated frames); night/noon mean 0.31; clipped ≤ 0.01 %; zone ΔE n/a (one zone).
-- [ ] Perf: container `--benchmark m2_slice --no-gpu-work`: game sets (input + sim-drive +
+- [x] Perf: container `--benchmark m2_slice --no-gpu-work`: game sets (input + sim-drive +
       view-sync + present) ≤ 4 ms p95, `empty` baseline recorded (ADR-0058 amendment, user
       decision 2026-10-16). ☑ᵤ: main and render thread ≤ 8 ms p95 (CPU), GPU ≤ 12 ms p95 at 1080p
       on PC and at Auto on M4.
-- [ ] Shots (suite M2, seed 1234; scripted: curved street on an 8 % slope with fill embankment,
+      — 2026-10-16 release, llvmpipe, seed 1234: game sets p50 1.18 / p95 3.90 ms; `empty`
+      baseline game sets 0.82 / 2.90, main 6.9 / 11.4 ms; m2_slice main 8.9 / 14.4 ms
+      (pre-update 3.0 / 6.4, post-update 4.2 / 7.0). Full frame: UV-3 (☑ᵤ).
+- [x] Shots (suite M2, seed 1234; scripted: curved street on an 8 % slope with fill embankment,
       straight street in a 3 m cut, a street to a river shore, residential plots on convex,
       concave and corner frontage, ~60 houses; noon clear unless noted):
 
@@ -444,6 +445,19 @@ worldgen constraints, input map v3.
   | M2-12 | road tool d 150, UI on | invalid ghost (striped coral) with "too steep" label and live cost |
   | M2-13 | plot tool editing d 120, UI on | vertex handles, depth handle, sub-plot ± control, subdivision lines |
   | M2-14 | LOD band d 360 (crossfade zone) | no holes or popping artifacts |
+
+  — `docs/screenshots/M2/index.md`: 16 shots (M2-14b/c crack checks added), all gates green,
+  reviewed. Deviations: the shore street ends at the lake next to the town (the river is outside
+  the site; M2-08 shows the lake shore); M2-01 is framed on the map centre (d 3 600 m) so the
+  river is in frame; cut 6.1 m and fill 6.7 m are deeper than the nominal 3 m.
+- Enabling work: done — command framework, economy stub + catalog, toolbar/tooltips/toasts,
+  citygen + `--benchmark` (with per-set timings and the `empty` baseline), Debug growth,
+  `LightingState` + keyframes, worldgen constraints, far-terrain merging, off-thread meshing.
+  **Moved** to the milestone that first needs them (internal work, no brief feature cut):
+  dialogs → M3 (bulldoze dialog M3-12); building chunk merging, slot buffer and the 500/10k-house
+  citygen → M4 (condition tint, 10k benchmark); runtime render-scale change → M15 (settings);
+  no-op shader uniforms for overlay/night/wetness/snow → added with those features (M5, M11,
+  M12); input map v3 actions beyond camera and tools → with their tools (M3+).
 
 ### M3 — Full road system (estimate 12)
 Includes enabling work: `cb_sim::save::snapshot` types (for undo), bus/tram cross-section
@@ -789,3 +803,11 @@ Known gaps (planned):
   baseline, full frame on user hardware (ADR-0058 amendment); (2) freehand plot drawing
   (polygon mode, vertex/edge dragging) scheduled in M4; (3) lot lines stay automatic, the ±
   lot-count control is enough (no manual lot-line editing).
+- 2026-10-16 — **M2 done** (CI pending). Evidence: fmt; clippy default + `dev` clean; `cargo
+  test --workspace` and `--features dev` green; sim isolation ok; release smoke `frames=60
+  validation_errors=0`; determinism probe (Linux): terrain seed 1 `ded815c48a85c936`, seed 2
+  `906bb9654b3f2c3f`, seed 3 `46baef7eff10795c`, subdivision `4f1dee6563b7dec7` (pinned),
+  m2_scene `0575619db05fa1db` (290 buildings), clock seed 1 `dc63c12f8a8a98b8`; benchmark game
+  sets p95 3.90 ms (≤ 4); suite M2 reviewed (`docs/screenshots/M2/`). Fixed during review: corner
+  plot lots not grown (`m2_scripted_lots_all_grow`), tonemapped magenta missed by the gate
+  (hue-based test), overview/fill framing. Golden subdivision hash pinned.

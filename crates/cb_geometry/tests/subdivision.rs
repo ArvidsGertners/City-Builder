@@ -390,3 +390,14 @@ fn lot_ids_n_plus_minus_one_keep_n_minus_2() {
     println!("±1 edits={edits} meeting (N-2)/N: {frac:.4}");
     assert!(frac >= 0.99, "{frac}");
 }
+
+/// Golden hash of the six S-P frontage families (ADR-0064); a change means subdivision output
+/// changed — intended changes update the value (and the cross-OS probe follows).
+#[test]
+fn subdivision_golden_hash_six_families() {
+    let h = subdivide::reference_families_hash();
+    eprintln!("reference_families_hash = {h:#018x}");
+    assert_eq!(h, GOLDEN_SUBDIVISION);
+}
+
+const GOLDEN_SUBDIVISION: u64 = 0x4f1d_ee65_63b7_dec7;

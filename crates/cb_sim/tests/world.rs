@@ -648,3 +648,34 @@ fn junction_surface_above_terrain() {
     eprintln!("worst terrain above junction surface: {d:.3} m at {at}");
     assert!(d < 0.0, "terrain {d:.3} m above a junction surface at {at}");
 }
+
+#[test]
+fn m2_scripted_lots_all_grow() {
+    let mut s = Scenario::with_terrain(1234, cb_sim::terrain::TerrainSetup::Generate);
+    let site = Vec2::new(19.2, -1228.8);
+    cb_sim::citygen::grid(
+        s.world_mut(),
+        &cb_sim::citygen::GridSpec {
+            center: site,
+            blocks: (4, 3),
+            ..Default::default()
+        },
+    );
+    let f = cb_sim::citygen::m2_features(s.world_mut(), site, Vec2::new(220.0, 120.0));
+    let corner = f.corner.expect("corner plot");
+    // Regression: the corner plot's lots were skipped by growth.
+    let empty: Vec<_> = lots(&s)
+        .into_iter()
+        .filter(|l| l.footprint().is_some() && l.building().is_none())
+        .map(|l| l.id())
+        .collect();
+    assert!(
+        empty.is_empty(),
+        "lots with a footprint but no house: {empty:?}"
+    );
+    let near_corner = lots(&s)
+        .iter()
+        .filter(|l| l.building().is_some() && l.polygon().iter().any(|p| p.distance(corner) < 40.0))
+        .count();
+    assert!(near_corner >= 2, "{near_corner}");
+}

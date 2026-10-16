@@ -14,7 +14,10 @@ fn main() {
             Err(e) => println!("probe=terrain seed={seed} error={e}"),
         }
     }
-    println!("probe=subdivision hash={:016x}", subdivision_hash());
+    println!(
+        "probe=subdivision hash={:016x}",
+        cb_geometry::subdivide::reference_families_hash()
+    );
     // M2 scene (roads, grading, junctions, plots, lots, houses on generated terrain).
     let mut s = Scenario::with_terrain(1234, cb_sim::terrain::TerrainSetup::Generate);
     let site = glam::Vec2::new(19.2, -1228.8);
@@ -41,51 +44,4 @@ fn main() {
             s.state_hash()
         );
     }
-}
-
-/// subdivision_hash_cross_os (M2): one plot per S-P frontage family, subdivided and fitted;
-/// hashes the bit patterns of every lot and footprint corner (libm trig, i_overlay snapping).
-fn subdivision_hash() -> u64 {
-    use cb_geometry::frontage::{Frontage, Prim};
-    use cb_geometry::rect_fit::{FitParams, RectSpec, fit_lots};
-    use cb_geometry::subdivide::{ZoneParams, subdivide};
-    let d = f64::to_radians;
-    let plots = [
-        vec![Prim::Line(120.0)],
-        vec![Prim::Arc(60.0, -d(110.0))],
-        vec![Prim::Arc(50.0, d(120.0))],
-        vec![Prim::Arc(80.0, d(50.0)), Prim::Arc(50.0, -d(70.0))],
-        vec![Prim::Line(70.0), Prim::Arc(8.0, d(120.0)), Prim::Line(70.0)],
-        vec![
-            Prim::Line(60.0),
-            Prim::Arc(10.0, -d(35.0)),
-            Prim::Line(60.0),
-        ],
-    ];
-    let zp = ZoneParams::RESIDENTIAL;
-    let fit = FitParams {
-        setback: zp.setback,
-        rect: Some(RectSpec::HOUSE),
-    };
-    let mut bits: Vec<u64> = Vec::new();
-    for (k, prims) in plots.iter().enumerate() {
-        let depth = 30.0;
-        let Some(f) = Frontage::from_prims(prims, depth) else {
-            continue;
-        };
-        let Some(plot) = f.plot_polygon(depth, 12.0) else {
-            continue;
-        };
-        let out = subdivide(&f, &plot, &zp, depth, 0, 0x5EED_0000 + k as u64, None);
-        for l in &out.lots {
-            bits.extend(l.poly.iter().flat_map(|v| [v.x.to_bits(), v.y.to_bits()]));
-        }
-        for fp in fit_lots(&out.lots, &f, &fit)
-            .iter()
-            .filter_map(|x| x.footprint)
-        {
-            bits.extend(fp.iter().flat_map(|v| [v.x.to_bits(), v.y.to_bits()]));
-        }
-    }
-    cb_core::hash::stable_hash(&bits)
 }
