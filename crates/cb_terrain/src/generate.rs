@@ -107,6 +107,34 @@ pub struct World {
 }
 
 impl World {
+    /// A flat, dry, treeless world at height `h` (tests, benchmarks, sandbox scenarios).
+    #[must_use]
+    pub fn flat(params: &WorldGenParams, h: f32) -> Self {
+        let base = HeightGrid::filled(params.samples, params.spacing_m, h);
+        let water = WaterField::dry_like(&base);
+        let (wdist, wlevel) = materials::water_distance(&water, 64.0);
+        let step = (FOREST_SPACING_M / params.spacing_m).round().max(1.0) as usize;
+        let fnn = (params.samples - 1) / step + 1;
+        let forest = Grid::filled(fnn, FOREST_SPACING_M, 0);
+        let materials = materials::compute(&base, &water, &wdist, &wlevel, &forest, 0);
+        Self {
+            base,
+            water,
+            rivers: Vec::new(),
+            lakes: Vec::new(),
+            outside: Vec::new(),
+            forest,
+            materials,
+            material_seed: 0,
+            report: WorldReport {
+                buildable_km2: 0.0,
+                shore_distance_m: f32::INFINITY,
+                rerolls: (0, 0, 0),
+                relaxed: Vec::new(),
+            },
+        }
+    }
+
     /// Stable hash of everything generation produces (base, water, forest, materials) — compared
     /// across operating systems by the determinism probe.
     #[must_use]

@@ -28,20 +28,21 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**M2.5 — `cb_sim` world state** (pure crates done; `cb_procgen` has R L1–L3 houses, yards,
-trees, road segment meshes, foundations; preview: `cargo run -p cb_procgen --release --example
-preview_block -- <dir> [seed]` renders a street to PPM with a software rasterizer).
-First action: in `crates/cb_sim/src/` add `commands.rs` (`PlayerCommand` enum + `CommandQueue`
-resource + `apply_tick`, ADR-0055), `terrain.rs` (`TerrainRes` wrapping `cb_terrain::Terrain`,
-dirty rects as messages), `roads/{mod,network}.rs` (`Node`/`Segment` with `SegmentGeom` +
-`Profile`, corridor stamps, `BuildRoad`/`RemoveRoad` commands using `cb_network::validation`),
-`zoning/{mod,plots}.rs` (`CreatePlot` → `cb_geometry::frontage` from the road edge polyline →
-`subdivide` → `Lot`s with stable IDs via `match_ids`), `buildings/growth.rs` (Debug growth mode:
-empty lots → `house::layout` + `plan_foundation` + pad stamp), `economy.rs` stub, and
-`citygen.rs` (seeded street grid + 500 houses for `--benchmark`). Junction surfaces for M2 corner
-plots: minimal cut-back + fillet polygon in `cb_network` (full ADR-0063 geometry in M3). Tests:
-headless integration tests in `crates/cb_sim/tests/` incl. `plot_clipped_by_new_corridor`.
-Then M2.6 `cb_game`.
+**M2.6 — `cb_game`** (sim world state done). `cb_sim` now has the catalog (`data/*.ron`), stable
+ID registries, commands (`BuildRoad`, `RemoveSegment`, `CreatePlot`, `DeletePlot`,
+`SetSubdivision`, `SetSimConfig`), treasury, terrain resource (`TerrainSetup::{None, Flat,
+Generate}`), road network with crossing splits, junction geometry and corridor stamps, plots with
+corner frontage, clipping by new corridors and stable lot IDs, Debug growth of L1–L3 houses with
+pad stamps, `citygen::grid`, and an extended state hash (`crates/cb_sim/tests/world.rs`, 12
+tests). First action in `crates/cb_game/src/`: switch `SimPlugins` to `TerrainSetup::Generate`
+behind the new-game flow, then add `view/terrain.rs` (chunk meshes from
+`cb_terrain::chunk_mesh` on `TerrainChanged`), `view/roads.rs` (`road_mesh::segment_mesh` +
+`junction_mesh` on `NetworkChanged`), `view/buildings.rs` (`house::mesh` + `yard::yard` on
+`BuildingChanged`, merged per chunk), the camera controller (ADR camera tests in the M2
+checklist), picking via `picking::cursor_ray`, road and plot tools emitting `PlayerCommand`s,
+lighting keyframes, the minimal toolbar/HUD, `--benchmark m2_slice` using `citygen::grid`, and
+the M2 screenshot suite (`scripts/screenshot.sh M2`). Still open from pure crates:
+procgen golden hashes beyond houses (roads, junctions).
 
 ## Process conventions (ADR-0058)
 
@@ -727,3 +728,7 @@ None open. Known gaps (planned):
 - 2026-10-16 — M2.4 `cb_procgen`: residential houses, yards, vegetation and road meshes; a
   software-rasterized preview example shows a curved street with 46 houses (avg 340 tris/house,
   yards ≤ 400). ADR-0049 amended with the packed attribute layout.
+- 2026-10-16 — M2.5 `cb_sim` world state: commands, catalog, treasury, terrain resource, roads
+  (crossing splits, junction geometry subset of ADR-0063 — connectors in M3), plots/lots with
+  stable IDs and re-clipping, Debug growth, citygen, state hash; `cb_network::junction` and
+  `cb_procgen::junction_mesh` added.

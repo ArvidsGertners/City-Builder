@@ -31,6 +31,18 @@ pub enum Difficulty {
     Hard,
 }
 
+/// How empty lots develop.
+#[derive(Reflect, Clone, Copy, PartialEq, Eq, Hash, Debug, Default, Serialize, Deserialize)]
+pub enum GrowthMode {
+    /// Lots stay empty.
+    Off,
+    /// Empty residential lots grow L1–L3 after a fixed delay (M2 stand-in for demand).
+    #[default]
+    Debug,
+    /// Demand-driven development (M5).
+    Normal,
+}
+
 /// Options that change simulation results. Field defaults apply to missing fields in saves.
 #[derive(Resource, Reflect, Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 #[reflect(Resource)]
@@ -48,6 +60,8 @@ pub struct SimConfig {
     pub sandbox: bool,
     /// Difficulty preset.
     pub difficulty: Difficulty,
+    /// Lot development mode.
+    pub growth: GrowthMode,
 }
 
 impl Default for SimConfig {
@@ -59,6 +73,7 @@ impl Default for SimConfig {
             season_length_days: 4,
             sandbox: false,
             difficulty: Difficulty::Normal,
+            growth: GrowthMode::Debug,
         }
     }
 }

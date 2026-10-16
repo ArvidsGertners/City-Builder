@@ -17,7 +17,12 @@ debug_schedule = ["bevy/debug"]
 [dependencies]
 cb_core.workspace = true
 cb_geometry.workspace = true
+cb_network.workspace = true
+cb_procgen.workspace = true
 cb_terrain.workspace = true
+glam.workspace = true
+ron.workspace = true
+smallvec.workspace = true
 bevy = { workspace = true, features = ["std", "async_executor", "multi_threaded", "bevy_state"] }
 serde.workspace = true
 thiserror.workspace = true
@@ -25,6 +30,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 cb_core = { workspace = true, features = ["testing"] }
+cb_l10n.workspace = true
 
 [lints]
 workspace = true

@@ -1,0 +1,836 @@
+//! Road network (DATA_MODEL §4, ALGORITHMS §1–§5): nodes and segments as entities, building with
+//! crossing resolution and segment splitting, junction geometry, corridor stamps and bulldozing.
+//!
+//! A `BuildRoad` command is **planned** first without touching the world (endpoints, profile
+//! fixed point, shape validation, splits of existing segments, junction validation of every
+//! affected node) and only then charged and applied, so a rejected command never leaves a
+//! half-built network.
+
+use std::collections::BTreeMap;
+
+use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
+use bevy::ecs::message::Message;
+use bevy::ecs::world::World;
+use cb_core::Money;
+use cb_core::ids::{NodeId, SegmentId};
+use cb_geometry::{CubicBezier2, Polyline2};
+use cb_network::cross_section::ElementKind;
+use cb_network::junction::{self, Approach, Junction};
+use cb_network::validation::{self, CrossingKind, Existing, Ground, RoadLimits};
+use cb_network::{CrossSection, Profile, ProfileInput, RoadKind, SegmentGeom};
+use cb_terrain::stamps::priority;
+use cb_terrain::{Stamp, StampShape};
+use glam::{Vec2, Vec3};
+use smallvec::SmallVec;
+
+use crate::catalog::Catalog;
+use crate::commands::{BuildRoad, Endpoint, ValidationError};
+use crate::ids::Ids;
+use crate::terrain;
+
+/// Corridor shoulder beyond the road edge (ADR-0065).
+pub const SHOULDER_M: f32 = 3.5;
+/// Corridor carve below the surface (ADR-0065).
+pub const CARVE_M: f32 = 0.15;
+/// Endpoint snapping tolerance (m).
+pub const SNAP_TOL_M: f32 = 0.5;
+/// Two segments meeting within this of straight form a plain continuation (no junction patch).
+pub const CONTINUATION_DEG: f32 = 10.0;
+
+/// A road node.
+#[derive(Component, Clone, Debug)]
+pub struct RoadNode {
+    pub(crate) id: NodeId,
+    pub(crate) pos: Vec3,
+    pub(crate) segments: SmallVec<[SegmentId; 4]>,
+    pub(crate) junction: Option<Junction>,
+}
+
+impl RoadNode {
+    /// Stable id.
+    #[must_use]
+    pub fn id(&self) -> NodeId {
+        self.id
+    }
+    /// Position (y = road surface).
+    #[must_use]
+    pub fn pos(&self) -> Vec3 {
+        self.pos
+    }
+    /// Incident segments.
+    #[must_use]
+    pub fn segments(&self) -> &[SegmentId] {
+        &self.segments
+    }
+    /// Junction geometry (nodes with ≥ 2 segments that are not plain continuations).
+    #[must_use]
+    pub fn junction(&self) -> Option<&Junction> {
+        self.junction.as_ref()
+    }
+}
+
+/// A road segment.
+#[derive(Component, Clone, Debug)]
+pub struct RoadSegment {
+    pub(crate) id: SegmentId,
+    pub(crate) start: NodeId,
+    pub(crate) end: NodeId,
+    pub(crate) kind: RoadKind,
+    pub(crate) curve: CubicBezier2,
+    pub(crate) profile: Profile,
+    pub(crate) built_tick: u64,
+    pub(crate) geom: SegmentGeom,
+    pub(crate) cut: (f32, f32),
+    pub(crate) stamp: u32,
+}
+
+impl RoadSegment {
+    /// Stable id.
+    #[must_use]
+    pub fn id(&self) -> SegmentId {
+        self.id
+    }
+    /// Start node.
+    #[must_use]
+    pub fn start(&self) -> NodeId {
+        self.start
+    }
+    /// End node.
+    #[must_use]
+    pub fn end(&self) -> NodeId {
+        self.end
+    }
+    /// Road type.
+    #[must_use]
+    pub fn kind(&self) -> RoadKind {
+        self.kind
+    }
+    /// Horizontal alignment.
+    #[must_use]
+    pub fn curve(&self) -> &CubicBezier2 {
+        &self.curve
+    }
+    /// Vertical profile (surface heights).
+    #[must_use]
+    pub fn profile(&self) -> &Profile {
+        &self.profile
+    }
+    /// Derived geometry.
+    #[must_use]
+    pub fn geom(&self) -> &SegmentGeom {
+        &self.geom
+    }
+    /// Junction cut-backs at the start and end (m).
+    #[must_use]
+    pub fn cuts(&self) -> (f32, f32) {
+        self.cut
+    }
+    /// Tick it was built.
+    #[must_use]
+    pub fn built_tick(&self) -> u64 {
+        self.built_tick
+    }
+    /// Cross-section.
+    #[must_use]
+    pub fn cross_section(&self) -> CrossSection {
+        CrossSection::of(self.kind)
+    }
+}
+
+/// Network changes for view sync and dependent systems.
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NetworkChanged {
+    /// A segment was added or its geometry/cuts changed.
+    Segment(SegmentId),
+    /// A segment was removed.
+    SegmentRemoved(SegmentId),
+    /// A node was added or its junction changed.
+    Node(NodeId),
+    /// A node was removed.
+    NodeRemoved(NodeId),
+}
+
+/// Half width of the carriageway (curb line) of a cross-section.
+#[must_use]
+pub fn carriageway_half_m(cs: &CrossSection) -> f32 {
+    let outer = cs
+        .elements
+        .first()
+        .filter(|e| matches!(e.kind, ElementKind::Sidewalk | ElementKind::Verge))
+        .map_or(0.0, |e| e.width_m);
+    cs.half_width_m() - outer
+}
+
+fn limits(cat: &Catalog, kind: RoadKind) -> RoadLimits {
+    let rt = cat.road(kind);
+    RoadLimits {
+        half_width_m: CrossSection::of(kind).half_width_m(),
+        max_grade: rt.max_grade,
+        min_radius_m: rt.min_radius_m,
+    }
+}
+
+/// Construction cost of a road of `len_m` (integer cents, deterministic rounding).
+#[must_use]
+pub fn road_cost(cat: &Catalog, kind: RoadKind, len_m: f32) -> Money {
+    let mm = (len_m * 1000.0).round() as i64;
+    Money(mm * cat.road(kind).cost_cents_per_m / 1000)
+}
+
+/// Sub-profile of `p` over `[s0, s1]` (arc length), resampled at the standard spacing.
+fn profile_piece(p: &Profile, s0: f32, s1: f32) -> Profile {
+    let s = cb_network::profile::sample_positions((s1 - s0).max(0.01));
+    let h = s.iter().map(|x| p.height_at(s0 + x)).collect();
+    Profile::new(s, h)
+}
+
+/// Re-solves a piece of an existing road so its ends meet new node heights.
+fn resolve_piece(p: &Profile, s0: f32, s1: f32, h0: f32, h1: f32, max_grade: f32) -> Profile {
+    let s = cb_network::profile::sample_positions((s1 - s0).max(0.01));
+    let h: Vec<f32> = s.iter().map(|x| p.height_at(s0 + x)).collect();
+    let inp = ProfileInput::ground(s.clone(), h.clone(), h0, h1, max_grade);
+    cb_network::profile::solve(&inp).unwrap_or_else(|_| Profile::new(s, h))
+}
+
+/// Splits a curve at arc lengths (ascending, exclusive of the ends) into pieces.
+fn split_curve(curve: &CubicBezier2, cuts_s: &[f32]) -> Vec<CubicBezier2> {
+    let lut = cb_geometry::ArcLengthLut::new(curve);
+    let mut ts: Vec<f32> = vec![0.0];
+    ts.extend(cuts_s.iter().map(|s| lut.t_at(*s)));
+    ts.push(1.0);
+    ts.windows(2).map(|w| curve.sub(w[0], w[1])).collect()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum NodeRef {
+    Old(NodeId),
+    New(usize),
+}
+
+#[derive(Clone, Debug)]
+struct PlannedSeg {
+    kind: RoadKind,
+    curve: CubicBezier2,
+    profile: Profile,
+    start: NodeRef,
+    end: NodeRef,
+    built_tick: u64,
+}
+
+#[derive(Default)]
+struct Plan {
+    new_nodes: Vec<Vec3>,
+    remove: Vec<SegmentId>,
+    add: Vec<PlannedSeg>,
+}
+
+/// Snapshot of an existing segment for planning.
+#[derive(Clone)]
+struct Snap {
+    id: SegmentId,
+    kind: RoadKind,
+    start: NodeId,
+    end: NodeId,
+    curve: CubicBezier2,
+    profile: Profile,
+    geom: SegmentGeom,
+    built_tick: u64,
+}
+
+fn snapshot(world: &World) -> (Vec<Snap>, BTreeMap<NodeId, (Vec3, Vec<SegmentId>)>) {
+    let Some(ids) = world.get_resource::<Ids>() else {
+        return (Vec::new(), BTreeMap::new());
+    };
+    let segs = ids
+        .segments
+        .iter()
+        .filter_map(|(_, e)| world.get::<RoadSegment>(e))
+        .map(|s| Snap {
+            id: s.id,
+            kind: s.kind,
+            start: s.start,
+            end: s.end,
+            curve: s.curve,
+            profile: s.profile.clone(),
+            geom: s.geom.clone(),
+            built_tick: s.built_tick,
+        })
+        .collect();
+    let nodes = ids
+        .nodes
+        .iter()
+        .filter_map(|(id, e)| {
+            world
+                .get::<RoadNode>(e)
+                .map(|n| (id, (n.pos, n.segments.to_vec())))
+        })
+        .collect();
+    (segs, nodes)
+}
+
+/// Approach of a (planned or existing) segment at one of its nodes.
+fn approach(
+    cat: &Catalog,
+    kind: RoadKind,
+    geom: &SegmentGeom,
+    profile: &Profile,
+    at_start: bool,
+) -> Approach {
+    let cs = CrossSection::of(kind);
+    let centerline = if at_start {
+        geom.centerline.clone()
+    } else {
+        Polyline2::new(geom.centerline.points().iter().rev().copied())
+    };
+    Approach {
+        centerline,
+        half_width_m: cs.half_width_m(),
+        carriageway_half_m: carriageway_half_m(&cs),
+        corner_radius_m: cat.road(kind).corner_radius_m,
+        profile: profile.clone(),
+        reversed: !at_start,
+    }
+}
+
+/// Junction for a node with the given approaches (`None` for dead ends and continuations).
+fn node_junction(
+    apps: &[(RoadKind, Approach)],
+) -> Option<Result<Junction, junction::JunctionError>> {
+    match apps.len() {
+        0 | 1 => None,
+        2 => {
+            let (a, b) = (&apps[0], &apps[1]);
+            let (ta, tb) = (
+                a.1.centerline.tangent_at(0.0),
+                b.1.centerline.tangent_at(0.0),
+            );
+            let straight =
+                ta.dot(tb) < -cb_core::math::cos(cb_core::math::to_radians(CONTINUATION_DEG));
+            if straight && a.0 == b.0 {
+                None
+            } else {
+                Some(junction::build(&[a.1.clone(), b.1.clone()]))
+            }
+        }
+        _ => Some(junction::build(
+            &apps.iter().map(|a| a.1.clone()).collect::<Vec<_>>(),
+        )),
+    }
+}
+
+/// Plans a new road.
+fn plan_build(world: &World, cmd: &BuildRoad, tick: u64) -> Result<(Plan, Money), ValidationError> {
+    let Some(cat) = world.get_resource::<Catalog>() else {
+        return Err(ValidationError::new("internal-no-catalog"));
+    };
+    let lim = limits(cat, cmd.kind);
+    let geom = SegmentGeom::new(cmd.curve, lim.half_width_m);
+    let len = geom.length();
+    let ground = terrain::ground(world);
+    let (snaps, nodes) = snapshot(world);
+    let index_of = |id: SegmentId| snaps.iter().position(|s| s.id == id);
+
+    // Endpoints: height and which existing segments they touch.
+    let resolve = |ep: Endpoint, p: Vec2| -> Result<(f32, Option<(usize, f32)>), ValidationError> {
+        match ep {
+            Endpoint::Free => Ok((ground.height(p), None)),
+            Endpoint::Node(n) => {
+                let (pos, _) = nodes
+                    .get(&n)
+                    .ok_or(ValidationError::new("road-invalid-target-missing"))?;
+                if Vec2::new(pos.x, pos.z).distance(p) > SNAP_TOL_M {
+                    return Err(ValidationError::at("road-invalid-target-missing", p));
+                }
+                Ok((pos.y, None))
+            }
+            Endpoint::Segment(sid) => {
+                let k = index_of(sid).ok_or(ValidationError::new("road-invalid-target-missing"))?;
+                let (s, d) = snaps[k].geom.project(p);
+                if d.abs() > SNAP_TOL_M {
+                    return Err(ValidationError::at("road-invalid-target-missing", p));
+                }
+                Ok((snaps[k].profile.height_at(s), Some((k, s))))
+            }
+        }
+    };
+    let (h0, split0) = resolve(cmd.start, cmd.curve.start())?;
+    let (h1, split1) = resolve(cmd.end, cmd.curve.end())?;
+
+    // Existing segments near the new corridor.
+    let (lo, hi) = cmd.curve.bounds();
+    let pad = lim.half_width_m + 30.0;
+    let near: Vec<usize> = (0..snaps.len())
+        .filter(|&k| {
+            let (a, b) = snaps[k].curve.bounds();
+            let r = snaps[k].geom.half_width_m + pad;
+            a.x - r <= hi.x && lo.x <= b.x + r && a.y - r <= hi.y && lo.y <= b.y + r
+        })
+        .collect();
+    let shares = |k: usize| -> Option<Vec2> {
+        let s = &snaps[k];
+        let touch = |ep: Endpoint, split: Option<(usize, f32)>, p: Vec2| match ep {
+            Endpoint::Node(n) if s.start == n || s.end == n => Some(p),
+            Endpoint::Segment(_) if split.is_some_and(|(kk, _)| kk == k) => Some(p),
+            _ => None,
+        };
+        touch(cmd.start, split0, cmd.curve.start())
+            .or_else(|| touch(cmd.end, split1, cmd.curve.end()))
+    };
+    let existing: Vec<Existing<'_>> = near
+        .iter()
+        .map(|&k| Existing {
+            geom: &snaps[k].geom,
+            profile: &snaps[k].profile,
+            shares_node_at: shares(k),
+        })
+        .collect();
+    let base = validation::ground_input(&geom, &ground, h0, h1, &lim);
+    let (profile, crossings) = validation::resolve_crossings(&geom, &base, &existing)?;
+    let plain: Vec<_> = crossings.iter().map(|c| c.0).collect();
+    if let Some(e) = validation::validate_shape(&geom, &lim, &ground, &existing, &plain).first() {
+        return Err((*e).into());
+    }
+    if let Some((c, _)) = crossings.iter().find(|(_, k)| *k == CrossingKind::Overpass) {
+        return Err(ValidationError::at(
+            "road-invalid-overpass-unavailable",
+            c.at,
+        ));
+    }
+
+    // Topology.
+    let mut plan = Plan::default();
+    let mut new_node = |plan: &mut Plan, p: Vec3| {
+        plan.new_nodes.push(p);
+        NodeRef::New(plan.new_nodes.len() - 1)
+    };
+    let endpoint_ref =
+        |plan: &mut Plan,
+         ep: Endpoint,
+         p: Vec2,
+         h: f32,
+         new_node: &mut dyn FnMut(&mut Plan, Vec3) -> NodeRef| match ep {
+            Endpoint::Node(n) => NodeRef::Old(n),
+            Endpoint::Free | Endpoint::Segment(_) => new_node(plan, Vec3::new(p.x, h, p.y)),
+        };
+    let start_ref = endpoint_ref(&mut plan, cmd.start, cmd.curve.start(), h0, &mut new_node);
+    let end_ref = endpoint_ref(&mut plan, cmd.end, cmd.curve.end(), h1, &mut new_node);
+    // Splits of existing segments: snapshot index → [(s, node, height)].
+    let mut splits: BTreeMap<usize, Vec<(f32, NodeRef, f32)>> = BTreeMap::new();
+    if let Some((k, s)) = split0 {
+        splits.entry(k).or_default().push((s, start_ref, h0));
+    }
+    if let Some((k, s)) = split1 {
+        splits.entry(k).or_default().push((s, end_ref, h1));
+    }
+    // Junction crossings split both roads.
+    let mut new_cuts: Vec<(f32, NodeRef)> = Vec::new();
+    for (c, _) in crossings
+        .iter()
+        .filter(|(_, k)| *k == CrossingKind::Junction)
+    {
+        let h = profile.height_at(c.s_new);
+        let r = new_node(&mut plan, Vec3::new(c.at.x, h, c.at.y));
+        new_cuts.push((c.s_new, r));
+        splits
+            .entry(near[c.other])
+            .or_default()
+            .push((c.s_other, r, h));
+    }
+    new_cuts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // New road pieces.
+    let pieces = split_curve(
+        &cmd.curve,
+        &new_cuts.iter().map(|c| c.0).collect::<Vec<_>>(),
+    );
+    let mut bounds: Vec<(f32, NodeRef)> = vec![(0.0, start_ref)];
+    bounds.extend(new_cuts.iter().copied());
+    bounds.push((len, end_ref));
+    for (k, piece) in pieces.into_iter().enumerate() {
+        let (s0, a) = bounds[k];
+        let (s1, b) = bounds[k + 1];
+        plan.add.push(PlannedSeg {
+            kind: cmd.kind,
+            curve: piece,
+            profile: profile_piece(&profile, s0, s1),
+            start: a,
+            end: b,
+            built_tick: tick,
+        });
+    }
+    // Split existing segments (profiles re-solved to the new node heights).
+    for (k, mut pts) in splits {
+        let s = &snaps[k];
+        let slen = s.geom.length();
+        pts.sort_by(|a, b| a.0.total_cmp(&b.0));
+        if pts.iter().any(|p| p.0 < 1.0 || p.0 > slen - 1.0) {
+            return Err(ValidationError::at(
+                "road-invalid-junction-too-close",
+                s.geom.point_at(pts[0].0),
+            ));
+        }
+        let max_grade = cat.road(s.kind).max_grade;
+        let pieces = split_curve(&s.curve, &pts.iter().map(|p| p.0).collect::<Vec<_>>());
+        let start_h = s.profile.height_at(0.0);
+        let mut b: Vec<(f32, NodeRef, f32)> = vec![(0.0, NodeRef::Old(s.start), start_h)];
+        b.extend(pts.iter().copied());
+        b.push((slen, NodeRef::Old(s.end), s.profile.height_at(slen)));
+        for (q, piece) in pieces.into_iter().enumerate() {
+            let (s0, a, ha) = b[q];
+            let (s1, e, he) = b[q + 1];
+            plan.add.push(PlannedSeg {
+                kind: s.kind,
+                curve: piece,
+                profile: resolve_piece(&s.profile, s0, s1, ha, he, max_grade),
+                start: a,
+                end: e,
+                built_tick: s.built_tick,
+            });
+        }
+        plan.remove.push(s.id);
+    }
+
+    // Junction validation of every affected node on the planned topology.
+    let mut affected: Vec<NodeRef> = plan.add.iter().flat_map(|p| [p.start, p.end]).collect();
+    affected.sort();
+    affected.dedup();
+    for node in affected {
+        let mut apps: Vec<(RoadKind, Approach)> = Vec::new();
+        if let NodeRef::Old(n) = node
+            && let Some((_, incident)) = nodes.get(&n)
+        {
+            for sid in incident {
+                if plan.remove.contains(sid) {
+                    continue;
+                }
+                if let Some(k) = index_of(*sid) {
+                    let s = &snaps[k];
+                    apps.push((
+                        s.kind,
+                        approach(cat, s.kind, &s.geom, &s.profile, s.start == n),
+                    ));
+                }
+            }
+        }
+        for p in plan.add.iter().filter(|p| p.start == node || p.end == node) {
+            let g = SegmentGeom::new(p.curve, CrossSection::of(p.kind).half_width_m());
+            if p.start == node {
+                apps.push((p.kind, approach(cat, p.kind, &g, &p.profile, true)));
+            }
+            if p.end == node {
+                apps.push((p.kind, approach(cat, p.kind, &g, &p.profile, false)));
+            }
+        }
+        if let Some(Err(e)) = node_junction(&apps) {
+            let at = match node {
+                NodeRef::Old(n) => nodes.get(&n).map(|v| Vec2::new(v.0.x, v.0.z)),
+                NodeRef::New(i) => plan.new_nodes.get(i).map(|v| Vec2::new(v.x, v.z)),
+            };
+            return Err(ValidationError { key: e.key(), at });
+        }
+    }
+    Ok((plan, road_cost(cat, cmd.kind, len)))
+}
+
+fn corridor_stamp(id: u32, seg: &RoadSegment) -> Stamp {
+    let centerline = seg.geom.centerline3(&seg.profile, 2.0);
+    Stamp {
+        id,
+        priority: priority::ROAD,
+        shape: StampShape::Corridor {
+            centerline,
+            core_half_width_m: seg.geom.half_width_m + SHOULDER_M,
+            carve_m: CARVE_M,
+        },
+    }
+}
+
+fn spawn_node(world: &mut World, pos: Vec3) -> Result<NodeId, ValidationError> {
+    let id = world
+        .resource_mut::<Ids>()
+        .nodes
+        .allocate()
+        .map_err(|_| ValidationError::new("internal-id-space"))?;
+    let e = world
+        .spawn(RoadNode {
+            id,
+            pos,
+            segments: SmallVec::new(),
+            junction: None,
+        })
+        .id();
+    world.resource_mut::<Ids>().nodes.insert(id, e);
+    world.write_message(NetworkChanged::Node(id));
+    Ok(id)
+}
+
+fn node_entity(world: &World, id: NodeId) -> Option<Entity> {
+    world.get_resource::<Ids>().and_then(|i| i.nodes.get(id))
+}
+
+fn segment_entity(world: &World, id: SegmentId) -> Option<Entity> {
+    world.get_resource::<Ids>().and_then(|i| i.segments.get(id))
+}
+
+/// Read access to a segment by id.
+#[must_use]
+pub fn segment(world: &World, id: SegmentId) -> Option<&RoadSegment> {
+    segment_entity(world, id).and_then(|e| world.get::<RoadSegment>(e))
+}
+
+/// Read access to a node by id.
+#[must_use]
+pub fn node(world: &World, id: NodeId) -> Option<&RoadNode> {
+    node_entity(world, id).and_then(|e| world.get::<RoadNode>(e))
+}
+
+fn spawn_segment(
+    world: &mut World,
+    p: &PlannedSeg,
+    start: NodeId,
+    end: NodeId,
+) -> Result<SegmentId, ValidationError> {
+    let id = world
+        .resource_mut::<Ids>()
+        .segments
+        .allocate()
+        .map_err(|_| ValidationError::new("internal-id-space"))?;
+    let stamp = world.resource_mut::<Ids>().stamp();
+    let geom = SegmentGeom::new(p.curve, CrossSection::of(p.kind).half_width_m());
+    let seg = RoadSegment {
+        id,
+        start,
+        end,
+        kind: p.kind,
+        curve: p.curve,
+        profile: p.profile.clone(),
+        built_tick: p.built_tick,
+        geom,
+        cut: (0.0, 0.0),
+        stamp,
+    };
+    terrain::add_stamp(world, corridor_stamp(stamp, &seg));
+    let (lo, hi) = cb_geometry::polygon::bounds(&seg.geom.corridor);
+    crate::zoning::mark_near(world, lo, hi);
+    let e = world.spawn(seg).id();
+    world.resource_mut::<Ids>().segments.insert(id, e);
+    for n in [start, end] {
+        if let Some(ne) = node_entity(world, n)
+            && let Some(mut node) = world.get_mut::<RoadNode>(ne)
+            && !node.segments.contains(&id)
+        {
+            node.segments.push(id);
+        }
+    }
+    world.write_message(NetworkChanged::Segment(id));
+    Ok(id)
+}
+
+fn despawn_segment(world: &mut World, id: SegmentId) -> Option<RoadSegment> {
+    let e = world.resource_mut::<Ids>().segments.remove(id)?;
+    let seg = world.get::<RoadSegment>(e).cloned()?;
+    world.despawn(e);
+    terrain::remove_stamp(world, seg.stamp);
+    for n in [seg.start, seg.end] {
+        if let Some(ne) = node_entity(world, n)
+            && let Some(mut node) = world.get_mut::<RoadNode>(ne)
+        {
+            node.segments.retain(|s| *s != id);
+        }
+    }
+    world.write_message(NetworkChanged::SegmentRemoved(id));
+    Some(seg)
+}
+
+/// Recomputes a node's junction and its segments' cut-backs; removes isolated nodes.
+fn refresh_node(world: &mut World, id: NodeId) {
+    let Some(ne) = node_entity(world, id) else {
+        return;
+    };
+    let Some(node) = world.get::<RoadNode>(ne).cloned() else {
+        return;
+    };
+    if node.segments.is_empty() {
+        world.resource_mut::<Ids>().nodes.remove(id);
+        world.despawn(ne);
+        world.write_message(NetworkChanged::NodeRemoved(id));
+        return;
+    }
+    let Some(cat) = world.get_resource::<Catalog>().cloned() else {
+        return;
+    };
+    let mut apps: Vec<(RoadKind, Approach)> = Vec::new();
+    let mut order: Vec<(SegmentId, bool)> = Vec::new();
+    let mut sorted = node.segments.to_vec();
+    sorted.sort();
+    for sid in &sorted {
+        if let Some(s) = segment(world, *sid) {
+            // A loop segment (both ends here) contributes two approaches.
+            if s.start == id {
+                apps.push((s.kind, approach(&cat, s.kind, &s.geom, &s.profile, true)));
+                order.push((*sid, true));
+            }
+            if s.end == id {
+                apps.push((s.kind, approach(&cat, s.kind, &s.geom, &s.profile, false)));
+                order.push((*sid, false));
+            }
+        }
+    }
+    let j = match node_junction(&apps) {
+        Some(Ok(j)) => Some(j),
+        Some(Err(e)) => {
+            tracing::warn!(?id, ?e, "junction rebuild failed after a validated edit");
+            None
+        }
+        None => None,
+    };
+    for (k, (sid, at_start)) in order.iter().enumerate() {
+        let cut = j
+            .as_ref()
+            .and_then(|j| j.cuts.get(k).copied())
+            .unwrap_or(0.0);
+        if let Some(se) = segment_entity(world, *sid)
+            && let Some(mut s) = world.get_mut::<RoadSegment>(se)
+        {
+            if *at_start {
+                s.cut.0 = cut;
+            } else {
+                s.cut.1 = cut;
+            }
+        }
+        world.write_message(NetworkChanged::Segment(*sid));
+    }
+    if let Some(jj) = &j {
+        let outline: Vec<Vec2> = jj.outer.iter().map(|v| Vec2::new(v.x, v.z)).collect();
+        let (lo, hi) = cb_geometry::polygon::bounds(&outline);
+        crate::zoning::mark_near(world, lo, hi);
+    }
+    if let Some(mut n) = world.get_mut::<RoadNode>(ne) {
+        n.junction = j;
+    }
+    world.write_message(NetworkChanged::Node(id));
+}
+
+/// Free endpoints lying on an existing node or segment centreline connect to it.
+fn snap_endpoint(world: &World, ep: Endpoint, p: Vec2) -> Endpoint {
+    if ep != Endpoint::Free {
+        return ep;
+    }
+    let Some(ids) = world.get_resource::<Ids>() else {
+        return ep;
+    };
+    for (id, e) in ids.nodes.iter() {
+        if let Some(n) = world.get::<RoadNode>(e)
+            && Vec2::new(n.pos.x, n.pos.z).distance(p) < SNAP_TOL_M
+        {
+            return Endpoint::Node(id);
+        }
+    }
+    for (id, e) in ids.segments.iter() {
+        if let Some(s) = world.get::<RoadSegment>(e)
+            && s.geom.project(p).1.abs() < SNAP_TOL_M
+        {
+            let (sp, _) = s.geom.project(p);
+            if sp > 0.0 && sp < s.geom.length() {
+                return Endpoint::Segment(id);
+            }
+        }
+    }
+    ep
+}
+
+/// `BuildRoad`: plan, charge, apply. Returns the cost.
+///
+/// # Errors
+/// The first validation failure.
+pub(crate) fn build_road(
+    world: &mut World,
+    cmd: &BuildRoad,
+    tick: u64,
+) -> Result<Money, ValidationError> {
+    let cmd = &BuildRoad {
+        start: snap_endpoint(world, cmd.start, cmd.curve.start()),
+        end: snap_endpoint(world, cmd.end, cmd.curve.end()),
+        ..cmd.clone()
+    };
+    let (plan, cost) = plan_build(world, cmd, tick)?;
+    crate::economy::charge(world, cost)?;
+    let mut new_ids: Vec<NodeId> = Vec::with_capacity(plan.new_nodes.len());
+    for p in &plan.new_nodes {
+        new_ids.push(spawn_node(world, *p)?);
+    }
+    let resolve = |r: NodeRef| match r {
+        NodeRef::Old(n) => n,
+        NodeRef::New(i) => new_ids[i],
+    };
+    let mut touched: Vec<NodeId> = new_ids.clone();
+    for sid in &plan.remove {
+        if let Some(seg) = despawn_segment(world, *sid) {
+            touched.extend([seg.start, seg.end]);
+        }
+    }
+    let mut added = Vec::with_capacity(plan.add.len());
+    for p in &plan.add {
+        let (a, b) = (resolve(p.start), resolve(p.end));
+        added.push(spawn_segment(world, p, a, b)?);
+        touched.extend([a, b]);
+    }
+    touched.sort();
+    touched.dedup();
+    for n in touched {
+        refresh_node(world, n);
+    }
+    let _ = added;
+    Ok(cost)
+}
+
+/// `RemoveSegment` (bulldoze): removes the segment, its stamp and orphaned nodes.
+///
+/// # Errors
+/// `road-invalid-target-missing` if the segment does not exist.
+pub(crate) fn remove_segment(world: &mut World, id: SegmentId) -> Result<(), ValidationError> {
+    let seg =
+        despawn_segment(world, id).ok_or(ValidationError::new("road-invalid-target-missing"))?;
+    let mut nodes = vec![seg.start, seg.end];
+    nodes.dedup();
+    for n in nodes {
+        refresh_node(world, n);
+    }
+    Ok(())
+}
+
+/// Outer road edge of a segment side between arc lengths `s0` and `s1` (either order), walked
+/// from `s0` to `s1`. Uses the same offset polyline as the corridor polygon, so plots clipped by
+/// the corridor keep exact contact with their frontage.
+#[must_use]
+pub fn edge_polyline(seg: &RoadSegment, left: bool, s0: f32, s1: f32) -> Vec<Vec2> {
+    let edge = if left {
+        &seg.geom.left
+    } else {
+        &seg.geom.right
+    };
+    let pts = edge.points();
+    let cum = seg.geom.centerline.cumulative();
+    let len = seg.geom.length();
+    let (a, b) = (s0.min(s1).clamp(0.0, len), s0.max(s1).clamp(0.0, len));
+    // Edge point at centreline arc length `s` (vertex correspondence of the offset polyline).
+    let at = |s: f32| -> Vec2 {
+        let k = cum
+            .partition_point(|v| *v <= s)
+            .clamp(1, cum.len().max(2) - 1)
+            - 1;
+        let seg_len = (cum[k + 1] - cum[k]).max(1e-9);
+        pts[k].lerp(pts[k + 1], ((s - cum[k]) / seg_len).clamp(0.0, 1.0))
+    };
+    let mut out = vec![at(a)];
+    for (k, c) in cum.iter().enumerate() {
+        if *c > a + 1e-3 && *c < b - 1e-3 {
+            out.push(pts[k]);
+        }
+    }
+    out.push(at(b));
+    if s0 > s1 {
+        out.reverse();
+    }
+    out
+}

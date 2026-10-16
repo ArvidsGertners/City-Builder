@@ -4,37 +4,98 @@
 //! (checked by `scripts/check_sim_isolation.sh`). Runs in the game and in plain
 //! `MinimalPlugins` apps (tests, benchmarks).
 
+pub mod buildings;
+pub mod catalog;
+pub mod citygen;
 pub mod clock;
+pub mod commands;
 pub mod config;
 pub mod driver;
+pub mod economy;
 pub mod hash;
+pub mod ids;
+pub mod roads;
 pub mod schedule;
+pub mod terrain;
 pub mod testing;
+pub mod zoning;
 
 use bevy::app::{App, Plugin, PluginGroup, PluginGroupBuilder, Update};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 
 pub use clock::{DayElapsed, HourElapsed, SeasonChanged, SimClock};
-pub use config::{Difficulty, SimConfig, WeatherMode, WorldSeed};
+pub use commands::{CommandQueue, CommandResult, PlayerCommand, ValidationError};
+pub use config::{Difficulty, GrowthMode, SimConfig, WeatherMode, WorldSeed};
 pub use driver::{DayLength, SimDriveSystems, SimDriver, SimPacing, SimSpeed, SimStepRequest};
 pub use hash::state_hash;
 pub use schedule::{EditSet, SimEdit, SimTick, TickSet};
+pub use terrain::TerrainSetup;
 
 /// All simulation plugins.
 pub struct SimPlugins {
     /// World seed for a new city.
     pub seed: u64,
+    /// Terrain source.
+    pub terrain: TerrainSetup,
 }
 
 impl Default for SimPlugins {
     fn default() -> Self {
-        Self { seed: 1 }
+        Self {
+            seed: 1,
+            terrain: TerrainSetup::None,
+        }
     }
 }
 
 impl PluginGroup for SimPlugins {
     fn build(self) -> PluginGroupBuilder {
-        PluginGroupBuilder::start::<Self>().add(SimCorePlugin { seed: self.seed })
+        PluginGroupBuilder::start::<Self>()
+            .add(SimCorePlugin { seed: self.seed })
+            .add(WorldStatePlugin {
+                seed: self.seed,
+                terrain: self.terrain,
+            })
+    }
+}
+
+/// World state for M2: catalog, ids, treasury, terrain, commands, roads, zoning, buildings.
+pub struct WorldStatePlugin {
+    /// World seed.
+    pub seed: u64,
+    /// Terrain source.
+    pub terrain: TerrainSetup,
+}
+
+impl Plugin for WorldStatePlugin {
+    fn build(&self, app: &mut App) {
+        match catalog::Catalog::load() {
+            Ok(cat) => {
+                let money = cat.start_money(Difficulty::Normal);
+                app.insert_resource(cat)
+                    .insert_resource(economy::Treasury::new(money));
+            }
+            Err(e) => tracing::error!("catalog failed to load: {e}"),
+        }
+        match terrain::build(&self.terrain, self.seed) {
+            Ok(Some(t)) => {
+                app.insert_resource(t);
+            }
+            Ok(None) => {}
+            Err(e) => tracing::error!("terrain generation failed: {e}"),
+        }
+        app.init_resource::<ids::Ids>()
+            .init_resource::<CommandQueue>()
+            .init_resource::<commands::CommandLog>()
+            .init_resource::<zoning::DirtyPlots>()
+            .add_message::<CommandResult>()
+            .add_message::<roads::NetworkChanged>()
+            .add_message::<terrain::TerrainChanged>()
+            .add_message::<zoning::ZoningChanged>()
+            .add_message::<buildings::BuildingChanged>()
+            .add_systems(SimEdit, commands::apply_commands.in_set(EditSet::Commands))
+            .add_systems(SimEdit, zoning::update_dirty_plots.in_set(EditSet::Zoning))
+            .add_systems(SimTick, buildings::growth.in_set(TickSet::SubRate));
     }
 }
 

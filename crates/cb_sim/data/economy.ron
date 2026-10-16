@@ -1,0 +1,5 @@
+// Economy basics (GAME_DESIGN §7). Money in cents.
+(
+    start_money_cents: (relaxed: 12000000, normal: 6000000, hard: 3500000),
+    growth_debug_delay_ticks: 600,
+)

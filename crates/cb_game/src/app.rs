@@ -107,6 +107,8 @@ pub fn build(boot: Boot) -> App {
     .add_plugins(EguiPlugin::default())
     .add_plugins(SimPlugins {
         seed: cli.seed.unwrap_or(1),
+        // Terrain generation moves here with the world view (M2.6).
+        ..SimPlugins::default()
     })
     .init_state::<AppState>()
     .configure_sets(

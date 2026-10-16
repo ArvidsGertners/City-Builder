@@ -178,6 +178,9 @@ struct ConflictZone { node: NodeId, connectors: SmallVec<[ConnectorId; 4]>, cent
     zone: ZoneType,                        // Residential | Commercial | Industrial
     polygon: Polygon2,                     // CCW, simple, validated
     frontage: SmallVec<[FrontageRef; 2]>,  // FrontageRef::Segment { segment, side, t0, t1 } | Corner { node, corner }
+    // M2 implementation: the frontage is stored as the world polyline of the road edge it was
+    // drawn on (incl. a corner fillet) plus the fronted segment ids; edits that move road edges
+    // (widening, M3) re-derive it from the refs.
     subdivision: SubdivisionParams { target_lots: u16, seed_salt: u32, depth_mode: DepthMode },
     // Persisted split state (ADR-0064): pre-repair splits and the splits removed by repair, as
     // positions on the frontage road edges (stable under edits of the plot itself).

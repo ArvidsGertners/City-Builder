@@ -1,0 +1,8 @@
+// Zone parameters (GAME_DESIGN §4, ADR-0064). Lengths in metres, areas in m².
+(
+    zones: {
+        Residential: (w_min: 10.0, w_target: 13.0, w_max: 18.0, d_max: 45.0, a_min: 120.0, setback: (3.0, 1.5, 4.0), default_depth_m: 30.0),
+        Commercial: (w_min: 14.0, w_target: 20.0, w_max: 30.0, d_max: 50.0, a_min: 200.0, setback: (1.0, 0.0, 2.0), default_depth_m: 35.0),
+        Industrial: (w_min: 24.0, w_target: 36.0, w_max: 60.0, d_max: 80.0, a_min: 600.0, setback: (4.0, 2.0, 4.0), default_depth_m: 50.0),
+    },
+)
