@@ -81,6 +81,17 @@ impl ZoneSpec {
 #[derive(Deserialize)]
 struct RoadsFile {
     roads: BTreeMap<RoadKind, RoadType>,
+    #[serde(default)]
+    variants: VariantCosts,
+}
+
+/// Extra construction cost of segment variants (GAME_DESIGN §3).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VariantCosts {
+    /// Bus lanes (cents per metre).
+    pub bus_lanes_cents_per_m: i64,
+    /// Tram tracks in a road (cents per metre).
+    pub tram_tracks_cents_per_m: i64,
 }
 
 #[derive(Deserialize)]
@@ -105,6 +116,7 @@ struct EconomyFile {
 #[derive(Resource, Clone, Debug)]
 pub struct Catalog {
     roads: BTreeMap<RoadKind, RoadType>,
+    variants: VariantCosts,
     zones: BTreeMap<ZoneKind, ZoneSpec>,
     start_money: StartMoney,
     growth_debug_delay_ticks: u64,
@@ -176,6 +188,7 @@ impl Catalog {
         }
         Ok(Self {
             roads: roads.roads,
+            variants: roads.variants,
             zones: zones.zones,
             start_money: eco.start_money_cents,
             growth_debug_delay_ticks: eco.growth_debug_delay_ticks,
@@ -189,6 +202,13 @@ impl Catalog {
         self.roads
             .get(&k)
             .unwrap_or_else(|| &self.roads[&RoadKind::Street])
+    }
+
+    /// Extra cost per metre of a segment variant (cents).
+    #[must_use]
+    pub fn variant_cost_cents_per_m(&self, v: cb_network::Variant) -> i64 {
+        i64::from(v.bus_lanes) * self.variants.bus_lanes_cents_per_m
+            + i64::from(v.tram_tracks) * self.variants.tram_tracks_cents_per_m
     }
 
     /// Zone data (every zone is present after [`Catalog::load`]).

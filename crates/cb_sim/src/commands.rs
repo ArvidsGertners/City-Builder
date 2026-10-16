@@ -77,6 +77,15 @@ pub enum PlayerCommand {
         /// The segment.
         segment: SegmentId,
     },
+    /// Upgrade/downgrade: change a segment's road type and variant (bus lanes, tram tracks).
+    SetRoadType {
+        /// The segment.
+        segment: SegmentId,
+        /// New road type.
+        kind: RoadKind,
+        /// New variant.
+        variant: cb_network::Variant,
+    },
     /// Draw a plot.
     CreatePlot(CreatePlot),
     /// Change a plot's frontage and depth.
@@ -208,6 +217,11 @@ fn apply(world: &mut World, cmd: &PlayerCommand, tick: u64) -> Result<Money, Val
         PlayerCommand::RemoveSegment { segment } => {
             crate::roads::remove_segment(world, *segment).map(|()| Money::ZERO)
         }
+        PlayerCommand::SetRoadType {
+            segment,
+            kind,
+            variant,
+        } => crate::roads::set_road_type(world, *segment, *kind, *variant),
         PlayerCommand::CreatePlot(c) => crate::zoning::create_plot(world, c).map(|_| Money::ZERO),
         PlayerCommand::EditPlot {
             plot,
@@ -262,6 +276,8 @@ pub const ALL_KEYS: &[&str] = &[
     "road-invalid-junction-too-close",
     "road-invalid-overpass-unavailable",
     "road-invalid-target-missing",
+    "road-invalid-too-steep",
+    "road-invalid-variant",
 ];
 
 #[cfg(test)]

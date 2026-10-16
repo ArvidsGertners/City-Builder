@@ -13,11 +13,11 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::message::Message;
 use bevy::ecs::world::World;
 use cb_core::Money;
-use cb_core::ids::{NodeId, SegmentId};
+use cb_core::ids::{BuildingId, NodeId, SegmentId};
 use cb_geometry::{CubicBezier2, Polyline2};
 use cb_network::junction::{self, Approach, Junction};
 use cb_network::validation::{self, CrossingKind, Existing, Ground, RoadLimits};
-use cb_network::{CrossSection, Profile, ProfileInput, RoadKind, SegmentGeom};
+use cb_network::{CrossSection, Profile, ProfileInput, RoadKind, SegmentGeom, Variant};
 use cb_terrain::stamps::priority;
 use cb_terrain::{Stamp, StampShape};
 use glam::{Vec2, Vec3};
@@ -86,6 +86,8 @@ pub struct RoadSegment {
     pub(crate) start: NodeId,
     pub(crate) end: NodeId,
     pub(crate) kind: RoadKind,
+    /// Bus lanes / tram tracks.
+    pub(crate) variant: Variant,
     pub(crate) curve: CubicBezier2,
     pub(crate) profile: Profile,
     pub(crate) built_tick: u64,
@@ -140,10 +142,15 @@ impl RoadSegment {
     pub fn built_tick(&self) -> u64 {
         self.built_tick
     }
-    /// Cross-section.
+    /// Bus lanes / tram tracks.
+    #[must_use]
+    pub fn variant(&self) -> Variant {
+        self.variant
+    }
+    /// Cross-section (with its variant's lane kinds).
     #[must_use]
     pub fn cross_section(&self) -> CrossSection {
-        CrossSection::of(self.kind)
+        CrossSection::with(self.kind, self.variant)
     }
 }
 
@@ -178,8 +185,15 @@ fn limits(cat: &Catalog, kind: RoadKind) -> RoadLimits {
 /// Construction cost of a road of `len_m` (integer cents, deterministic rounding).
 #[must_use]
 pub fn road_cost(cat: &Catalog, kind: RoadKind, len_m: f32) -> Money {
+    road_cost_with(cat, kind, Variant::default(), len_m)
+}
+
+/// Construction cost of a road of `len_m` with bus lanes / tram tracks.
+#[must_use]
+pub fn road_cost_with(cat: &Catalog, kind: RoadKind, variant: Variant, len_m: f32) -> Money {
     let mm = (len_m * 1000.0).round() as i64;
-    Money(mm * cat.road(kind).cost_cents_per_m / 1000)
+    let per_m = cat.road(kind).cost_cents_per_m + cat.variant_cost_cents_per_m(variant);
+    Money(mm * per_m / 1000)
 }
 
 /// Sub-profile of `p` over `[s0, s1]` (arc length), resampled at the standard spacing.
@@ -215,6 +229,7 @@ enum NodeRef {
 #[derive(Clone, Debug)]
 struct PlannedSeg {
     kind: RoadKind,
+    variant: Variant,
     curve: CubicBezier2,
     profile: Profile,
     start: NodeRef,
@@ -234,6 +249,7 @@ struct Plan {
 struct Snap {
     id: SegmentId,
     kind: RoadKind,
+    variant: Variant,
     start: NodeId,
     end: NodeId,
     curve: CubicBezier2,
@@ -253,6 +269,7 @@ fn snapshot(world: &World) -> (Vec<Snap>, BTreeMap<NodeId, (Vec3, Vec<SegmentId>
         .map(|s| Snap {
             id: s.id,
             kind: s.kind,
+            variant: s.variant,
             start: s.start,
             end: s.end,
             curve: s.curve,
@@ -276,12 +293,12 @@ fn snapshot(world: &World) -> (Vec<Snap>, BTreeMap<NodeId, (Vec3, Vec<SegmentId>
 /// Approach of a (planned or existing) segment at one of its nodes.
 fn approach(
     cat: &Catalog,
-    kind: RoadKind,
+    (kind, variant): (RoadKind, Variant),
     geom: &SegmentGeom,
     profile: &Profile,
     at_start: bool,
 ) -> Approach {
-    let cs = CrossSection::of(kind);
+    let cs = CrossSection::with(kind, variant);
     let centerline = if at_start {
         geom.centerline.clone()
     } else {
@@ -460,6 +477,7 @@ fn plan_build(
         let (s1, b) = bounds[k + 1];
         plan.add.push(PlannedSeg {
             kind: cmd.kind,
+            variant: Variant::default(),
             curve: piece,
             profile: profile_piece(&profile, s0, s1),
             start: a,
@@ -489,6 +507,7 @@ fn plan_build(
             let (s1, e, he) = b[q + 1];
             plan.add.push(PlannedSeg {
                 kind: s.kind,
+                variant: s.variant,
                 curve: piece,
                 profile: resolve_piece(&s.profile, s0, s1, ha, he, max_grade),
                 start: a,
@@ -516,7 +535,7 @@ fn plan_build(
                     let s = &snaps[k];
                     apps.push((
                         s.kind,
-                        approach(cat, s.kind, &s.geom, &s.profile, s.start == n),
+                        approach(cat, (s.kind, s.variant), &s.geom, &s.profile, s.start == n),
                     ));
                 }
             }
@@ -524,10 +543,16 @@ fn plan_build(
         for p in plan.add.iter().filter(|p| p.start == node || p.end == node) {
             let g = SegmentGeom::new(p.curve, CrossSection::of(p.kind).half_width_m());
             if p.start == node {
-                apps.push((p.kind, approach(cat, p.kind, &g, &p.profile, true)));
+                apps.push((
+                    p.kind,
+                    approach(cat, (p.kind, p.variant), &g, &p.profile, true),
+                ));
             }
             if p.end == node {
-                apps.push((p.kind, approach(cat, p.kind, &g, &p.profile, false)));
+                apps.push((
+                    p.kind,
+                    approach(cat, (p.kind, p.variant), &g, &p.profile, false),
+                ));
             }
         }
         if let Some(Err(e)) = node_junction(&apps) {
@@ -632,6 +657,7 @@ fn spawn_segment(
         start,
         end,
         kind: p.kind,
+        variant: p.variant,
         curve: p.curve,
         profile: p.profile.clone(),
         built_tick: p.built_tick,
@@ -700,11 +726,17 @@ fn refresh_node(world: &mut World, id: NodeId) {
         if let Some(s) = segment(world, *sid) {
             // A loop segment (both ends here) contributes two approaches.
             if s.start == id {
-                apps.push((s.kind, approach(&cat, s.kind, &s.geom, &s.profile, true)));
+                apps.push((
+                    s.kind,
+                    approach(&cat, (s.kind, s.variant), &s.geom, &s.profile, true),
+                ));
                 order.push((*sid, true));
             }
             if s.end == id {
-                apps.push((s.kind, approach(&cat, s.kind, &s.geom, &s.profile, false)));
+                apps.push((
+                    s.kind,
+                    approach(&cat, (s.kind, s.variant), &s.geom, &s.profile, false),
+                ));
                 order.push((*sid, false));
             }
         }
@@ -880,6 +912,195 @@ pub(crate) fn remove_segment(world: &mut World, id: SegmentId) -> Result<(), Val
         refresh_node(world, n);
     }
     Ok(())
+}
+
+/// What changing a segment's type would do (the upgrade tool preview).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RoadTypePreview {
+    /// Charge: new − 50 % of old for upgrades, nothing for downgrades (no refund).
+    pub cost: Money,
+    /// Buildings standing in the new corridor; they are removed on apply.
+    pub demolished: Vec<BuildingId>,
+}
+
+/// Plans `SetRoadType` without touching the world.
+fn plan_set_type(
+    world: &World,
+    id: SegmentId,
+    kind: RoadKind,
+    variant: Variant,
+) -> Result<(RoadTypePreview, SegmentGeom), ValidationError> {
+    let Some(cat) = world.get_resource::<Catalog>() else {
+        return Err(ValidationError::new("internal-no-catalog"));
+    };
+    let seg = segment(world, id).ok_or(ValidationError::new("road-invalid-target-missing"))?;
+    if !kind.allows(variant) {
+        return Err(ValidationError::new("road-invalid-variant"));
+    }
+    let lim = limits(cat, kind);
+    let geom = SegmentGeom::new(seg.curve, lim.half_width_m);
+    let len = geom.length();
+    let mid = geom.point_at(0.5 * len);
+    if seg.profile.max_step_grade() > lim.max_grade + 1e-3 {
+        return Err(ValidationError::at("road-invalid-too-steep", mid));
+    }
+    let ground = terrain::ground(world);
+    let (snaps, nodes) = snapshot(world);
+    let node_pos = |n: NodeId| nodes.get(&n).map(|(p, _)| Vec2::new(p.x, p.z));
+    let (lo, hi) = seg.curve.bounds();
+    let pad = lim.half_width_m + 30.0;
+    let existing: Vec<Existing<'_>> = snaps
+        .iter()
+        .filter(|o| o.id != id)
+        .filter(|o| {
+            let (a, b) = o.curve.bounds();
+            let r = o.geom.half_width_m + pad;
+            a.x - r <= hi.x && lo.x <= b.x + r && a.y - r <= hi.y && lo.y <= b.y + r
+        })
+        .map(|o| {
+            let shared = [seg.start, seg.end]
+                .into_iter()
+                .find(|n| o.start == *n || o.end == *n);
+            Existing {
+                geom: &o.geom,
+                profile: &o.profile,
+                shares_node_at: shared.and_then(node_pos),
+            }
+        })
+        .collect();
+    if let Some(e) = validation::validate_shape(&geom, &lim, &ground, &existing, &[])
+        .into_iter()
+        .find(|e| !matches!(e, cb_network::Invalid::TooShort))
+    {
+        return Err(e.into());
+    }
+    // Both junctions with the new cross-section.
+    let mut ends = vec![seg.start, seg.end];
+    ends.dedup();
+    for n in ends {
+        let Some((pos, incident)) = nodes.get(&n) else {
+            continue;
+        };
+        let mut sorted = incident.clone();
+        sorted.sort();
+        let mut apps: Vec<(RoadKind, Approach)> = Vec::new();
+        for sid in sorted {
+            let Some(o) = snaps.iter().find(|o| o.id == sid) else {
+                continue;
+            };
+            let (k, v, g) = if sid == id {
+                (kind, variant, &geom)
+            } else {
+                (o.kind, o.variant, &o.geom)
+            };
+            if o.start == n {
+                apps.push((k, approach(cat, (k, v), g, &o.profile, true)));
+            }
+            if o.end == n {
+                apps.push((k, approach(cat, (k, v), g, &o.profile, false)));
+            }
+        }
+        if let Some(Err(e)) = node_junction(&apps) {
+            return Err(ValidationError::at(e.key(), Vec2::new(pos.x, pos.z)));
+        }
+    }
+    let new_cost = road_cost_with(cat, kind, variant, len);
+    let old_cost = road_cost_with(cat, seg.kind, seg.variant, len);
+    let cost = if new_cost > old_cost {
+        Money(new_cost.0 - old_cost.0 / 2)
+    } else {
+        Money::ZERO
+    };
+    // Buildings in the new corridor (only a wider road can reach them).
+    let mut demolished = Vec::new();
+    if lim.half_width_m > seg.geom.half_width_m + 1e-3
+        && let Some(ids) = world.get_resource::<Ids>()
+    {
+        for (bid, e) in ids.buildings.iter() {
+            let Some(b) = world.get::<crate::buildings::Building>(e) else {
+                continue;
+            };
+            let f = b.footprint();
+            let c = (f[0] + f[1] + f[2] + f[3]) * 0.25;
+            let probes = [
+                f[0],
+                f[1],
+                f[2],
+                f[3],
+                (f[0] + f[1]) * 0.5,
+                (f[1] + f[2]) * 0.5,
+                (f[2] + f[3]) * 0.5,
+                (f[3] + f[0]) * 0.5,
+                c,
+            ];
+            if probes
+                .iter()
+                .any(|q| cb_geometry::polygon::contains(&geom.corridor, *q))
+            {
+                demolished.push(bid);
+            }
+        }
+    }
+    Ok((RoadTypePreview { cost, demolished }, geom))
+}
+
+/// Read-only preview of `SetRoadType`.
+///
+/// # Errors
+/// The first validation failure.
+pub fn preview_set_road_type(
+    world: &World,
+    id: SegmentId,
+    kind: RoadKind,
+    variant: Variant,
+) -> Result<RoadTypePreview, ValidationError> {
+    plan_set_type(world, id, kind, variant).map(|(p, _)| p)
+}
+
+/// `SetRoadType` (upgrade/downgrade, ALGORITHMS §1): replaces the cross-section, re-stamps the
+/// corridor, rebuilds both junctions and lanes; plots re-clip against the new corridor and
+/// buildings in it are removed. Returns the charge.
+///
+/// # Errors
+/// The first validation failure or `money-insufficient`.
+pub(crate) fn set_road_type(
+    world: &mut World,
+    id: SegmentId,
+    kind: RoadKind,
+    variant: Variant,
+) -> Result<Money, ValidationError> {
+    let (preview, geom) = plan_set_type(world, id, kind, variant)?;
+    crate::economy::charge(world, preview.cost)?;
+    for b in &preview.demolished {
+        crate::buildings::remove_building(world, *b);
+    }
+    let Some(e) = segment_entity(world, id) else {
+        return Err(ValidationError::new("road-invalid-target-missing"));
+    };
+    let Some(old) = world.get::<RoadSegment>(e).cloned() else {
+        return Err(ValidationError::new("road-invalid-target-missing"));
+    };
+    let (lo0, hi0) = cb_geometry::polygon::bounds(&old.geom.corridor);
+    terrain::remove_stamp(world, old.stamp);
+    let stamp = world.resource_mut::<Ids>().stamp();
+    let mut seg = old.clone();
+    seg.kind = kind;
+    seg.variant = variant;
+    seg.geom = geom;
+    seg.stamp = stamp;
+    terrain::add_stamp(world, corridor_stamp(stamp, &seg));
+    let (lo1, hi1) = cb_geometry::polygon::bounds(&seg.geom.corridor);
+    crate::zoning::mark_near(world, lo0.min(lo1), hi0.max(hi1));
+    let (a, b) = (seg.start, seg.end);
+    if let Some(mut s) = world.get_mut::<RoadSegment>(e) {
+        *s = seg;
+    }
+    world.write_message(NetworkChanged::Segment(id));
+    refresh_node(world, a);
+    if b != a {
+        refresh_node(world, b);
+    }
+    Ok(preview.cost)
 }
 
 /// Outer road edge of a segment side between arc lengths `s0` and `s1` (either order), walked

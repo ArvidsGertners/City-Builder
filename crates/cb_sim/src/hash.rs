@@ -53,7 +53,7 @@ fn hash_objects(world: &World, h: &mut StableHasher) {
     for (id, e) in ids.segments.iter() {
         id.hash(h);
         if let Some(s) = world.get::<RoadSegment>(e) {
-            (s.start(), s.end(), s.kind()).hash(h);
+            (s.start(), s.end(), s.kind(), s.variant()).hash(h);
             f32s(h, s.curve().p.iter().flat_map(|p| [&p.x, &p.y]));
             f32s(h, &s.profile().h);
         }

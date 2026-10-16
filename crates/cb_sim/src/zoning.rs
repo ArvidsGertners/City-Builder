@@ -634,6 +634,24 @@ pub(crate) fn mark_near(world: &mut World, lo: Vec2, hi: Vec2) {
     }
 }
 
+/// Whether the plot's stored frontage is no longer on its road's edge (width change).
+fn edge_moved(world: &World, p: &Plot) -> bool {
+    let Some(sp) = p.spans.first() else {
+        return false;
+    };
+    let Some(seg) = roads::segment(world, sp.segment) else {
+        return false;
+    };
+    let n = p.frontage.len();
+    if n < 2 {
+        return false;
+    }
+    // A point of the first span's part (corner arcs are not on the segment edge).
+    let q = (p.frontage[0] + p.frontage[1]) * 0.5;
+    let (_, d) = seg.geom().project(q);
+    (d.abs() - seg.geom().half_width_m).abs() > 0.05
+}
+
 /// `EditSet::Zoning`: re-clips dirty plots; changed ones re-subdivide with their hint.
 pub(crate) fn update_dirty_plots(world: &mut World) {
     let mut dirty = match world.get_resource_mut::<DirtyPlots>() {
@@ -650,7 +668,21 @@ pub(crate) fn update_dirty_plots(world: &mut World) {
             continue;
         };
         let depth = f64::from(p.depth_m);
-        let Some(f) = Frontage::new(&[Part::Points(to64(&p.frontage))], depth) else {
+        // The road edge moved (upgrade/downgrade changed the width): re-derive the frontage from
+        // the spans it was drawn with; keep the stored one if that is impossible now.
+        let frontage = if edge_moved(world, &p) {
+            frontage_polyline(world, &p.spans)
+                .map(|(f, _)| f)
+                .unwrap_or_else(|_| p.frontage.clone())
+        } else {
+            p.frontage.clone()
+        };
+        let moved = frontage.len() != p.frontage.len()
+            || frontage
+                .iter()
+                .zip(&p.frontage)
+                .any(|(a, b)| a.distance(*b) > 0.01);
+        let Some(f) = Frontage::new(&[Part::Points(to64(&frontage))], depth) else {
             continue;
         };
         let clipped = clip_polygon(world, &f, depth, Some(id));
@@ -661,11 +693,12 @@ pub(crate) fn update_dirty_plots(world: &mut World) {
         };
         let new = d2::to_f32(&poly);
         let old_area = cb_geometry::polygon::area(&p.polygon);
-        if (cb_geometry::polygon::area(&new) - old_area).abs() < 0.05 {
+        if !moved && (cb_geometry::polygon::area(&new) - old_area).abs() < 0.05 {
             continue;
         }
         if let Some(mut pm) = world.get_mut::<Plot>(e) {
             pm.polygon = new;
+            pm.frontage = frontage;
         }
         resubdivide(world, id, hint_of(&p, p.intervals));
     }

@@ -13,6 +13,7 @@ road-invalid-junction-degree = Zu viele Straßen an einer Kreuzung
 road-invalid-junction-connector = Abbiegen wäre hier zu eng für Fahrzeuge
 road-invalid-overpass-unavailable = Überführungen sind noch nicht verfügbar: ebenerdig kreuzen
 road-invalid-target-missing = Die Straße zum Anschließen existiert nicht mehr
+road-invalid-variant = Dieser Straßentyp bietet dafür keinen Platz
 plot-invalid-frontage = Ein Grundstück braucht mindestens 8 m an einer Straße
 plot-invalid-corner = Grundstücke können nur um eine Kreuzungsecke weitergehen
 plot-invalid-overlap = Hier ist kein freies Land

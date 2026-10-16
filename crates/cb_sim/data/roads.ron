@@ -9,4 +9,6 @@
         // Standalone tram track (tram lanes only; UI hidden until M10).
         TramTrack: (cost_cents_per_m: 7000, upkeep_per_m_day: 0.150, speed_kmh: 50.0, capacity_per_lane_per_sim_h: 0.0, max_grade: 0.06, min_radius_m: 20.0, corner_radius_m: 20.0),
     },
+    // Segment variants (GAME_DESIGN §3): bus lanes +4/m, tram tracks in a road +45/m.
+    variants: (bus_lanes_cents_per_m: 400, tram_tracks_cents_per_m: 4500),
 )

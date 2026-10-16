@@ -13,6 +13,7 @@ road-invalid-junction-degree = Too many roads at one junction
 road-invalid-junction-connector = Turns here would be too tight for vehicles
 road-invalid-overpass-unavailable = Overpasses are not available yet: cross at street level
 road-invalid-target-missing = The road to connect to no longer exists
+road-invalid-variant = This road type has no room for that option
 plot-invalid-frontage = A plot needs at least 8 m along a road
 plot-invalid-corner = Plots can only continue around a junction corner
 plot-invalid-overlap = No free land here
