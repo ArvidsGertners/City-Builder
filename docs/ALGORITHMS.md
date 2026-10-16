@@ -155,7 +155,14 @@ the shoulder area is painted `dirt` in material weights.
    interior vertices by mean-value coordinates; triangulated with these heights. Combined with
    the landing constraint (§2) steps at cut lines are ≤ 2 cm.
 5. **Crosswalks** 1 m inside each cut line (where sidewalks exist); **stop lines 2 m upstream of
-   the crosswalk**; none on continuation nodes.
+   the crosswalk**; none on continuation nodes. The stop position exists on every approach (traffic
+   uses it), but what is *painted* follows the control class: solid line for Stop and signals,
+   dashed give-way line with shark teeth for Yield, nothing for Priority. Roundabout nodes
+   (detected rings, Auto control): nothing on ring approaches; each entry gets the give-way line
+   0.5 m behind the cut line, its crosswalk 5 m back (one car length clear of the ring) and a raised
+   splitter island (0.15 m kerb, ≤ 0.6 m half width, 16 m long, rounded nose, tapered tail) centred
+   on the boundary between arriving and leaving lanes, cut for a pedestrian refuge at the
+   crosswalk.
 6. **Connectors**: cubic Bézier from incoming lane end to outgoing lane start, handles 0.4 ×
    chord, curvature limited by lane kind (car 1/5 m, bus 1/8 m, tram 1/20 m); sampled polylines.
 7. **Turn rules**: movements deflecting > 135° get no connector. Per incoming approach, targets
