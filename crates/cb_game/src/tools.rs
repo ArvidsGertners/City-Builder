@@ -352,6 +352,36 @@ fn tool_keys(
         }
         return;
     }
+    // Tab cycles the active tool's mode (README controls).
+    if keys.just_pressed(KeyCode::Tab) {
+        match &mut *tool {
+            ActiveTool::Road(r) => {
+                r.mode = match r.mode {
+                    RoadMode::Straight => RoadMode::Curved,
+                    RoadMode::Curved => RoadMode::Freehand,
+                    RoadMode::Freehand => RoadMode::Roundabout,
+                    RoadMode::Roundabout => RoadMode::Straight,
+                };
+                r.points.clear();
+                r.stroke.clear();
+                r.ring = None;
+                r.ring_preview = None;
+                r.preview = None;
+            }
+            ActiveTool::RoadEdit(e) => {
+                e.mode = match e.mode {
+                    EditMode::Upgrade => EditMode::Style,
+                    EditMode::Style => EditMode::Control,
+                    EditMode::Control => EditMode::Move,
+                    EditMode::Move => EditMode::Upgrade,
+                };
+                e.drag = None;
+                e.pending = None;
+                e.preview = None;
+            }
+            _ => {}
+        }
+    }
     if ch("r") {
         *tool = ActiveTool::Road(Box::default());
     } else if ch("u") {

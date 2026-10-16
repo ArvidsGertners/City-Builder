@@ -194,6 +194,11 @@ components and cost only sim work.
   main p50 11.2 / p95 16.8 ms; per set p50/p95: pre-update 3.0/5.8, input 0.2/0.9,
   sim-drive 0.1/0.3, view-sync 3.7/8.4, present 0.0/0.3, post-update 3.3/5.6 ms. Over budget;
   off-thread chunk meshing + chunk merging are the planned fixes (PROGRESS, Next step).
+- 2026-10-16 M3 (`--no-gpu-work`, five runs): game sets p95 `bench_city` 3.67–4.81 ms (median
+  4.49), `m2_slice` 4.07–4.17 ms, `empty` 2.57 ms. The report now splits view-sync per
+  `view::ViewStep`: terrain p95 1.8–3.1 ms (chunk hand-over and LOD bookkeeping), network ≈ 0.5,
+  scatter ≈ 0.8, buildings ≈ 0.3, zoning ≈ 0.2 ms. Over budget → PROGRESS Known bugs (plan due
+  before the M4 perf gate).
 - Bench scenarios: `bench_autosave_max` (snapshot p99), `bench_road_commit` (100 random 200 m
   roads; command → visible mesh frames).
 - `tracing` spans on every set and heavy system; Tracy via `--features trace_tracy` (nightly).

@@ -5,7 +5,8 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Current status
 
-- **Phase:** M2 vertical slice ☑ (user verification UV-2/3/4 open) → M3 next. Phase S ☑ — S-Render ☑, S-Time ☑ (fallback
+- **Phase:** M3 full road system ☑ (user verification UV-10 open; CI see log) → M4 next. M2 ☑
+  (UV-2/3/4 open). Phase S ☑ — S-Render ☑, S-Time ☑ (fallback
   ADR-0062), S-J ☑ (ADR-0063), S-P ☑ (ADR-0064), S-G ☑ (ADR-0065), S-T ☑ (ADR-0066/0067).
 - **M2 done so far (pure crates):** `cb_terrain` (worldgen with rivers/lakes/outside connections,
   stamps + order-independent compositing, chunk meshes LOD0–3 with skirts, raycast, scatter;
@@ -38,29 +39,14 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**M3 — Full road system**, in progress. Done: (1) lane layout per cross-section + variants
-(`cb_network::lanes`, `CrossSection::with`), (2) junction connectors + conflict zones
-(`cb_network::connectors`, ADR-0063 growth rules), (3) `cb_network::lane_graph::LaneGraph`
-patched in `EditSet::Lanes` (`cb_sim::lanes::patch_lanes`) + lane overlay (F5 in `dev`, shot flag
-`lanes`). (4) `SetRoadType` upgrade/downgrade with bus/tram variants
-(`roads::set_road_type`, `preview_set_road_type`), (5) junction control (`ControlMode`,
-`SetApproachControl`, effective classes, phase plans, markings on `RoadNode`) and ring detection
-(`roads::update_rings`, `citygen::roundabout`). (6) markings and signal heads drawn (`cb_procgen::markings_mesh`, lamps toggled by
-`view::update_signal_lamps` from the stub clock) and the shared carriageway surface
-(`cb_network::junction::carriageway_triangles`: centre fan + zippered MVC rings, used by mesh
-and terrain stamp; fixes the shading fan and an ear-clipping hole). (7) bridges (`cb_network::bridge`, spans/deck/piers planned in `roads::plan_bridges`,
-ground-run corridors with soft ends + abutment pads + scatter clearing, `cb_procgen::bridge_mesh`).
-(8) surfaces and decorations (`cb_network::style`: `SegmentStyle`, `decor_items`;
-`SetSegmentStyle`; `cb_procgen::road_decor` trees/lamps; grass strips and surface colours in
-`road_mesh`) and scripted M3 scenes in `citygen::m3_features` (river bridge, valley viaduct,
-overpass, decorated avenue). (9) M3.6: undo/redo (`cb_sim::save::snapshot`, `cb_sim::history`, toolbar buttons with refund,
-Primary+Z / Primary+Shift+Z / Primary+Y), `EditRoadGeometry` (move node / reshape), bulldoze
-dependents + dialog (`RemoveSegment { remove_plots }`, `tools::BulldozeDialog`, shot tool
-`BulldozeDialog`). Next: M3.7 — scripted M3 scene completion in `citygen::m3_features` (T/X with
-lights on an avenue, Y 30°, 5-way, junction on 8 % slope, one-way pair + dirt path, roundabout),
-the 16-shot `M3` suite in `screenshot_suites.ron` per the shot table below, then the
-`milestone-completion` skill (fmt, clippy ×2, tests ×2, benchmark game sets, determinism probe,
-visual review in `docs/screenshots/M3/`, PROGRESS, CI on all three OSes).
+**M4 — All zone types, special buildings, leveling visuals.** First action: in
+`crates/cb_procgen/src/building/` add the residential L4–L5 typologies (row houses, apartment
+blocks) next to `house.rs` behind a `BuildingKind { zone, level }` input, then the C L1–L3 and
+I L1–L3 generators, each with its triangle budget, and the 10k-lot property test
+`procgen_{r,c,i}_levels_within_lot_10k` in `crates/cb_procgen/tests/`. Before the M4 perf gate:
+profile `view::sync_terrain` sub-steps (Known bugs, perf) with the per-step benchmark report.
+Carry-over: split `cb_game/src/tools.rs` (≈ 1 900 lines) into `tools/{road,edit,plot,bulldoze,
+ui}.rs` when the M4 placement/prop tools land.
 
 ## Process conventions (ADR-0058)
 
@@ -89,7 +75,7 @@ visual review in `docs/screenshots/M3/`, PROGRESS, CI on all three OSes).
 | 1 | Project setup | 4 | 1 | ☑ |
 | S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | ≈ 4 | ☑ (S-Render ☑, S-Time ☑ fallback, S-J ☑ ADR-0063, S-P ☑ ADR-0064, S-G ☑ ADR-0065, S-T ☑ ADR-0066/0067) |
 | 2 | Vertical slice | 12 | ≈ 6 | ☑ (☑ᵤ UV-2/3/4 open) |
-| 3 | Full road system | 12 | | ☐ |
+| 3 | Full road system | 12 | ≈ 6 | ☑ (☑ᵤ UV-10 open) |
 | 4 | All zone types, special buildings, leveling visuals | 10 | | ☐ |
 | 5 | Simulation core | 12 | | ☐ |
 | 6 | Services | 6 | | ☐ |
@@ -713,6 +699,7 @@ Includes: agent state saved, garbage trucks replace analytic collection, vehicle
 | UV-2 | M2 | Screenshots on real GPUs | `scripts/screenshot.sh M2` (or `cb_game --screenshot-suite M2 --out shots/`) on PC and M4 | images comparable to `docs/screenshots/M2/` | planned |
 | UV-3 | M2 | Benchmark | `cargo run -p cb_game --release -- --benchmark m2_slice` and `-- --benchmark empty` on PC and M4; paste both reports (also in the logs folder as `benchmark-*.txt`) | main ≤ 8 ms p95, frame ≤ 16.7 ms p95 (GPU ≤ 12 ms) | planned |
 | UV-4 | M2 | Mac input | trackpad pinch, two-finger scroll/rotate, ⌥-drag, ⌘Z/⌘⇧Z, ⌘Q save prompt | as ADR-0052 | planned |
+| UV-10 | M3 | Road tools on real GPUs | `cb_game --screenshot-suite M3 --out shots/` on PC and M4; then in a new game: Edit road (U) → Upgrade a street to an avenue, Junction → Traffic lights, Decorate with trees/lamps, Move node; Road → Roundabout | images comparable to `docs/screenshots/M3/`; tools behave as in the shots; signal lamps cycle | planned |
 | UV-5 | M4 | 10k benchmark | `--benchmark m4_city10k` on PC and M4 | PERFORMANCE §5 | planned |
 | UV-6 | M9 | Traffic benchmark | `--benchmark bench_city` | PERFORMANCE §3–5 | planned |
 | UV-7 | M11 | Night look | `--screenshot-suite M11` on PC/M4 | night readable | planned |
@@ -721,7 +708,13 @@ Includes: agent state saved, garbage trucks replace analytic collection, vehicle
 
 ## Known bugs
 
-- None open.
+- **Perf (container CPU budget, open since M3):** `--benchmark bench_city --no-gpu-work` game
+  sets p95 3.67–4.81 ms over five runs (median 4.49), `m2_slice` 4.07–4.17 ms (M2: 3.90) against
+  ≤ 4 ms. The per-step report attributes the spikes to `view:terrain` (p95 1.8–3.1 ms; terrain
+  chunk hand-over and LOD bookkeeping from M2) — M3's own `view:network` is p95 ≈ 0.5 ms.
+  Capping chunk uploads per frame did not help (reverted). Plan: sub-step spans inside
+  `view::sync_terrain` (want/merge/work/start) and move the per-chunk distance/LOD pass off the
+  per-frame path (recompute only when the eye moves > 8 m); due before the M4 perf gate.
 
 Fixed:
 - 2026-10-16 — Junction asphalt shading fan (M2): large, slightly non-planar ear-clipped
@@ -854,3 +847,20 @@ Known gaps (planned):
   dispatch run 3 green — macOS check default + dev, macOS smoke, determinism probe on
   Linux/Windows/macOS with matching hashes, soak, bench
   (https://github.com/ArvidsGertners/City-Builder/actions/runs/38884289448).
+- 2026-10-16 — M3.7–M3.8: scripted M3 scene complete (9 features), 18-shot `M3` suite reviewed
+  (`docs/screenshots/M3/`). Review fixes: control-aware markings (no line on priority
+  approaches, dashed give-way line + shark teeth on yield, solid on stop/signals), roundabout
+  nodes without ring markings and with entry give-way lines, set-back crosswalks and raised
+  splitter islands; junction fans painted without per-face colour jitter (faint "sunburst");
+  M3-05/M3-11 reframed. Gap found and closed: the M3 commands had no game UI — added the road
+  tool roundabout preset (`BuildRoundabout`, atomic with rollback, removes road pieces inside the
+  ring, one undo step) and the Edit road tool (U: upgrade, decorate, junction control, move node)
+  with sim previews. Benchmark report gained per-`ViewStep` timings.
+- 2026-10-16 — **M3 done** (CI pending). Evidence: fmt; clippy default + `dev` clean; `cargo test
+  --workspace` and `--features dev` green (36 binaries, 280 tests each); sim isolation ok; release
+  smoke `frames=60 validation_errors=0`; determinism probe (Linux): terrain/subdivision/clock
+  hashes unchanged from M2, m2_scene `e817d82b5c004d7b` (289 buildings; changes with junction
+  growth, markings and control in the hash); benchmark game sets `bench_city` p95 median 4.49 ms
+  (3.67–4.81), `m2_slice` 4.07–4.17 ms, `empty` 2.57 ms — over the 4 ms container budget, logged
+  in Known bugs with a plan (terrain hand-over, M2 code). Suite M3 metrics: magenta 0, holes 0,
+  black 0, clipped ≤ 0.01 %.

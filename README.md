@@ -62,8 +62,8 @@ After a crash, the next start shows the report path with *Copy report* and *Open
 | Pause / speeds | Space · 1 / 2 / 3 | Space · 1 / 2 / 3 |
 | Undo / redo | Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) | ⌘Z / ⌘⇧Z |
 | Quick save | Ctrl+S | ⌘S |
-| Road tool / plot tool / bulldoze | R / Z / B | R / Z / B |
-| Road mode (straight, curved, freehand) | Tab | Tab |
+| Road tool / edit road / plot tool / bulldoze | R / U / Z / B | R / U / Z / B |
+| Tool mode (road: straight, curved, freehand, roundabout; edit: upgrade, decorate, junction, move) | Tab | Tab |
 | Road elevation | Alt + wheel · , / . · Page Up / Page Down | ⌥ + wheel · , / . |
 | Angle snap / length snap | hold Shift / toggle L | hold ⇧ / toggle L |
 | Delete selection | Delete | ⌫ |
