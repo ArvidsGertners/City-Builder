@@ -124,7 +124,16 @@ fn stations(g: &SegmentGeom, prof: &Profile, s0: f32, s1: f32) -> Vec<Station> {
 }
 
 fn bands(cs: &CrossSection) -> (Vec<Band>, bool) {
-    let dirt = cs.elements.iter().any(|e| e.kind == ElementKind::Verge);
+    use cb_network::LaneKind;
+    let lane = |e: &cb_network::cross_section::Element| {
+        matches!(e.kind, ElementKind::LaneForward | ElementKind::LaneBackward)
+    };
+    // Dirt paths: verges and car lanes; tram tracks have verges too but ballast lanes.
+    let dirt = cs.elements.iter().any(|e| e.kind == ElementKind::Verge)
+        && cs
+            .elements
+            .iter()
+            .any(|e| lane(e) && e.lane != LaneKind::Tram);
     let bands = cs
         .offsets()
         .into_iter()
@@ -133,6 +142,11 @@ fn bands(cs: &CrossSection) -> (Vec<Band>, bool) {
                 ElementKind::Sidewalk => (CURB_H_M, palette::SIDEWALK, Surface::Paved),
                 ElementKind::Median => (CURB_H_M, palette::GRASS[2], Surface::Foliage),
                 ElementKind::Verge => (0.0, palette::DIRT[1], Surface::Ground),
+                ElementKind::LaneForward | ElementKind::LaneBackward
+                    if e.lane == LaneKind::Tram =>
+                {
+                    (0.0, palette::BALLAST, Surface::Ground)
+                }
                 ElementKind::LaneForward | ElementKind::LaneBackward => (
                     0.0,
                     if dirt {
@@ -283,10 +297,13 @@ pub fn segment_mesh(
 /// Dashed lines between adjacent lanes (same direction: lane line; opposite: centre line).
 fn markings(p: &mut Painter, g: &SegmentGeom, prof: &Profile, cs: &CrossSection, s0: f32, s1: f32) {
     let offs = cs.offsets();
-    let lane = |k: ElementKind| matches!(k, ElementKind::LaneForward | ElementKind::LaneBackward);
+    let lane = |e: &cb_network::cross_section::Element| {
+        matches!(e.kind, ElementKind::LaneForward | ElementKind::LaneBackward)
+            && e.lane != cb_network::LaneKind::Tram
+    };
     for w in offs.windows(2) {
         let ((ea, ca), (eb, _)) = (w[0], w[1]);
-        if !(lane(ea.kind) && lane(eb.kind)) {
+        if !(lane(&ea) && lane(&eb)) {
             continue;
         }
         let off = ca - 0.5 * ea.width_m;

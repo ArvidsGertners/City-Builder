@@ -37,6 +37,7 @@ road-kind-street = Street
 road-kind-one-way-street = One-way street
 road-kind-avenue = Avenue
 road-kind-one-way-avenue = One-way avenue
+road-kind-tram-track = Tram track
 road-mode-straight = Straight
 road-mode-curved = Curved
 road-mode-freehand = Freehand

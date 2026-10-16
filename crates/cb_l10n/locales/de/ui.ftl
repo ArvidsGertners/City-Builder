@@ -37,6 +37,7 @@ road-kind-street = Straße
 road-kind-one-way-street = Einbahnstraße
 road-kind-avenue = Allee
 road-kind-one-way-avenue = Einbahn-Allee
+road-kind-tram-track = Straßenbahngleis
 road-mode-straight = Gerade
 road-mode-curved = Kurve
 road-mode-freehand = Freihand

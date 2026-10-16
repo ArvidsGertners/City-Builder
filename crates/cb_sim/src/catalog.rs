@@ -154,13 +154,7 @@ impl Catalog {
                 file: "economy.ron",
                 source,
             })?;
-        for k in [
-            RoadKind::Dirt,
-            RoadKind::Street,
-            RoadKind::OneWayStreet,
-            RoadKind::Avenue,
-            RoadKind::OneWayAvenue,
-        ] {
+        for k in RoadKind::ALL {
             if !roads.roads.contains_key(&k) {
                 return Err(CatalogError::Missing {
                     file: "roads.ron",

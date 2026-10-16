@@ -938,6 +938,7 @@ fn road_kind_key(k: RoadKind) -> LKey {
         RoadKind::OneWayStreet => keys::ROAD_KIND_ONE_WAY_STREET,
         RoadKind::Avenue => keys::ROAD_KIND_AVENUE,
         RoadKind::OneWayAvenue => keys::ROAD_KIND_ONE_WAY_AVENUE,
+        RoadKind::TramTrack => keys::ROAD_KIND_TRAM_TRACK,
     }
 }
 

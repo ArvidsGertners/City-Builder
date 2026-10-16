@@ -6,11 +6,12 @@
 
 pub mod cross_section;
 pub mod junction;
+pub mod lanes;
 pub mod profile;
 pub mod segment_geom;
 pub mod validation;
 
-pub use cross_section::{CrossSection, RoadKind};
+pub use cross_section::{CrossSection, Dir, LaneKind, LaneSpec, RoadKind, Variant};
 pub use profile::{Profile, ProfileInput};
 pub use segment_geom::SegmentGeom;
 pub use validation::{Invalid, RoadLimits};

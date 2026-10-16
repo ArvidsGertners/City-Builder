@@ -153,6 +153,8 @@ pub const ASPHALT: Rgb = hex(0x4A4E54);
 pub const ASPHALT_LIGHT: Rgb = hex(0x6C7076);
 /// Dirt path.
 pub const DIRT_PATH: Rgb = hex(0xA88A62);
+/// Track ballast (standalone tram tracks).
+pub const BALLAST: Rgb = hex(0x8C8478);
 /// Lane markings.
 pub const MARKING: Rgb = hex(0xEDE6D3);
 /// Avenue centre double line.

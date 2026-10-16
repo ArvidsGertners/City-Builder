@@ -15,7 +15,6 @@ use bevy::ecs::world::World;
 use cb_core::Money;
 use cb_core::ids::{NodeId, SegmentId};
 use cb_geometry::{CubicBezier2, Polyline2};
-use cb_network::cross_section::ElementKind;
 use cb_network::junction::{self, Approach, Junction};
 use cb_network::validation::{self, CrossingKind, Existing, Ground, RoadLimits};
 use cb_network::{CrossSection, Profile, ProfileInput, RoadKind, SegmentGeom};
@@ -156,12 +155,7 @@ pub enum NetworkChanged {
 /// Half width of the carriageway (curb line) of a cross-section.
 #[must_use]
 pub fn carriageway_half_m(cs: &CrossSection) -> f32 {
-    let outer = cs
-        .elements
-        .first()
-        .filter(|e| matches!(e.kind, ElementKind::Sidewalk | ElementKind::Verge))
-        .map_or(0.0, |e| e.width_m);
-    cs.half_width_m() - outer
+    cs.carriageway_half_m()
 }
 
 fn limits(cat: &Catalog, kind: RoadKind) -> RoadLimits {
