@@ -702,12 +702,15 @@ Includes: agent state saved, garbage trucks replace analytic collection, vehicle
 
 ## Known bugs
 
-- (minor, M2) Junction asphalt shows a faint radial shading fan: the carriageway is one
-  ear-clipped polygon with large, slightly non-planar triangles and flat (derivative) normals.
-  Plan: add interior vertices (subdivide to ≤ 4 m edges, heights from the junction surface) in
-  `cb_procgen::junction_mesh`.
+- None open.
 
 Fixed:
+- 2026-10-16 — Junction asphalt shading fan (M2): large, slightly non-planar ear-clipped
+  triangles under flat (derivative) normals. Now `junction::carriageway_triangles` (centre fan +
+  zippered rings with mean-value heights), shared with the terrain stamp; this also removed a
+  sliver hole from ear clipping (test `carriageway_triangles_tile_the_polygon`).
+- 2026-10-16 — Crossing exactly on a sampled-centreline vertex counted twice (two nodes on top of
+  each other, junction rejected as too acute): `crossing_on_a_polyline_vertex_found_once`.
 - 2026-10-16 — Ground clipping through junctions (reported by the user on M2-04; also M2-03,
   M2-13): terrain under a junction came only from the segment corridors, up to 0.16 m above the
   junction surface. Fixed with junction surface stamps (ADR-0065 amendment); regression test
