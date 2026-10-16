@@ -5,8 +5,8 @@
 //! includes waiting for the render thread and the GPU). `--no-gpu-work` renders a 64 × 64
 //! window with shadows, SSAO and bloom off so container CPU numbers are not dominated by
 //! lavapipe. M2 scenes: `m2_slice` and `bench_city` (the starting town with the scripted
-//! features) and `empty` (terrain and scatter only: the engine baseline); larger citygen scenes
-//! follow with M4.
+//! features), `m4_city10k` (the 10 000-building mixed-zone citygen city, M4) and `empty`
+//! (terrain and scatter only: the engine baseline).
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -24,7 +24,7 @@ use crate::scene::{SceneAnchor, SceneFeatures};
 use crate::view::{ViewBacklog, ViewState, ViewStep};
 
 /// Scenes known to `--benchmark`.
-pub const SCENES: [&str; 3] = ["m2_slice", "bench_city", "empty"];
+pub const SCENES: [&str; 4] = ["m2_slice", "bench_city", "m4_city10k", "empty"];
 /// Length of the camera path (s).
 pub const PATH_S: f32 = 60.0;
 /// Longest wait for the start-up mesh backlog before the path starts (s).

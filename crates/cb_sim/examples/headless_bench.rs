@@ -1,16 +1,33 @@
-//! Headless tick benchmark (PERFORMANCE §8). M1: the empty schedules; later milestones add
-//! `citygen` cities. Usage: `cargo bench-sim [ticks]`.
+//! Headless tick benchmark (PERFORMANCE §8). M1: the empty schedules; M4: `--city 10k` builds the
+//! mixed-zone citygen city of the `m4_city10k` scene first and reports its size and build time.
+//! Usage: `cargo run -p cb_sim --release --example headless_bench -- [ticks] [--city 10k]`.
 
 use std::time::Instant;
 
 use cb_sim::testing::Scenario;
 
 fn main() {
-    let ticks: u64 = std::env::args()
-        .nth(1)
-        .and_then(|a| a.parse().ok())
-        .unwrap_or(28_800);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let ticks: u64 = args.iter().find_map(|a| a.parse().ok()).unwrap_or(28_800);
+    let city = args.windows(2).any(|w| w[0] == "--city" && w[1] == "10k");
     let mut s = Scenario::new(1);
+    let mut label = "empty";
+    if city {
+        let t = Instant::now();
+        let rep = cb_sim::citygen::grid(
+            s.world_mut(),
+            &cb_sim::citygen::city10k_spec(glam::Vec2::ZERO),
+        );
+        println!(
+            "citygen 10k: {:.1} s, {} segments, {} plots ({} rejected), {} buildings",
+            t.elapsed().as_secs_f64(),
+            rep.segments,
+            rep.plots,
+            rep.plots_rejected,
+            rep.buildings + rep.civic
+        );
+        label = "city10k";
+    }
     s.run_ticks(1);
     let mut samples = Vec::with_capacity(usize::try_from(ticks).unwrap_or(0));
     for _ in 0..ticks {
@@ -24,7 +41,7 @@ fn main() {
         samples.get(i).copied().unwrap_or(0.0)
     };
     println!(
-        "bench=empty ticks={ticks} p50_ms={:.4} p95_ms={:.4} p99_ms={:.4} max_ms={:.4}",
+        "bench={label} ticks={ticks} p50_ms={:.4} p95_ms={:.4} p99_ms={:.4} max_ms={:.4}",
         pick(0.5),
         pick(0.95),
         pick(0.99),

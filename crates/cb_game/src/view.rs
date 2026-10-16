@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bevy::asset::RenderAssetUsages;
+use bevy::camera::visibility::VisibilityRange;
 use bevy::light::NotShadowCaster;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
@@ -43,6 +44,12 @@ pub const TERRAIN_LOD_M: [f32; 3] = [450.0, 1000.0, 2000.0];
 pub const SCATTER_NEAR_M: f32 = 350.0;
 /// Far scatter radius (m).
 pub const SCATTER_FAR_M: f32 = 1300.0;
+/// Eye movement that re-evaluates terrain chunk LODs (m).
+pub const TERRAIN_EYE_STEP_M: f32 = 8.0;
+/// Building chunk size (m): buildings merge into one mesh per chunk and LOD.
+pub const BUILDING_CHUNK_M: f32 = 160.0;
+/// Camera distance where building chunks switch to LOD1 (m).
+pub const BUILDING_LOD1_M: f32 = 600.0;
 /// Chunk meshing jobs in flight at most, per kind (terrain, scatter). Meshing runs on the
 /// async compute pool from an `Arc<Terrain>` snapshot; the main thread only uploads results.
 pub const MAX_JOBS_IN_FLIGHT: usize = 8;
@@ -101,8 +108,16 @@ pub struct ViewState {
     segments: BTreeMap<SegmentId, Entity>,
     nodes: BTreeMap<NodeId, Entity>,
     buildings: BTreeMap<BuildingId, BuildingVisual>,
+    bchunks: BTreeMap<(i32, i32), BuildingChunk>,
+    bchunk_jobs: BTreeMap<(i32, i32), Task<BuildingChunkJob>>,
     props: BTreeMap<cb_core::ids::PropId, Entity>,
     scatter_dirty: bool,
+    /// Eye position the cached chunk distances were computed for.
+    terrain_eye: Option<Vec2>,
+    /// Cached eye distance per terrain chunk.
+    terrain_dist: Vec<f32>,
+    /// The last terrain pass found nothing to do.
+    terrain_settled: bool,
     terrain_jobs: BTreeMap<usize, Task<TerrainJob>>,
     supers: Vec<SuperSlot>,
     super_jobs: BTreeMap<usize, Task<TerrainJob>>,
@@ -110,14 +125,28 @@ pub struct ViewState {
     plot_shapes: Option<PlotShapes>,
 }
 
-/// One building's visual: mesh entity, parameter slot, scaffold while under construction.
+/// One building's visual: its chunk, parameter slot, scaffold while under construction.
 #[derive(Debug, Clone, Copy)]
 struct BuildingVisual {
-    mesh: Entity,
+    chunk: (i32, i32),
     slot: u16,
     scaffold: Option<Entity>,
     /// Owns a civic parcel (excluded from natural scatter).
     civic: bool,
+}
+
+/// Buildings merged into one LOD0 and one LOD1 mesh per square chunk (PERFORMANCE §10).
+#[derive(Debug, Default)]
+struct BuildingChunk {
+    members: std::collections::BTreeSet<BuildingId>,
+    lod0: Option<Entity>,
+    lod1: Option<Entity>,
+    dirty: bool,
+}
+
+/// A finished chunk mesh job (`None`: the chunk is empty).
+struct BuildingChunkJob {
+    meshes: Option<(Mesh, Mesh)>,
 }
 
 /// View counters (tests and the benchmark report).
@@ -372,7 +401,9 @@ fn sync_terrain(
         state.terrain_jobs.clear();
         state.scatter_jobs.clear();
     }
+    let mut any_msg = false;
     for msg in changed.read() {
+        any_msg = true;
         let r = msg.rect;
         let (c0, c1) = (
             (r.i0.saturating_sub(1)) / CHUNK_CELLS,
@@ -397,6 +428,7 @@ fn sync_terrain(
         .iter_mut()
         .filter_map(|(k, task)| check_ready(task).map(|j| (*k, j)))
         .collect();
+    let any_done = !done.is_empty();
     for (k, job) in done {
         state.terrain_jobs.remove(&k);
         let mesh = meshes.add(job.ground);
@@ -433,12 +465,27 @@ fn sync_terrain(
             );
         }
     }
-    // 2. Desired LOD per chunk and merge decision per super-chunk.
+    // 2. Desired LOD per chunk and merge decision per super-chunk. Distances are recomputed only
+    //    when the eye moved more than `TERRAIN_EYE_STEP_M`; a settled view with nothing in flight
+    //    and nothing changed skips the bookkeeping entirely.
     let eye = rig.eye();
     let eye2 = Vec2::new(eye.x, eye.z);
-    let dist: Vec<f32> = (0..per * per)
-        .map(|k| chunk_center(t, k % per, k / per).distance(eye2))
-        .collect();
+    let moved = state.terrain_dist.len() != per * per
+        || state
+            .terrain_eye
+            .is_none_or(|e| e.distance(eye2) > TERRAIN_EYE_STEP_M);
+    let idle = state.terrain_jobs.is_empty() && state.super_jobs.is_empty();
+    if !moved && !any_done && !any_msg && idle && state.terrain_settled {
+        backlog.0 = 0;
+        return;
+    }
+    if moved {
+        state.terrain_eye = Some(eye2);
+        state.terrain_dist = (0..per * per)
+            .map(|k| chunk_center(t, k % per, k / per).distance(eye2))
+            .collect();
+    }
+    let dist = state.terrain_dist.clone();
     let want: Vec<u32> = dist
         .iter()
         .map(|d| TERRAIN_LOD_M.iter().filter(|l| *d > **l).count() as u32)
@@ -552,6 +599,7 @@ fn sync_terrain(
         }
     }
     backlog.0 = work.len() + state.terrain_jobs.len() + super_work.len() + state.super_jobs.len();
+    state.terrain_settled = work.is_empty() && super_work.is_empty();
     work.sort_by(|a, b| a.0.total_cmp(&b.0));
     super_work.sort_by(|a, b| a.0.total_cmp(&b.0));
     // 6. Start jobs from the current snapshot.
@@ -808,17 +856,21 @@ fn update_signal_lamps(
 
 // ---------- buildings ----------
 
-/// LOD0 mesh of a building (houses with their yard) using parameter `slot`.
+/// LOD0 (houses with their yard) and LOD1 meshes of a building using parameter `slot`.
 #[must_use]
-pub fn building_mesh(b: &Building, ground: &dyn Fn(Vec2) -> f32, slot: u16) -> MeshData {
+pub fn building_meshes(
+    b: &Building,
+    ground: &dyn Fn(Vec2) -> f32,
+    slot: u16,
+) -> (MeshData, MeshData) {
     use cb_procgen::building::{civic, zoned};
     use cb_sim::buildings::{Massing, Site};
     let Some(m) = b.massing() else {
-        return MeshData::default();
+        return (MeshData::default(), MeshData::default());
     };
     match &m {
         Massing::Zoned(zm) => {
-            let (mut lod0, _) = zm.mesh(b.foundation(), ground, slot);
+            let (mut lod0, lod1) = zm.mesh(b.foundation(), ground, slot);
             if let (zoned::Massing::House(h), Site::Zoned(s)) = (zm, b.site()) {
                 let yl = YardLot {
                     polygon: &s.polygon,
@@ -836,9 +888,9 @@ pub fn building_mesh(b: &Building, ground: &dyn Fn(Vec2) -> f32, slot: u16) -> M
                 );
                 lod0.append(&y);
             }
-            lod0
+            (lod0, lod1)
         }
-        Massing::Civic(c) => civic::mesh(c, b.foundation(), slot).0,
+        Massing::Civic(c) => civic::mesh(c, b.foundation(), slot),
     }
 }
 
@@ -861,10 +913,10 @@ fn building_params(b: &Building, tick: u64) -> (f32, f32) {
     }
 }
 
-/// Mesh of a building in its condition (ruins swap to the ruin generator).
-fn condition_mesh(b: &Building, ground: &dyn Fn(Vec2) -> f32, slot: u16) -> MeshData {
+/// LOD0 and LOD1 meshes of a building in its condition (ruins swap to the ruin generator).
+fn condition_meshes(b: &Building, ground: &dyn Fn(Vec2) -> f32, slot: u16) -> (MeshData, MeshData) {
     if b.condition() == cb_sim::buildings::Condition::Ruined {
-        return cb_procgen::building::condition::ruin(
+        let r = cb_procgen::building::condition::ruin(
             b.outlines(),
             b.foundation().floor_y,
             b.height_m(),
@@ -872,8 +924,20 @@ fn condition_mesh(b: &Building, ground: &dyn Fn(Vec2) -> f32, slot: u16) -> Mesh
             b.seed(),
             slot,
         );
+        return (r.clone(), r);
     }
-    building_mesh(b, ground, slot)
+    building_meshes(b, ground, slot)
+}
+
+/// Chunk of a building (by the centroid of its first outline).
+fn building_chunk(b: &Building) -> (i32, i32) {
+    let c = b.outlines().first().map_or(Vec2::ZERO, |o| {
+        o.iter().copied().sum::<Vec2>() / o.len().max(1) as f32
+    });
+    (
+        (c.x / BUILDING_CHUNK_M).floor() as i32,
+        (c.y / BUILDING_CHUNK_M).floor() as i32,
+    )
 }
 
 #[allow(clippy::too_many_arguments, reason = "Bevy system parameters")]
@@ -890,20 +954,12 @@ fn sync_buildings(
     mut stats: ResMut<ViewStats>,
     mut state: ResMut<ViewState>,
 ) {
+    use cb_sim::buildings::Condition;
     let (Some(ids), Some(mats)) = (ids, mats) else {
         return;
     };
+    let _span = tracing::info_span!("view_buildings_sync").entered();
     let tick = clock.map_or(0, |c| c.tick().0);
-    let ground = |p: Vec2| terrain.as_ref().map_or(0.0, |t| t.terrain().height_at(p));
-    let spawn_mesh = |commands: &mut Commands, meshes: &mut Assets<Mesh>, md: &MeshData| {
-        commands
-            .spawn((
-                Mesh3d(meshes.add(world_mesh(md))),
-                MeshMaterial3d(mats.world.clone()),
-                Transform::default(),
-            ))
-            .id()
-    };
     for m in msgs.read() {
         let id = match *m {
             BuildingChanged::Built(id)
@@ -917,10 +973,7 @@ fn sync_buildings(
             let mut v = *v;
             let (code, reveal) = building_params(b, tick);
             slots.set(v.slot, code, reveal);
-            let constructing = matches!(
-                b.condition(),
-                cb_sim::buildings::Condition::Constructing { .. }
-            );
+            let constructing = matches!(b.condition(), Condition::Constructing { .. });
             if !constructing && let Some(sc) = v.scaffold.take() {
                 commands.entity(sc).despawn();
             }
@@ -929,12 +982,15 @@ fn sync_buildings(
         }
         let slot = match state.buildings.remove(&id) {
             Some(v) => {
-                commands.entity(v.mesh).despawn();
                 if let Some(sc) = v.scaffold {
                     commands.entity(sc).despawn();
                 }
                 if v.civic {
                     state.scatter_dirty = true;
+                }
+                if let Some(ch) = state.bchunks.get_mut(&v.chunk) {
+                    ch.members.remove(&id);
+                    ch.dirty = true;
                 }
                 if b.is_none() {
                     slots.release(v.slot);
@@ -946,14 +1002,11 @@ fn sync_buildings(
             None => continue,
         };
         let Some(b) = b else { continue };
-        let md = condition_mesh(b, &ground, slot);
-        stats.building_meshes += 1;
-        let mesh = spawn_mesh(&mut commands, &mut meshes, &md);
-        let scaffold = matches!(
-            b.condition(),
-            cb_sim::buildings::Condition::Constructing { .. }
-        )
-        .then(|| {
+        let chunk = building_chunk(b);
+        let ch = state.bchunks.entry(chunk).or_default();
+        ch.members.insert(id);
+        ch.dirty = true;
+        let scaffold = matches!(b.condition(), Condition::Constructing { .. }).then(|| {
             let fy = b.foundation().floor_y;
             let sc = cb_procgen::building::condition::scaffold(
                 b.outlines(),
@@ -961,7 +1014,13 @@ fn sync_buildings(
                 fy + b.height_m() + 1.0,
                 slot,
             );
-            spawn_mesh(&mut commands, &mut meshes, &sc)
+            commands
+                .spawn((
+                    Mesh3d(meshes.add(world_mesh(&sc))),
+                    MeshMaterial3d(mats.world.clone()),
+                    Transform::default(),
+                ))
+                .id()
         });
         let (code, reveal) = building_params(b, tick);
         slots.set(slot, code, reveal);
@@ -972,7 +1031,7 @@ fn sync_buildings(
         state.buildings.insert(
             id,
             BuildingVisual {
-                mesh,
+                chunk,
                 slot,
                 scaffold,
                 civic,
@@ -988,6 +1047,97 @@ fn sync_buildings(
             let (code, reveal) = building_params(b, tick);
             slots.set(v.slot, code, reveal);
         }
+    }
+    // Finished chunk meshes replace the old ones (LOD0 near, LOD1 far).
+    let done: Vec<((i32, i32), BuildingChunkJob)> = state
+        .bchunk_jobs
+        .iter_mut()
+        .filter_map(|(k, task)| check_ready(task).map(|j| (*k, j)))
+        .collect();
+    for (k, job) in done {
+        state.bchunk_jobs.remove(&k);
+        let Some(ch) = state.bchunks.get_mut(&k) else {
+            continue;
+        };
+        for e in [ch.lod0.take(), ch.lod1.take()].into_iter().flatten() {
+            commands.entity(e).despawn();
+        }
+        let Some((lod0, lod1)) = job.meshes else {
+            continue;
+        };
+        let mut spawn = |commands: &mut Commands, mesh: Mesh, range: VisibilityRange| {
+            commands
+                .spawn((
+                    Mesh3d(meshes.add(mesh)),
+                    MeshMaterial3d(mats.world.clone()),
+                    Transform::default(),
+                    range,
+                ))
+                .id()
+        };
+        ch.lod0 = Some(spawn(
+            &mut commands,
+            lod0,
+            VisibilityRange {
+                start_margin: 0.0..0.0,
+                end_margin: BUILDING_LOD1_M..BUILDING_LOD1_M,
+                use_aabb: true,
+            },
+        ));
+        ch.lod1 = Some(spawn(
+            &mut commands,
+            lod1,
+            VisibilityRange {
+                start_margin: BUILDING_LOD1_M..BUILDING_LOD1_M,
+                end_margin: f32::MAX..f32::MAX,
+                use_aabb: true,
+            },
+        ));
+    }
+    // Rebuild dirty chunks off the main thread from snapshots of their buildings.
+    let free = MAX_JOBS_IN_FLIGHT.saturating_sub(state.bchunk_jobs.len());
+    if free == 0 {
+        return;
+    }
+    let dirty: Vec<(i32, i32)> = state
+        .bchunks
+        .iter()
+        .filter(|(k, c)| c.dirty && !state.bchunk_jobs.contains_key(*k))
+        .map(|(k, _)| *k)
+        .take(free)
+        .collect();
+    let pool = AsyncComputeTaskPool::get();
+    for k in dirty {
+        let Some(ch) = state.bchunks.get_mut(&k) else {
+            continue;
+        };
+        ch.dirty = false;
+        let members: Vec<BuildingId> = ch.members.iter().copied().collect();
+        let items: Vec<(Building, u16)> = members
+            .iter()
+            .filter_map(|id| {
+                let b = ids.buildings.get(*id).and_then(|e| buildings.get(e).ok())?;
+                Some((b.clone(), state.buildings.get(id)?.slot))
+            })
+            .collect();
+        stats.building_meshes += items.len() as u64;
+        let snap = terrain.as_ref().map(|t| t.snapshot());
+        let task = pool.spawn(async move {
+            if items.is_empty() {
+                return BuildingChunkJob { meshes: None };
+            }
+            let ground = |p: Vec2| snap.as_ref().map_or(0.0, |t| t.height_at(p));
+            let (mut lod0, mut lod1) = (MeshData::default(), MeshData::default());
+            for (b, slot) in &items {
+                let (a, c) = condition_meshes(b, &ground, *slot);
+                lod0.append(&a);
+                lod1.append(&c);
+            }
+            BuildingChunkJob {
+                meshes: Some((world_mesh(&lod0), world_mesh(&lod1))),
+            }
+        });
+        state.bchunk_jobs.insert(k, task);
     }
 }
 
@@ -1419,11 +1569,15 @@ mod tests {
                 condition: Condition::Ruined,
             }),
         );
-        s.app.update();
-        assert_eq!(
-            s.world().resource::<ViewStats>().building_meshes,
-            meshes_before + 1
-        );
+        // Its chunk is rebuilt off the main thread (once the previous job of that chunk lands).
+        for _ in 0..200 {
+            s.app.update();
+            if s.world().resource::<ViewStats>().building_meshes > meshes_before {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(s.world().resource::<ViewStats>().building_meshes > meshes_before);
     }
 
     #[test]

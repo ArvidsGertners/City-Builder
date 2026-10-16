@@ -32,6 +32,9 @@ pub struct GridSpec {
     pub grow: bool,
     /// Auto-place the town hall before the plots are drawn (GAME_DESIGN §5).
     pub town_hall: bool,
+    /// Mixed zoning: a commercial core, an industrial band along the far edge, residential
+    /// elsewhere (all residential when `false`).
+    pub mixed: bool,
 }
 
 impl Default for GridSpec {
@@ -44,6 +47,7 @@ impl Default for GridSpec {
             plot_depth_m: 30.0,
             grow: true,
             town_hall: true,
+            mixed: false,
         }
     }
 }
@@ -144,6 +148,66 @@ pub fn plots_along_all(world: &mut World, zone: ZoneKind, depth: f32, report: &m
     }
 }
 
+/// The mixed-zone city of the `m4_city10k` benchmark scene: 32 × 26 blocks of 110 × 80 m
+/// (≈ 3.5 × 2.1 km, ≈ 10 000 buildings on flat ground).
+#[must_use]
+pub fn city10k_spec(center: Vec2) -> GridSpec {
+    GridSpec {
+        center,
+        blocks: (32, 26),
+        mixed: true,
+        ..Default::default()
+    }
+}
+
+/// Plots on both sides of every segment, zoned by `zone_at(segment midpoint)`; industrial plots
+/// are deeper (`depth + 20 m`).
+pub fn plots_by_zone(
+    world: &mut World,
+    zone_at: &dyn Fn(Vec2) -> ZoneKind,
+    depth: f32,
+    report: &mut CityGenReport,
+) {
+    let segs: Vec<(cb_core::ids::SegmentId, f32, Vec2)> = world
+        .get_resource::<Ids>()
+        .map(|ids| {
+            ids.segments
+                .iter()
+                .filter_map(|(id, e)| {
+                    let g = world.get::<RoadSegment>(e)?.geom();
+                    Some((id, g.length(), g.centerline.point_at(0.5 * g.length())))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    for (sid, len, mid) in segs {
+        let zone = zone_at(mid);
+        let d = if zone == ZoneKind::Industrial {
+            depth + 20.0
+        } else {
+            depth
+        };
+        for left in [true, false] {
+            let (s0, s1) = if left { (0.0, len) } else { (len, 0.0) };
+            let c = CreatePlot {
+                zone,
+                frontage: vec![FrontageSpan {
+                    segment: sid,
+                    left,
+                    s0,
+                    s1,
+                }],
+                depth_m: d,
+                dn: 0,
+            };
+            match crate::zoning::create_plot(world, &c) {
+                Ok(_) => report.plots += 1,
+                Err(_) => report.plots_rejected += 1,
+            }
+        }
+    }
+}
+
 /// Generates a street grid with plots (and houses) in sandbox mode.
 pub fn grid(world: &mut World, spec: &GridSpec) -> CityGenReport {
     let mut report = CityGenReport::default();
@@ -177,7 +241,20 @@ pub fn grid(world: &mut World, spec: &GridSpec) -> CityGenReport {
     if spec.town_hall && crate::buildings::place_town_hall(world).is_some() {
         report.civic += 1;
     }
-    if spec.plot_depth_m > 0.0 {
+    if spec.plot_depth_m > 0.0 && spec.mixed {
+        let half = Vec2::new(nx as f32, nz as f32) * spec.block_m * 0.5;
+        let zone_at = |p: Vec2| {
+            let d = (p - spec.center) / half;
+            if d.y > 0.6 {
+                ZoneKind::Industrial
+            } else if d.x.abs() < 0.3 && d.y.abs() < 0.3 {
+                ZoneKind::Commercial
+            } else {
+                ZoneKind::Residential
+            }
+        };
+        plots_by_zone(world, &zone_at, spec.plot_depth_m, &mut report);
+    } else if spec.plot_depth_m > 0.0 {
         plots_along_all(world, ZoneKind::Residential, spec.plot_depth_m, &mut report);
     }
     if spec.grow {

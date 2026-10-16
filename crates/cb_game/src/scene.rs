@@ -138,9 +138,62 @@ pub fn find_site(t: &cb_terrain::Terrain, size_m: f32) -> Vec2 {
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct NoDemoTown;
 
+/// Start with the 10 000-building mixed-zone citygen city instead of the demo town
+/// (`--scene city10k`, `--benchmark m4_city10k`).
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct City10k;
+
+/// Builds the 10k city on the flattest large site and registers its anchors: `town` (centre,
+/// commercial core), `c10k_res` (residential), `c10k_ind` (industrial band), `map`.
+fn city10k(world: &mut World) {
+    let Some(site) = world
+        .get_resource::<TerrainRes>()
+        .map(|t| find_site(t.terrain(), 3000.0))
+    else {
+        return;
+    };
+    let spec = cb_sim::citygen::city10k_spec(site);
+    let rep = cb_sim::citygen::grid(world, &spec);
+    tracing::info!("city10k at {site}: {rep:?}");
+    let half = Vec2::new(spec.blocks.0 as f32, spec.blocks.1 as f32) * spec.block_m * 0.5;
+    let terrain = world.get_resource::<TerrainRes>();
+    let ground = |p: Vec2| terrain.map_or(0.0, |t| t.terrain().height_at(p));
+    let mut features = SceneFeatures::default();
+    for (name, p) in [
+        ("town", site),
+        ("map", Vec2::ZERO),
+        ("c10k_res", site + Vec2::new(-0.6 * half.x, -0.5 * half.y)),
+        ("c10k_ind", site + Vec2::new(0.2 * half.x, 0.8 * half.y)),
+    ] {
+        features.0.insert(
+            name.to_owned(),
+            FeatureAnchor {
+                pos: Vec3::new(p.x, ground(p), p.y),
+                yaw_deg: 0.0,
+                dir: Vec2::X,
+            },
+        );
+    }
+    let y = ground(site);
+    world.insert_resource(features);
+    world.insert_resource(SceneAnchor(Vec3::new(site.x, y, site.y)));
+    if let Some(mut rig) = world.get_resource_mut::<CameraRig>() {
+        *rig = CameraRig {
+            focus: Vec3::new(site.x, y, site.y),
+            distance: 2000.0,
+            pitch_deg: 60.0,
+            yaw_deg: 0.0,
+        };
+    }
+}
+
 /// Builds the demo town and points the camera at it.
 pub fn demo_town(world: &mut World) {
     if world.contains_resource::<NoDemoTown>() {
+        return;
+    }
+    if world.contains_resource::<City10k>() {
+        city10k(world);
         return;
     }
     let Some(site) = world

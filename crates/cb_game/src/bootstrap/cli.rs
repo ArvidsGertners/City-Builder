@@ -72,7 +72,7 @@ city-builder [OPTIONS]
   --log <filter>               log filter, e.g. \"info,cb_sim=debug\" (also CB_LOG)
   --resolution <WxH>           window size in logical pixels
   --smoke-test <frames>        render N frames, report validation errors, exit
-  --scene <name>               scene for smoke/screenshot runs (default: smoke)
+  --scene <name>               start scene: city10k (10 000-building citygen city)
   --screenshot-suite <name>    render a screenshot suite (e.g. M1) and exit
   --out <dir>                  output directory for --screenshot-suite
   --benchmark <scene>          60 s camera path over a scene (m2_slice, bench_city), report, exit

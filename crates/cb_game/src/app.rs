@@ -167,9 +167,15 @@ pub fn build(boot: Boot) -> App {
             .unwrap_or_else(|| paths.screenshots_dir.clone());
         app.add_plugins(ScreenshotPlugin { suite, out });
     }
+    if cli.scene.as_deref() == Some("city10k") {
+        app.insert_resource(scene::City10k);
+    }
     if let Some(scene) = cli.benchmark.clone() {
         if scene == "empty" {
             app.insert_resource(scene::NoDemoTown);
+        }
+        if scene == "m4_city10k" {
+            app.insert_resource(scene::City10k);
         }
         app.add_plugins(crate::debug::benchmark::BenchmarkPlugin {
             scene,
