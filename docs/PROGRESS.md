@@ -72,8 +72,10 @@ Still open from pure crates: procgen golden hashes for roads and junctions.
   distance to focus, pitch from horizontal. Every suite also passes the metric gates: 0
   magenta/NaN pixels; pure black (< 8/255) ≤ 0.5 % in daylight shots; semantic-pass assertions
   listed per shot.
-- CPU budgets are measured in the container with `--benchmark <scene> --no-gpu-work`; GPU
-  budgets only from user runs (☑ᵤ).
+- CPU budgets are measured in the container with `--benchmark <scene> --no-gpu-work`: the
+  game's own sets (input + sim-drive + view-sync + present) against their budget, with the
+  `empty` engine baseline recorded alongside; full-frame CPU and GPU budgets only from user runs
+  (☑ᵤ; ADR-0058 amendment).
 
 ## Milestones
 
@@ -422,8 +424,10 @@ worldgen constraints, input map v3.
 - [x] Lighting/art: calibration metrics of ADR-0050 on M2-02 (noon) and M2-11 (night).
       — lit grass ΔE00 3.1 to #8DB06A; noon mean/median luminance 0.32/0.38 (range amended for
       grass-dominated frames); night/noon mean 0.31; clipped ≤ 0.01 %; zone ΔE n/a (one zone).
-- [ ] Perf: container `--benchmark m2_slice --no-gpu-work`: main thread ≤ 8 ms p95, render thread
-      ≤ 8 ms p95. ☑ᵤ: GPU ≤ 12 ms p95 at 1080p on PC and at Auto on M4.
+- [ ] Perf: container `--benchmark m2_slice --no-gpu-work`: game sets (input + sim-drive +
+      view-sync + present) ≤ 4 ms p95, `empty` baseline recorded (ADR-0058 amendment, user
+      decision 2026-10-16). ☑ᵤ: main and render thread ≤ 8 ms p95 (CPU), GPU ≤ 12 ms p95 at 1080p
+      on PC and at Auto on M4.
 - [ ] Shots (suite M2, seed 1234; scripted: curved street on an 8 % slope with fill embankment,
       straight street in a 3 m cut, a street to a river shore, residential plots on convex,
       concave and corner frontage, ~60 houses; noon clear unless noted):
@@ -493,6 +497,15 @@ diesel, coal, pump, outlet, landfill); set B may land with its system (M6/M10).
 - [ ] Placement: `place_building_snaps_to_road_edge_within_2m`, `place_building_rejects_overlap`,
       `place_prop_lv_effect`.
 - [ ] Condition: `condition_change_does_not_remesh` (counter).
+- [ ] Plot tool, freehand (user request 2026-10-16; ALGORITHMS §9): **polygon mode** (click
+      vertices; edges within 1.5 m of a road edge snap and become frontage) and **full editing**
+      (drag any vertex or edge; frontage vertices stay on the road edge; depth handle and ± lots
+      as in M2). Plots store a free outline besides frontage spans (DATA_MODEL). Tests:
+      `plot_polygon_mode_snaps_frontage_1_5m`, `plot_polygon_mode_rejects_no_frontage`,
+      `plot_vertex_drag_keeps_lot_ids`, `plot_edge_drag_keeps_lot_ids`,
+      `plot_freehand_validation_keys` (self-intersection, area, overlap); shot M4-0x plot tool
+      with a hand-drawn plot and its handles. Lot lines stay automatic (± count only; user
+      decision 2026-10-16).
 - [ ] Gallery: `--procgen-gallery --smoke-test 120` exits 0.
 - [ ] Perf: container CPU budgets (PERFORMANCE §3) with citygen 10k under `--no-gpu-work`; memory
       within PERFORMANCE §8; ☑ᵤ GPU ≤ 12 ms p95 PC, ≤ 13 ms p95 M4.
@@ -658,7 +671,7 @@ Includes: agent state saved, garbage trucks replace analytic collection, vehicle
 | UV-0 | M0 | Identify hardware | PC: Ryzen 5 7500F, GTX 1660 Ti, 16 GB single-channel; Mac: MacBook Pro 14" M4 base, 16 GB | — | answered |
 | UV-1 | M1 | Real-GPU smoke | `cargo run -p cb_game --release -- --smoke-test 300` on Windows and on the M4 (also look at the window title and, after `cargo run -p cb_game --features dev`, the F1/F2 windows) | exit 0, prints `frames=300 validation_errors=0` | **open — please run when convenient** |
 | UV-2 | M2 | Screenshots on real GPUs | `scripts/screenshot.sh M2` (or `cb_game --screenshot-suite M2 --out shots/`) on PC and M4 | images comparable to `docs/screenshots/M2/` | planned |
-| UV-3 | M2 | Benchmark | `cb_game --release -- --benchmark m2_slice` on PC and M4; paste report | GPU p95 ≤ 12 ms | planned |
+| UV-3 | M2 | Benchmark | `cargo run -p cb_game --release -- --benchmark m2_slice` and `-- --benchmark empty` on PC and M4; paste both reports (also in the logs folder as `benchmark-*.txt`) | main ≤ 8 ms p95, frame ≤ 16.7 ms p95 (GPU ≤ 12 ms) | planned |
 | UV-4 | M2 | Mac input | trackpad pinch, two-finger scroll/rotate, ⌥-drag, ⌘Z/⌘⇧Z, ⌘Q save prompt | as ADR-0052 | planned |
 | UV-5 | M4 | 10k benchmark | `--benchmark m4_city10k` on PC and M4 | PERFORMANCE §5 | planned |
 | UV-6 | M9 | Traffic benchmark | `--benchmark bench_city` | PERFORMANCE §3–5 | planned |
@@ -772,3 +785,7 @@ Known gaps (planned):
   benchmark `m2_slice` main p50 8.9 / p95 14.5 ms, view-sync 0.65 / 2.45 ms; new `empty`
   baseline scene p50 7.0 / p95 11.2 ms (engine pre/post-update dominate in the contended
   container). User-reported junction ground clipping fixed (Known bugs).
+- 2026-10-16 — User decisions: (1) container CPU criterion = game sets ≤ 4 ms p95 + `empty`
+  baseline, full frame on user hardware (ADR-0058 amendment); (2) freehand plot drawing
+  (polygon mode, vertex/edge dragging) scheduled in M4; (3) lot lines stay automatic, the ±
+  lot-count control is enough (no manual lot-line editing).

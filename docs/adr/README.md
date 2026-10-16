@@ -88,4 +88,4 @@ sim executor (0061), trip scale (0062).
 
 ADRs carrying an **Amendments** section (clarifications from the 2026-10-15 plan review that
 do not change the decision): 0001, 0007, 0014, 0016, 0019, 0021, 0022, 0023, 0025, 0028, 0029, 0031,
-0034, 0035, 0036, 0037, 0040, 0042, 0043, 0047, 0049 (+ packed layout, M2), 0050 (+ M2 calibration), 0053, 0064 (M2 port), 0065 (junction stamps, M2).
+0034, 0035, 0036, 0037, 0040, 0042, 0043, 0047, 0049 (+ packed layout, M2), 0050 (+ M2 calibration), 0053, 0058 (container CPU criterion, M2), 0064 (M2 port), 0065 (junction stamps, M2).

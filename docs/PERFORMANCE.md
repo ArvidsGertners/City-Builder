@@ -181,7 +181,10 @@ components and cost only sim work.
   per-pass GPU timings where timestamp queries exist, ticks/frame, routing units and cache hit
   rate, agents (total/visible), renderable entities, triangles, memory by category, render
   scale, adapter. `--no-gpu-work` renders to a 64 × 64 target with shadows/SSAO off so CPU
-  numbers in the container are not polluted by lavapipe.
+  numbers in the container are not polluted by lavapipe. In the container only the game's own
+  sets are budgeted (input + sim-drive + view-sync + present ≤ 4 ms p95 at M2); the engine's
+  pre/post-update share is reported by `--benchmark empty` and full-frame budgets come from user
+  runs (ADR-0058 amendment).
 - `cargo run -p cb_sim --release --example headless_bench -- --city <preset> [--no-traffic]`:
   citygen-built city (M4: 10k buildings; M5+: 50k citizens), per-system p50/p95/p99.9 tick
   times, routing stats, memory.

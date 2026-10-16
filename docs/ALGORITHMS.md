@@ -289,9 +289,10 @@ for pollution absorption and land value comes from a deterministic 8 m density f
   inner radius (fillets get a seam, §10). Auto-clip removes the band beyond adjacent road
   corridors (deep plots at acute corners) and keeps the component holding the frontage. Depth beyond `d_max(zone) + 10 m` snaps
   to `d_max` (Shift overrides) with a backyard-percentage hint.
-- **Polygon mode**: click vertices; edges within 1.5 m of a road edge snap and become frontage.
-- **Editing**: vertex drag (frontage vertices constrained to the road edge), edge drag, depth
-  handle, ± sub-plot count, zone change. The preview lists buildings that no longer fit
+- **Polygon mode** (M4): click vertices; edges within 1.5 m of a road edge snap and become frontage.
+- **Editing**: vertex drag (frontage vertices constrained to the road edge), edge drag (both M4),
+  depth handle, ± sub-plot count, zone change. Lot lines are never edited by hand: the ±
+  count is the only control (user decision 2026-10-16). The preview lists buildings that no longer fit
   (ADR-0014 rule, kept by ADR-0064) and will be removed.
 - **Validation**: simple polygon, area 100–40 000 m², frontage ≥ 8 m, no overlap with corridors
   (< 0.5 m²), other plots, service buildings, water; mean slope ≤ 25 %. **Auto-clip** (toggle

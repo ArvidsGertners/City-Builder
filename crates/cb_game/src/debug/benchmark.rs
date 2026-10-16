@@ -166,6 +166,15 @@ const SEGMENTS: [&str; 6] = [
     "post-update",
 ];
 
+/// Per-frame sum of the game's own sets (input, sim-drive, view-sync, present): the part the
+/// container budget covers (ADR-0058 amendment).
+fn game_sets(segments: &[Vec<f32>; 6]) -> Vec<f32> {
+    let n = segments[1..5].iter().map(Vec::len).min().unwrap_or(0);
+    (0..n)
+        .map(|f| segments[1..5].iter().map(|v| v[f]).sum())
+        .collect()
+}
+
 fn mark<const N: usize>(mut bench: ResMut<Benchmark>) {
     bench.marks[N] = Some(Instant::now());
 }
@@ -380,7 +389,11 @@ fn report(world: &mut World, bench: &Benchmark) {
             .iter()
             .zip(SEGMENTS)
             .map(|(v, n)| format!("  {}\n", Stats::of(v).line(n)))
-            .collect::<String>(),
+            .collect::<String>()
+            + &format!(
+                "{}\n",
+                Stats::of(&game_sets(&bench.segments)).line("game sets")
+            ),
     );
     println!("{text}");
     info!("benchmark report:\n{text}");

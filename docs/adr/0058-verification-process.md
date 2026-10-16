@@ -47,3 +47,13 @@ lists, no estimates and no scope-cut rule.
 
 - Continuous progress without waiting on the user; measurable quality gates; early detection
   of runaway scope.
+
+## Amendments
+
+- 2026-10-16 (M2, user decision): the container's main thread is not a usable proxy for the
+  whole frame — on the 4-core llvmpipe container the engine alone (`--benchmark empty`: terrain
+  and scatter, no town) measures p95 11.2 ms. Container CPU criteria therefore budget the
+  **game's own sets** (`input + sim-drive + view-sync + present` from the benchmark's per-set
+  report) at ≤ 4 ms p95 combined, and record the `empty` baseline next to every result; the
+  full main-thread and render-thread budgets (PERFORMANCE §3) are verified on the user's PC and
+  M4 (☑ᵤ, User verification queue).

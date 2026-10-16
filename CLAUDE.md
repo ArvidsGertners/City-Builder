@@ -104,7 +104,7 @@ cargo test -p cb_sim --test traffic_multi_day -- --ignored   # slow headless soa
 cargo run -p cb_sim --release --example headless_bench -- --days 10 --city large
 cargo run -p cb_sim --release --example determinism_probe           # hashes compared across OSes in CI
 cargo run -p cb_game --release -- --benchmark bench_city             # 60 s flythrough, perf report (real GPU)
-cargo run -p cb_game --release -- --benchmark bench_city --no-gpu-work  # CPU budgets in the container
+cargo run -p cb_game --release -- --benchmark bench_city --no-gpu-work  # game-set CPU budgets in the container (+ `empty` baseline)
 cargo run -p cb_game --release -- --smoke-test 60 --resolution 640x360
 scripts/screenshot.sh M2                     # Xvfb + lavapipe: render screenshot suite M2
 scripts/check_sim_isolation.sh               # fails if cb_sim depends on rendering crates
