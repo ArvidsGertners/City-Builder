@@ -14,5 +14,8 @@ cb_geometry.workspace = true
 glam.workspace = true
 serde.workspace = true
 
+[dev-dependencies]
+cb_l10n.workspace = true
+
 [lints]
 workspace = true

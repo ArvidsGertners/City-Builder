@@ -513,4 +513,28 @@ mod tests {
         let inp = ground_input(&g, &flat(), 10.0, 10.0, &STREET);
         assert!(resolve_crossings(&g, &inp, &[]).is_ok());
     }
+
+    #[test]
+    fn every_reason_has_a_message_in_every_locale() {
+        let l10n = cb_l10n::L10n::new(cb_l10n::Locale::En).expect("bundles load");
+        let at = Vec2::ZERO;
+        let all = [
+            Invalid::TooSteep { at },
+            Invalid::TooSharp { at, radius_m: 5.0 },
+            Invalid::TooShort,
+            Invalid::Overlap { at },
+            Invalid::WaterNoBridge { at },
+            Invalid::CrossingClearance { at, dh_m: 3.0 },
+            Invalid::OutOfBounds { at },
+        ];
+        for reason in all {
+            for loc in cb_l10n::Locale::ALL {
+                assert!(
+                    l10n.has(loc, cb_l10n::Key(reason.key())),
+                    "{} missing in {loc:?}",
+                    reason.key()
+                );
+            }
+        }
+    }
 }
