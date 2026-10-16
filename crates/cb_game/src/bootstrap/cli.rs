@@ -31,6 +31,8 @@ pub struct Cli {
     pub benchmark: Option<String>,
     /// Benchmark with a 64 × 64 window and no shadows/SSAO/bloom (CPU numbers in containers).
     pub no_gpu_work: bool,
+    /// Replace the demo town with the procgen gallery (every zoned typology on rows of lots).
+    pub procgen_gallery: bool,
     /// Override the UI language (`en`, `de`).
     pub language: Option<String>,
     /// Print help and exit.
@@ -75,6 +77,7 @@ city-builder [OPTIONS]
   --out <dir>                  output directory for --screenshot-suite
   --benchmark <scene>          60 s camera path over a scene (m2_slice, bench_city), report, exit
   --no-gpu-work                benchmark at 64x64 without shadows/SSAO/bloom
+  --procgen-gallery            replace the demo town with rows of generated buildings
   --strict-errors              system errors panic (debug builds)
   --debug-panic                panic after start-up (tests the crash reporter)
   --version                    print version
@@ -145,6 +148,7 @@ pub fn parse<'a>(args: impl IntoIterator<Item = &'a str>) -> Result<Cli, CliErro
             "--out" => cli.out = Some(PathBuf::from(value("--out", &mut it)?)),
             "--benchmark" => cli.benchmark = Some(value("--benchmark", &mut it)?.to_owned()),
             "--no-gpu-work" => cli.no_gpu_work = true,
+            "--procgen-gallery" => cli.procgen_gallery = true,
             "--strict-errors" => cli.strict_errors = true,
             "--debug-panic" => cli.debug_panic = true,
             "--version" | "-V" => cli.version = true,

@@ -154,6 +154,9 @@ pub fn build(boot: Boot) -> App {
             crashes_dir: paths.crashes_dir.clone(),
         });
     }
+    if cli.procgen_gallery {
+        app.add_plugins(crate::debug::gallery::GalleryPlugin);
+    }
     if let Some(frames) = cli.smoke_test {
         app.add_plugins(SmokePlugin { frames });
     }

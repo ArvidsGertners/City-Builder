@@ -3,6 +3,7 @@
 //! blocks (R L4–L5, C L1–L3) and industrial halls (I L1–L3).
 
 pub mod block;
+pub mod civic;
 pub mod foundation;
 pub mod house;
 pub mod industrial;

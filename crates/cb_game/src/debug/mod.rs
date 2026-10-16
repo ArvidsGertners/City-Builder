@@ -3,6 +3,7 @@
 //! Developer-facing strings here are English and exempt from localization (CLAUDE.md).
 
 pub mod benchmark;
+pub mod gallery;
 pub mod lane_overlay;
 pub mod screenshot;
 pub mod screenshot_metrics;

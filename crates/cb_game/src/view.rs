@@ -90,6 +90,10 @@ struct ChunkSlot {
 /// Plot polygons with bounds (scatter exclusion), shared with scatter jobs.
 type PlotShapes = Arc<Vec<(Vec2, Vec2, Vec<Vec2>)>>;
 
+/// Extra areas without natural scatter (debug scenes that place meshes outside the sim).
+#[derive(Resource, Default)]
+pub struct ScatterExclusion(pub Vec<Vec<Vec2>>);
+
 /// Visual registries.
 #[derive(Resource, Default)]
 pub struct ViewState {
@@ -974,6 +978,7 @@ fn sync_scatter(
     seed: Option<Res<cb_sim::WorldSeed>>,
     ids: Option<Res<Ids>>,
     plots_q: Query<&Plot>,
+    exclusion: Option<Res<ScatterExclusion>>,
     rig: Res<CameraRig>,
     mats: Option<Res<WorldMaterials>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -990,6 +995,9 @@ fn sync_scatter(
     }
     let _span = tracing::info_span!("view_scatter_sync").entered();
     let seed = seed.map_or(1, |s| s.0);
+    if exclusion.as_ref().is_some_and(DetectChanges::is_changed) {
+        state.scatter_dirty = true;
+    }
     if std::mem::take(&mut state.scatter_dirty) {
         for c in &mut state.chunks {
             c.scatter_stale = true;
@@ -1063,9 +1071,11 @@ fn sync_scatter(
                 ids.plots
                     .iter()
                     .filter_map(|(_, e)| plots_q.get(e).ok())
-                    .map(|p| {
-                        let (l, h) = cb_geometry::polygon::bounds(p.polygon());
-                        (l, h, p.polygon().to_vec())
+                    .map(Plot::polygon)
+                    .chain(exclusion.iter().flat_map(|x| x.0.iter().map(Vec::as_slice)))
+                    .map(|poly| {
+                        let (l, h) = cb_geometry::polygon::bounds(poly);
+                        (l, h, poly.to_vec())
                     })
                     .collect(),
             )
