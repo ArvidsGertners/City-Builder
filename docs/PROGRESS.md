@@ -16,7 +16,11 @@ milestone and before ending a session (skill `milestone-completion`).
   `lot_ids_stable_under_small_drags`, `lot_ids_n_plus_minus_one_keep_n_minus_2`,
   `subdivide_fan_le_25_or_tight_curve`, `subdivide_corner_lot_fronts_both_roads` pass);
   `cb_network` (cross-sections, segment geometry, profile solver, validation reasons with l10n
-  keys, crossing fixed point). The determinism probe prints terrain and subdivision hashes.
+  keys, crossing fixed point); `cb_procgen` (palette + HSV jitter, packed surface attribute,
+  painter with baked AO, R L1–L3 houses with gable/hip roofs, windows, doors, chimneys, wings,
+  duplexes, pad/plinth/stilt foundations, yards ≤ 400 tris, trees, road segment sweep;
+  `houses_within_lots_and_budgets`, `procgen_golden_hashes`). The determinism probe prints
+  terrain and subdivision hashes.
 - **Last updated:** 2026-10-16
 - **Verified environment:** Bevy 0.20.0 (2026-10-08), bevy_egui 0.43.1 (Bevy 0.20), rustc 1.97.1;
   `bevy-inspector-egui` 0.37 targets Bevy 0.19 (ADR-0031); `mesa-vulkan-drivers` (lavapipe) and
@@ -24,18 +28,20 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**M2.4 — `cb_procgen`** (crate is an empty skeleton): houses L1–L3 on fitted footprints, yards
-(fence, shed, garden, driveway), trees, road meshes. First action: add
-`crates/cb_procgen/src/building/{mod.rs,massing.rs,roofs.rs}` with
-`pub fn massing(footprint: [DVec2; 4], level: u8, seed: u64) -> Massing` (OBB modules + height)
-and `pub fn house_mesh(&Massing, lot: &[DVec2], heights, seed) -> MeshData` in the 20 B vertex
-format (ART_DIRECTION house palette, gable/hip roofs), then `yard.rs`, `trees.rs`,
-`road_mesh.rs` (sweep of `cb_network::CrossSection` along `SegmentGeom` + `Profile`), with
-golden-hash tests and triangle budgets (TESTING §2, PERFORMANCE). Afterwards M2.5 `cb_sim`
-(commands ADR-0055, terrain resource, roads, plots/lots via `cb_geometry::subdivide`, growth
-stub, economy stub, citygen) and M2.6 `cb_game`. Still open in pure crates for the M2 checklist:
-`plot_clipped_by_new_corridor` (sim level, M2.5) and procgen golden hashes
-(`grading_continuous_compositing` passes in `cb_terrain`).
+**M2.5 — `cb_sim` world state** (pure crates done; `cb_procgen` has R L1–L3 houses, yards,
+trees, road segment meshes, foundations; preview: `cargo run -p cb_procgen --release --example
+preview_block -- <dir> [seed]` renders a street to PPM with a software rasterizer).
+First action: in `crates/cb_sim/src/` add `commands.rs` (`PlayerCommand` enum + `CommandQueue`
+resource + `apply_tick`, ADR-0055), `terrain.rs` (`TerrainRes` wrapping `cb_terrain::Terrain`,
+dirty rects as messages), `roads/{mod,network}.rs` (`Node`/`Segment` with `SegmentGeom` +
+`Profile`, corridor stamps, `BuildRoad`/`RemoveRoad` commands using `cb_network::validation`),
+`zoning/{mod,plots}.rs` (`CreatePlot` → `cb_geometry::frontage` from the road edge polyline →
+`subdivide` → `Lot`s with stable IDs via `match_ids`), `buildings/growth.rs` (Debug growth mode:
+empty lots → `house::layout` + `plan_foundation` + pad stamp), `economy.rs` stub, and
+`citygen.rs` (seeded street grid + 500 houses for `--benchmark`). Junction surfaces for M2 corner
+plots: minimal cut-back + fillet polygon in `cb_network` (full ADR-0063 geometry in M3). Tests:
+headless integration tests in `crates/cb_sim/tests/` incl. `plot_clipped_by_new_corridor`.
+Then M2.6 `cb_game`.
 
 ## Process conventions (ADR-0058)
 
@@ -718,3 +724,6 @@ None open. Known gaps (planned):
 - 2026-10-16 — M2 pure crates: `cb_terrain`, `cb_geometry` (incl. the ADR-0064 port) and
   `cb_network` landed with their tests; ADR-0064 amended (achievable fan bound, densest fallback,
   frontage detection from polylines). Next `cb_procgen`.
+- 2026-10-16 — M2.4 `cb_procgen`: residential houses, yards, vegetation and road meshes; a
+  software-rasterized preview example shows a curved street with 46 houses (avg 340 tris/house,
+  yards ≤ 400). ADR-0049 amended with the packed attribute layout.

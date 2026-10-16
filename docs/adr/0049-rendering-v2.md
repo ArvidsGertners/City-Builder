@@ -50,3 +50,8 @@ crossfade bands double draw cost.
   stage), packed 8 (`Uint32`). `specialize` sets the vertex buffer layout and pushes
   `VERTEX_COLORS` so Bevy's `VertexOutput` carries the color; slot lookups happen in the vertex
   stage. 1 000 triangles ≈ 17.7 KiB.
+- 2026-10-16 (M2 procgen): the packed `u32` is laid out as bits 0–15 slot, bits 16–19 surface
+  kind (`cb_procgen::surface::Surface`: solid, roof, window, foliage, trunk, paved, marking,
+  ground — drives night windows, snow on roofs, season tint, wetness), bits 20–31 a per-kind id
+  (window id for the night lighting pattern). Procgen meshes carry sRGB colour bytes; the game
+  linearizes them with a 256-entry table when building GPU meshes.

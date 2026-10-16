@@ -175,8 +175,10 @@ City-Builder/
     │       └── stats.rs        Per-segment speed/volume/congestion stats
     ├── cb_procgen/             Procedural content (no Bevy)
     │   └── src/
-    │       ├── palette.rs      Palettes per zone/type/season (from ART_DIRECTION.md)
-    │       ├── building/       massing.rs, roofs.rs, facade.rs, windows.rs, details.rs, foundation.rs,
+    │       ├── palette.rs      Palettes per zone/type/season (from ART_DIRECTION.md), HSV jitter
+    │       ├── surface.rs      Packed vertex attribute: slot | surface kind | id (ADR-0049)
+    │       ├── paint.rs        Oriented faces, baked AO, per-face value noise, plan frames
+    │       ├── building/       house.rs (R L1–L3, M2), massing.rs, roofs.rs, facade.rs, windows.rs, details.rs, foundation.rs,
     │       │                   residential.rs, commercial.rs, industrial.rs, service.rs, utility.rs,
     │       │                   transit.rs, special.rs, condition.rs, lod.rs, mod.rs (generate())
     │       ├── yard.rs         Gardens, sheds, fences, driveways, parking, loading yards

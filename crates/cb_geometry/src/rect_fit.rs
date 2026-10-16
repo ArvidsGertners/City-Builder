@@ -65,10 +65,14 @@ pub struct Fit {
     pub green: bool,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum EdgeKind {
+/// Lot edge classes for setbacks and yard features.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EdgeKind {
+    /// On the frontage (road side).
     Front,
+    /// Between neighbours.
     Side,
+    /// Far half of the lot and within 45° of the frontage direction.
     Rear,
 }
 
@@ -420,6 +424,12 @@ fn fit_one(lot: &Lot, f: &Frontage, idx: &FrontageIndex, p: &FitParams) -> Fit {
         green: true,
         ..Default::default()
     }
+}
+
+/// Edge classes of every edge of `lot.poly` (edge `k` runs from vertex `k` to `k + 1`).
+#[must_use]
+pub fn lot_edge_kinds(lot: &Lot, f: &Frontage) -> Vec<EdgeKind> {
+    classify(&lot.poly, f, &FrontageIndex::new(f))
 }
 
 /// Fits every lot of one plot.

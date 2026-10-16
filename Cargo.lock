@@ -1756,6 +1756,8 @@ name = "cb_procgen"
 version = "0.1.0"
 dependencies = [
  "cb_core",
+ "cb_geometry",
+ "cb_network",
  "glam",
 ]
 
