@@ -763,4 +763,16 @@ fn m3_scripted_scene_has_its_features() {
     s.run_ticks(0);
     let ring = nodes(&s).iter().filter(|n| n.ring()).count();
     assert_eq!(ring, 4, "roundabout ring nodes");
+    // The one-way pair site also carries the dirt path.
+    let ow = f.one_way.unwrap().pos;
+    let near = |k: RoadKind| {
+        segments(&s)
+            .iter()
+            .filter(|sg| {
+                sg.kind() == k && sg.geom().point_at(0.5 * sg.geom().length()).distance(ow) < 200.0
+            })
+            .count()
+    };
+    assert!(near(RoadKind::Dirt) >= 1, "dirt path at the one-way site");
+    assert!(near(RoadKind::OneWayStreet) >= 2, "one-way pair");
 }
