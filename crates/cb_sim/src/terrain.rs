@@ -28,6 +28,21 @@ pub enum TerrainSetup {
     },
     /// Procedural world generation from the world seed.
     Generate,
+    /// A flat world with a straight valley along the z axis (bridge tests and scenarios).
+    Valley {
+        /// Samples per side.
+        samples: usize,
+        /// Spacing (m).
+        spacing_m: f32,
+        /// Plain height (m).
+        h: f32,
+        /// Valley depth (m).
+        depth_m: f32,
+        /// Valley width (m).
+        width_m: f32,
+        /// River depth above the valley floor (m; `None`: dry).
+        water_m: Option<f32>,
+    },
 }
 
 /// The terrain. Held behind an `Arc` so presentation can mesh chunks off the main thread from
@@ -79,6 +94,28 @@ pub fn build(
                     spacing_m: *spacing_m,
                 },
                 *h,
+            );
+            Some(TerrainRes {
+                t: Arc::new(Terrain::from_world(w)),
+            })
+        }
+        TerrainSetup::Valley {
+            samples,
+            spacing_m,
+            h,
+            depth_m,
+            width_m,
+            water_m,
+        } => {
+            let w = cb_terrain::World::valley(
+                &WorldGenParams {
+                    samples: *samples,
+                    spacing_m: *spacing_m,
+                },
+                *h,
+                *depth_m,
+                *width_m,
+                *water_m,
             );
             Some(TerrainRes {
                 t: Arc::new(Terrain::from_world(w)),

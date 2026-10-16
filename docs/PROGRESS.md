@@ -48,12 +48,13 @@ patched in `EditSet::Lanes` (`cb_sim::lanes::patch_lanes`) + lane overlay (F5 in
 (`roads::update_rings`, `citygen::roundabout`). (6) markings and signal heads drawn (`cb_procgen::markings_mesh`, lamps toggled by
 `view::update_signal_lamps` from the stub clock) and the shared carriageway surface
 (`cb_network::junction::carriageway_triangles`: centre fan + zippered MVC rings, used by mesh
-and terrain stamp; fixes the shading fan and an ear-clipping hole). Next: M3.5 bridges —
-`crates/cb_network/src/bridge.rs` (span detection over water/valleys, pier placement outside
-corridors, abutments), `BuildRoad` accepting `CrossingKind::Overpass` and water spans, deck/pier
-meshes in `cb_procgen`; tests `bridge_cost_monotonic_in_length`, `bridge_piers_outside_corridors`,
-`bridge_abutment_step_le_2cm`, `overpass_does_not_modify_lower_corridor`,
-`bridge_classification_hysteresis`; then decorations and surfaces.
+and terrain stamp; fixes the shading fan and an ear-clipping hole). (7) bridges (`cb_network::bridge`, spans/deck/piers planned in `roads::plan_bridges`,
+ground-run corridors with soft ends + abutment pads + scatter clearing, `cb_procgen::bridge_mesh`).
+Next: M3.5 decorations and surfaces — segment style (`RoadSegment.style`: surface
+dark/light asphalt/cobblestone, per-side grass strip, tree rows 8–24 m, lamps 20–50 m) with a
+`SetSegmentStyle` command, cost per GAME_DESIGN §3, decoration placement in
+`cb_procgen::road_decor` (tests `decor_spacing_within_5pct_on_curves`,
+`decor_height_matches_profile_1cm`); then ray–deck picking for elevated roads (ALGORITHMS §23).
 
 ## Process conventions (ADR-0058)
 
@@ -479,9 +480,10 @@ unlocked" until M7.
 - [ ] Controls: `light_plan_no_conflicting_greens_{t,x,y,5way,6way}`,
       `every_movement_green_in_some_phase`, `approach_control_persists_in_snapshot` (first two
       pass; the snapshot test lands with the snapshot types in M3.6).
-- [ ] Bridges: `bridge_cost_monotonic_in_length`, `bridge_piers_outside_corridors`,
+- [x] Bridges: `bridge_cost_monotonic_in_length`, `bridge_piers_outside_corridors`,
       `bridge_abutment_step_le_2cm`, `overpass_does_not_modify_lower_corridor`,
-      `bridge_classification_hysteresis`.
+      `bridge_classification_hysteresis` (plus `river_bridge_spans_water_with_clearance_and_piers`,
+      `no_junction_on_a_bridge`; synthetic `TerrainSetup::Valley`).
 - [ ] Decorations: `decor_spacing_within_5pct_on_curves`, `decor_height_matches_profile_1cm`.
 - [ ] Editing: `edit_road_geometry_regenerates_junctions`, `edit_road_geometry_repoints_dependents`.
 - [ ] Undo/redo: per command variant `undo_<cmd>_restores_state_hash`, `redo_<cmd>_equals_apply`;

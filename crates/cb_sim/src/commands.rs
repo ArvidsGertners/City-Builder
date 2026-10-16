@@ -285,11 +285,16 @@ pub const ALL_KEYS: &[&str] = &[
     "plot-invalid-missing",
     "plot-invalid-overlap",
     "plot-invalid-size",
+    "road-invalid-bridge-pier-conflict",
+    "road-invalid-bridge-too-high",
+    "road-invalid-crossing-clearance",
+    "road-invalid-junction-on-bridge",
     "road-invalid-junction-too-close",
     "road-invalid-overpass-unavailable",
     "road-invalid-target-missing",
     "road-invalid-too-steep",
     "road-invalid-variant",
+    "road-invalid-water-no-bridge",
 ];
 
 #[cfg(test)]

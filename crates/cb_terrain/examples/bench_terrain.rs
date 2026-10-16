@@ -38,6 +38,7 @@ fn main() -> Result<(), cb_terrain::TerrainError> {
                 centerline,
                 core_half_width_m: 7.5,
                 carve_m: 0.15,
+                soft_ends: [false; 2],
             },
         });
         stamp_ms.push(s.elapsed().as_secs_f64() * 1e3);

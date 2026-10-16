@@ -83,6 +83,30 @@ struct RoadsFile {
     roads: BTreeMap<RoadKind, RoadType>,
     #[serde(default)]
     variants: VariantCosts,
+    #[serde(default)]
+    bridge: BridgeCosts,
+}
+
+/// Bridge costs (GAME_DESIGN §3): deck length × `cost_factor` of the road price, plus per pier
+/// a base price and a price per metre of height.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BridgeCosts {
+    /// Deck price as a multiple of the road price per metre.
+    pub cost_factor: f64,
+    /// Price per pier (cents).
+    pub pier_cents: i64,
+    /// Price per metre of pier height (cents).
+    pub pier_cents_per_m: i64,
+}
+
+impl Default for BridgeCosts {
+    fn default() -> Self {
+        Self {
+            cost_factor: 4.0,
+            pier_cents: 120_000,
+            pier_cents_per_m: 4_000,
+        }
+    }
 }
 
 /// Extra construction cost of segment variants (GAME_DESIGN §3).
@@ -117,6 +141,7 @@ struct EconomyFile {
 pub struct Catalog {
     roads: BTreeMap<RoadKind, RoadType>,
     variants: VariantCosts,
+    bridge: BridgeCosts,
     zones: BTreeMap<ZoneKind, ZoneSpec>,
     start_money: StartMoney,
     growth_debug_delay_ticks: u64,
@@ -189,6 +214,7 @@ impl Catalog {
         Ok(Self {
             roads: roads.roads,
             variants: roads.variants,
+            bridge: roads.bridge,
             zones: zones.zones,
             start_money: eco.start_money_cents,
             growth_debug_delay_ticks: eco.growth_debug_delay_ticks,
@@ -202,6 +228,12 @@ impl Catalog {
         self.roads
             .get(&k)
             .unwrap_or_else(|| &self.roads[&RoadKind::Street])
+    }
+
+    /// Bridge costs.
+    #[must_use]
+    pub fn bridge_costs(&self) -> BridgeCosts {
+        self.bridge
     }
 
     /// Extra cost per metre of a segment variant (cents).

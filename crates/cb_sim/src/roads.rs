@@ -15,6 +15,7 @@ use bevy::ecs::world::World;
 use cb_core::Money;
 use cb_core::ids::{BuildingId, NodeId, SegmentId};
 use cb_geometry::{CubicBezier2, Polyline2};
+use cb_network::bridge::{self, Pier};
 use cb_network::control::{ApproachControl, ControlMode, SignalPhase};
 use cb_network::junction::{self, Approach, Junction};
 use cb_network::markings::Markings;
@@ -34,6 +35,10 @@ use crate::terrain;
 pub const SHOULDER_M: f32 = 3.5;
 /// Corridor carve below the surface (ADR-0065).
 pub const CARVE_M: f32 = 0.15;
+/// Abutment pad length under the deck (m, ADR-0065).
+const ABUTMENT_PAD_M: f32 = 4.0;
+/// Blend width around abutment pads (m).
+const ABUTMENT_FALLOFF_M: f32 = 6.0;
 /// Endpoint snapping tolerance (m).
 pub const SNAP_TOL_M: f32 = 0.5;
 /// A crossing this close to the end of an existing segment goes through its node (m).
@@ -139,7 +144,12 @@ pub struct RoadSegment {
     pub(crate) built_tick: u64,
     pub(crate) geom: SegmentGeom,
     pub(crate) cut: (f32, f32),
-    pub(crate) stamp: u32,
+    /// Terrain stamps: corridors of the ground runs, abutment pads, scatter clearing.
+    pub(crate) stamps: SmallVec<[u32; 4]>,
+    /// Bridge spans `[s0, s1]` (arc length).
+    pub(crate) spans: Vec<(f32, f32)>,
+    /// Bridge piers.
+    pub(crate) piers: Vec<Pier>,
 }
 
 impl RoadSegment {
@@ -192,6 +202,16 @@ impl RoadSegment {
     #[must_use]
     pub fn variant(&self) -> Variant {
         self.variant
+    }
+    /// Bridge spans `[s0, s1]` (arc length; empty for ground roads).
+    #[must_use]
+    pub fn spans(&self) -> &[(f32, f32)] {
+        &self.spans
+    }
+    /// Bridge piers.
+    #[must_use]
+    pub fn piers(&self) -> &[Pier] {
+        &self.piers
     }
     /// Cross-section (with its variant's lane kinds).
     #[must_use]
@@ -276,6 +296,8 @@ enum NodeRef {
 struct PlannedSeg {
     kind: RoadKind,
     variant: Variant,
+    spans: Vec<(f32, f32)>,
+    piers: Vec<Pier>,
     curve: CubicBezier2,
     profile: Profile,
     start: NodeRef,
@@ -288,6 +310,8 @@ struct Plan {
     new_nodes: Vec<Vec3>,
     remove: Vec<SegmentId>,
     add: Vec<PlannedSeg>,
+    /// Bridges the new road passes under, with re-placed piers.
+    pier_updates: Vec<(SegmentId, Vec<Pier>)>,
 }
 
 /// Snapshot of an existing segment for planning.
@@ -296,6 +320,8 @@ struct Snap {
     id: SegmentId,
     kind: RoadKind,
     variant: Variant,
+    spans: Vec<(f32, f32)>,
+    piers: Vec<Pier>,
     start: NodeId,
     end: NodeId,
     curve: CubicBezier2,
@@ -316,6 +342,8 @@ fn snapshot(world: &World) -> (Vec<Snap>, BTreeMap<NodeId, (Vec3, Vec<SegmentId>
             id: s.id,
             kind: s.kind,
             variant: s.variant,
+            spans: s.spans.clone(),
+            piers: s.piers.clone(),
             start: s.start,
             end: s.end,
             curve: s.curve,
@@ -458,20 +486,35 @@ fn plan_build(
         })
         .collect();
     let base = validation::ground_input(&geom, &ground, h0, h1, &lim);
-    let (profile, crossings) = validation::resolve_crossings(&geom, &base, &existing)?;
+    let (follow, crossings) = validation::resolve_crossings(&geom, &base, &existing)?;
+    let bplan = plan_bridges(
+        cat, cmd.kind, &geom, &ground, &base, follow, &crossings, &near, &snaps,
+    )?;
+    let profile = bplan.profile.clone();
     let plain: Vec<_> = crossings.iter().map(|c| c.0).collect();
-    if let Some(e) = validation::validate_shape(&geom, &lim, &ground, &existing, &plain).first() {
-        return Err((*e).into());
+    // Water is fine under a span; a road may not start or end in it.
+    if let Some(e) = validation::validate_shape(&geom, &lim, &ground, &existing, &plain)
+        .into_iter()
+        .find(|e| match e {
+            cb_network::Invalid::WaterNoBridge { at } => {
+                !bridge::on_span(&bplan.spans, geom.project(*at).0)
+            }
+            _ => true,
+        })
+    {
+        return Err(e.into());
     }
-    if let Some((c, _)) = crossings.iter().find(|(_, k)| *k == CrossingKind::Overpass) {
-        return Err(ValidationError::at(
-            "road-invalid-overpass-unavailable",
-            c.at,
-        ));
+    for p in [cmd.curve.start(), cmd.curve.end()] {
+        if ground.water_depth(p) > 0.0 {
+            return Err(ValidationError::at("road-invalid-water-no-bridge", p));
+        }
     }
 
     // Topology.
-    let mut plan = Plan::default();
+    let mut plan = Plan {
+        pier_updates: bplan.pier_updates.clone(),
+        ..Plan::default()
+    };
     let mut new_node = |plan: &mut Plan, p: Vec3| {
         plan.new_nodes.push(p);
         NodeRef::New(plan.new_nodes.len() - 1)
@@ -540,6 +583,8 @@ fn plan_build(
         plan.add.push(PlannedSeg {
             kind: cmd.kind,
             variant: Variant::default(),
+            spans: slice_spans(&bplan.spans, s0, s1),
+            piers: slice_piers(&bplan.piers, s0, s1),
             curve: piece,
             profile: profile_piece(&profile, s0, s1),
             start: a,
@@ -558,6 +603,12 @@ fn plan_build(
                 s.geom.point_at(pts[0].0),
             ));
         }
+        if let Some(p) = pts.iter().find(|p| bridge::on_span(&s.spans, p.0)) {
+            return Err(ValidationError::at(
+                "road-invalid-junction-on-bridge",
+                s.geom.point_at(p.0),
+            ));
+        }
         let max_grade = cat.road(s.kind).max_grade;
         let pieces = split_curve(&s.curve, &pts.iter().map(|p| p.0).collect::<Vec<_>>());
         let start_h = s.profile.height_at(0.0);
@@ -570,6 +621,8 @@ fn plan_build(
             plan.add.push(PlannedSeg {
                 kind: s.kind,
                 variant: s.variant,
+                spans: slice_spans(&s.spans, s0, s1),
+                piers: slice_piers(&s.piers, s0, s1),
                 curve: piece,
                 profile: resolve_piece(&s.profile, s0, s1, ha, he, max_grade),
                 start: a,
@@ -625,20 +678,308 @@ fn plan_build(
             return Err(ValidationError { key: e.key(), at });
         }
     }
-    Ok((plan, road_cost(cat, cmd.kind, len), profile))
+    Ok((
+        plan,
+        road_cost(cat, cmd.kind, len).saturating_add(bplan.cost),
+        profile,
+    ))
 }
 
-fn corridor_stamp(id: u32, seg: &RoadSegment) -> Stamp {
-    let centerline = seg.geom.centerline3(&seg.profile, 2.0);
-    Stamp {
-        id,
-        priority: priority::ROAD,
-        shape: StampShape::Corridor {
-            centerline,
-            core_half_width_m: seg.geom.half_width_m + SHOULDER_M,
-            carve_m: CARVE_M,
-        },
+/// Bridge spans, the deck profile and piers of a planned road (ALGORITHMS §3).
+#[derive(Clone, Debug)]
+struct BridgePlan {
+    profile: Profile,
+    spans: Vec<(f32, f32)>,
+    piers: Vec<Pier>,
+    /// Existing bridges the new road passes under, with their re-placed piers.
+    pier_updates: Vec<(SegmentId, Vec<Pier>)>,
+    /// Extra cost of decks and piers.
+    cost: Money,
+}
+
+/// Classifies spans from the terrain-following profile `follow`, re-solves the deck, validates
+/// (no junctions on spans, deck height, clearance under existing decks) and places piers.
+#[allow(clippy::too_many_arguments)]
+fn plan_bridges(
+    cat: &Catalog,
+    kind: RoadKind,
+    geom: &SegmentGeom,
+    ground: &dyn Ground,
+    base: &ProfileInput,
+    follow: Profile,
+    crossings: &[(validation::Crossing, CrossingKind)],
+    near: &[usize],
+    snaps: &[Snap],
+) -> Result<BridgePlan, ValidationError> {
+    let bp = bridge::params(kind);
+    let len = geom.length();
+    let n = base.s.len();
+    let mut x = bridge::SpanSamples {
+        s: base.s.clone(),
+        follow: base.s.iter().map(|s| follow.height_at(*s)).collect(),
+        ground: base.ground.clone(),
+        water: base
+            .s
+            .iter()
+            .map(|s| {
+                let p = geom.point_at(*s);
+                let d = ground.water_depth(p);
+                (d > 0.0).then(|| ground.height(p) + d)
+            })
+            .collect(),
+        road_below: vec![None; n],
+    };
+    let footprint = |o: &Snap, p: Vec2| {
+        let (s, d) = o.geom.project(p);
+        s > 0.0 && s < o.geom.length() && d.abs() < o.geom.half_width_m + 1.0
+    };
+    let mut under: Vec<usize> = Vec::new();
+    for (c, k) in crossings {
+        if *k != CrossingKind::Overpass {
+            continue;
+        }
+        let oi = near[c.other];
+        let o = &snaps[oi];
+        if c.dh_m > 0.0 {
+            // Over another road: span its width plus the margin.
+            let reach = o.geom.half_width_m + bridge::OVERPASS_MARGIN_M;
+            let h = o.profile.height_at(c.s_other);
+            for i in 0..n {
+                if (x.s[i] - c.s_new).abs() <= reach {
+                    x.road_below[i] = Some(x.road_below[i].map_or(h, |v: f32| v.max(h)));
+                }
+            }
+        } else {
+            // Under an existing deck: it must be a span with enough room below.
+            let underside = o.profile.height_at(c.s_other) - bridge::params(o.kind).deck_m;
+            if !bridge::on_span(&o.spans, c.s_other)
+                || underside - follow.height_at(c.s_new) < bridge::UNDER_DECK_CLEARANCE_M
+            {
+                return Err(ValidationError::at("road-invalid-crossing-clearance", c.at));
+            }
+            if !under.contains(&oi) {
+                under.push(oi);
+            }
+        }
     }
+    let mut pier_updates = Vec::new();
+    for &oi in &under {
+        let o = &snaps[oi];
+        let forbidden = |p: Vec2| {
+            snaps.iter().any(|q| q.id != o.id && footprint(q, p)) || {
+                let (s, d) = geom.project(p);
+                s > 0.0 && s < len && d.abs() < geom.half_width_m + 1.0
+            }
+        };
+        let piers = bridge::place_piers(
+            &o.geom,
+            &o.profile,
+            &o.spans,
+            &bridge::params(o.kind),
+            &|p| ground.height(p),
+            &forbidden,
+        )
+        .map_err(|s| {
+            ValidationError::at("road-invalid-bridge-pier-conflict", o.geom.point_at(s))
+        })?;
+        pier_updates.push((o.id, piers));
+    }
+    let spans = bridge::classify_spans(&x, &bp, len);
+    if spans.is_empty() {
+        return Ok(BridgePlan {
+            profile: follow,
+            spans,
+            piers: Vec::new(),
+            pier_updates,
+            cost: Money::ZERO,
+        });
+    }
+    for (c, k) in crossings {
+        let on = bridge::on_span(&spans, c.s_new);
+        if *k == CrossingKind::Junction && on {
+            return Err(ValidationError::at("road-invalid-junction-on-bridge", c.at));
+        }
+        if *k == CrossingKind::Overpass && c.dh_m > 0.0 && !on {
+            return Err(ValidationError::at("road-invalid-crossing-clearance", c.at));
+        }
+    }
+    let mut inp = bridge::deck_input(base, &x, &spans, &bp);
+    for (c, k) in crossings {
+        if *k == CrossingKind::Junction {
+            let idx = ((c.s_new / len) * (n - 1) as f32).round() as usize;
+            inp.pins.push((idx.min(n - 1), follow.height_at(c.s_new)));
+        }
+    }
+    let profile = cb_network::profile::solve(&inp).map_err(
+        |cb_network::profile::ProfileError::TooSteep { s_m }| {
+            ValidationError::at("road-invalid-too-steep", geom.point_at(s_m))
+        },
+    )?;
+    for i in 0..n {
+        if bridge::on_span(&spans, x.s[i])
+            && profile.height_at(x.s[i]) - x.ground[i] > bridge::MAX_DECK_HEIGHT_M
+        {
+            return Err(ValidationError::at(
+                "road-invalid-bridge-too-high",
+                geom.point_at(x.s[i]),
+            ));
+        }
+    }
+    let near_snaps: Vec<&Snap> = near.iter().map(|&k| &snaps[k]).collect();
+    let forbidden = |p: Vec2| near_snaps.iter().any(|o| footprint(o, p));
+    let piers = bridge::place_piers(
+        geom,
+        &profile,
+        &spans,
+        &bp,
+        &|p| ground.height(p),
+        &forbidden,
+    )
+    .map_err(|s| ValidationError::at("road-invalid-bridge-pier-conflict", geom.point_at(s)))?;
+    let span_m: f32 = spans.iter().map(|(a, b)| b - a).sum();
+    let bc = cat.bridge_costs();
+    let per_m = cat.road(kind).cost_cents_per_m;
+    let deck_cents = (f64::from(span_m) * per_m as f64 * (bc.cost_factor - 1.0)).round() as i64;
+    let pier_cents: i64 = piers
+        .iter()
+        .map(|p| {
+            bc.pier_cents
+                + (f64::from(p.height_m().max(0.0)) * bc.pier_cents_per_m as f64).round() as i64
+        })
+        .sum();
+    Ok(BridgePlan {
+        profile,
+        spans,
+        piers,
+        pier_updates,
+        cost: Money(deck_cents + pier_cents),
+    })
+}
+
+/// Spans of `[s0, s1]`, shifted to start at 0.
+fn slice_spans(spans: &[(f32, f32)], s0: f32, s1: f32) -> Vec<(f32, f32)> {
+    spans
+        .iter()
+        .filter(|(a, b)| *b > s0 && *a < s1)
+        .map(|(a, b)| (a.max(s0) - s0, b.min(s1) - s0))
+        .collect()
+}
+
+/// Piers on `[s0, s1]`, shifted to start at 0.
+fn slice_piers(piers: &[Pier], s0: f32, s1: f32) -> Vec<Pier> {
+    piers
+        .iter()
+        .filter(|p| p.s_m >= s0 && p.s_m <= s1)
+        .map(|p| Pier {
+            s_m: p.s_m - s0,
+            ..*p
+        })
+        .collect()
+}
+
+/// Ground runs of a segment: `[0, len]` minus its bridge spans.
+fn ground_runs(len: f32, spans: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    let mut out = Vec::new();
+    let mut a = 0.0;
+    for &(s0, s1) in spans {
+        if s0 > a {
+            out.push((a, s0));
+        }
+        a = a.max(s1);
+    }
+    if len > a {
+        out.push((a, len));
+    }
+    out.retain(|(a, b)| b - a > 0.25);
+    out
+}
+
+/// Terrain stamps of a segment (ALGORITHMS §2–§3, ADR-0065): one corridor per ground run, an
+/// abutment pad under the first 4 m of the deck at every span end that meets ground, and a
+/// scatter clearing under each span.
+fn add_segment_stamps(world: &mut World, seg: &mut RoadSegment) {
+    let len = seg.geom.length();
+    let mut stamps: SmallVec<[u32; 4]> = SmallVec::new();
+    for (a, b) in ground_runs(len, &seg.spans) {
+        // Ends that meet a span get a soft cap so the abutment pad under the deck wins.
+        let soft_ends = [
+            seg.spans.iter().any(|sp| (sp.1 - a).abs() < 1e-3),
+            seg.spans.iter().any(|sp| (sp.0 - b).abs() < 1e-3),
+        ];
+        let id = world.resource_mut::<Ids>().stamp();
+        terrain::add_stamp(
+            world,
+            Stamp {
+                id,
+                priority: priority::ROAD,
+                shape: StampShape::Corridor {
+                    centerline: seg.geom.centerline3_range(&seg.profile, a, b, 2.0),
+                    core_half_width_m: seg.geom.half_width_m + SHOULDER_M,
+                    carve_m: CARVE_M,
+                    soft_ends,
+                },
+            },
+        );
+        stamps.push(id);
+    }
+    let deck = bridge::params(seg.kind).deck_m;
+    let hw = seg.geom.half_width_m + 1.0;
+    for &(s0, s1) in &seg.spans {
+        for (se, into) in [(s0, ABUTMENT_PAD_M), (s1, -ABUTMENT_PAD_M)] {
+            if se <= 0.01 || se >= len - 0.01 {
+                continue;
+            }
+            let (sa, sb) = (se.min(se + into), se.max(se + into));
+            let poly = band(&seg.geom, sa, sb, hw);
+            // The deck may keep descending over the pad and its blend: hold the pad below the
+            // lowest underside there.
+            let reach = into.signum() * (ABUTMENT_PAD_M + ABUTMENT_FALLOFF_M);
+            let lowest = (0..=8)
+                .map(|k| seg.profile.height_at(se + reach * k as f32 / 8.0))
+                .fold(f32::INFINITY, f32::min);
+            let id = world.resource_mut::<Ids>().stamp();
+            terrain::add_stamp(
+                world,
+                Stamp {
+                    id,
+                    priority: priority::ABUTMENT,
+                    shape: StampShape::Pad {
+                        polygon: poly,
+                        target_h_m: lowest - deck - CARVE_M,
+                        falloff_m: ABUTMENT_FALLOFF_M,
+                    },
+                },
+            );
+            stamps.push(id);
+        }
+        let id = world.resource_mut::<Ids>().stamp();
+        terrain::add_stamp(
+            world,
+            Stamp {
+                id,
+                priority: priority::ROAD,
+                shape: StampShape::Clear {
+                    polygon: band(&seg.geom, s0, s1, hw + 2.0),
+                },
+            },
+        );
+        stamps.push(id);
+    }
+    seg.stamps = stamps;
+}
+
+/// Plan polygon of the band `[s0, s1] × [−hw, hw]` along a segment.
+fn band(geom: &SegmentGeom, s0: f32, s1: f32, hw: f32) -> Vec<Vec2> {
+    let n = (((s1 - s0) / 2.0).ceil() as usize).max(1);
+    let pts: Vec<(Vec2, Vec2)> = (0..=n)
+        .map(|k| {
+            let s = s0 + (s1 - s0) * k as f32 / n as f32;
+            (geom.point_at(s), geom.dir_at(s).perp())
+        })
+        .collect();
+    let mut poly: Vec<Vec2> = pts.iter().map(|(p, nrm)| *p - *nrm * hw).collect();
+    poly.extend(pts.iter().rev().map(|(p, nrm)| *p + *nrm * hw));
+    poly
 }
 
 /// Terrain stamp keeping the ground below a junction's surface (sidewalks included): the
@@ -722,9 +1063,8 @@ fn spawn_segment(
         .segments
         .allocate()
         .map_err(|_| ValidationError::new("internal-id-space"))?;
-    let stamp = world.resource_mut::<Ids>().stamp();
     let geom = SegmentGeom::new(p.curve, CrossSection::of(p.kind).half_width_m());
-    let seg = RoadSegment {
+    let mut seg = RoadSegment {
         id,
         start,
         end,
@@ -735,9 +1075,11 @@ fn spawn_segment(
         built_tick: p.built_tick,
         geom,
         cut: (0.0, 0.0),
-        stamp,
+        stamps: SmallVec::new(),
+        spans: p.spans.clone(),
+        piers: p.piers.clone(),
     };
-    terrain::add_stamp(world, corridor_stamp(stamp, &seg));
+    add_segment_stamps(world, &mut seg);
     let (lo, hi) = cb_geometry::polygon::bounds(&seg.geom.corridor);
     crate::zoning::mark_near(world, lo, hi);
     let e = world.spawn(seg).id();
@@ -758,7 +1100,9 @@ fn despawn_segment(world: &mut World, id: SegmentId) -> Option<RoadSegment> {
     let e = world.resource_mut::<Ids>().segments.remove(id)?;
     let seg = world.get::<RoadSegment>(e).cloned()?;
     world.despawn(e);
-    terrain::remove_stamp(world, seg.stamp);
+    for st in &seg.stamps {
+        terrain::remove_stamp(world, *st);
+    }
     for n in [seg.start, seg.end] {
         if let Some(ne) = node_entity(world, n)
             && let Some(mut node) = world.get_mut::<RoadNode>(ne)
@@ -1113,6 +1457,14 @@ pub(crate) fn build_road(
         added.push(spawn_segment(world, p, a, b)?);
         touched.extend([a, b]);
     }
+    for (sid, piers) in &plan.pier_updates {
+        if let Some(e) = segment_entity(world, *sid)
+            && let Some(mut sg) = world.get_mut::<RoadSegment>(e)
+        {
+            sg.piers.clone_from(piers);
+            world.write_message(NetworkChanged::Segment(*sid));
+        }
+    }
     touched.sort();
     touched.dedup();
     for n in &touched {
@@ -1306,14 +1658,14 @@ pub(crate) fn set_road_type(
         return Err(ValidationError::new("road-invalid-target-missing"));
     };
     let (lo0, hi0) = cb_geometry::polygon::bounds(&old.geom.corridor);
-    terrain::remove_stamp(world, old.stamp);
-    let stamp = world.resource_mut::<Ids>().stamp();
+    for st in &old.stamps {
+        terrain::remove_stamp(world, *st);
+    }
     let mut seg = old.clone();
     seg.kind = kind;
     seg.variant = variant;
     seg.geom = geom;
-    seg.stamp = stamp;
-    terrain::add_stamp(world, corridor_stamp(stamp, &seg));
+    add_segment_stamps(world, &mut seg);
     let (lo1, hi1) = cb_geometry::polygon::bounds(&seg.geom.corridor);
     crate::zoning::mark_near(world, lo0.min(lo1), hi0.max(hi1));
     let (a, b) = (seg.start, seg.end);

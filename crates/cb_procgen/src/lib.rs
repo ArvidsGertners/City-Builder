@@ -6,6 +6,7 @@
 //! All meshes use the 20 B world vertex format of `cb_geometry::MeshData` (position, sRGB colour
 //! with AO in alpha, packed slot/surface attribute — [`surface`]). See `docs/ALGORITHMS.md` §11.
 
+pub mod bridge_mesh;
 pub mod building;
 pub mod junction_mesh;
 pub mod markings_mesh;

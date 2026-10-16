@@ -158,6 +158,7 @@ mod tests {
                 centerline,
                 core_half_width_m: 7.0,
                 carve_m: 0.15,
+                soft_ends: [false; 2],
             },
         }
     }

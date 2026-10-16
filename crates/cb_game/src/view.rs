@@ -608,7 +608,17 @@ fn sync_network(
             cap_start: dead_end(&all_nodes, seg.start()),
             cap_end: dead_end(&all_nodes, seg.end()),
         };
-        let md = segment_mesh(seg.geom(), seg.profile(), &seg.cross_section(), &prm, 0);
+        let mut md = segment_mesh(seg.geom(), seg.profile(), &seg.cross_section(), &prm, 0);
+        if !seg.spans().is_empty() {
+            md.append(&cb_procgen::bridge_mesh::bridge_mesh(
+                seg.geom(),
+                seg.profile(),
+                seg.spans(),
+                seg.piers(),
+                &cb_network::bridge::params(seg.kind()),
+                0,
+            ));
+        }
         let e = commands
             .spawn((
                 Mesh3d(meshes.add(world_mesh(&md))),

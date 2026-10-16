@@ -85,6 +85,23 @@ impl SegmentGeom {
             .collect()
     }
 
+    /// Centreline points with profile heights over `[s0, s1]` at ≤ `step` spacing.
+    #[must_use]
+    pub fn centerline3_range(&self, profile: &Profile, s0: f32, s1: f32, step: f32) -> Vec<Vec3> {
+        let (a, b) = (s0.max(0.0), s1.min(self.length()));
+        if b <= a {
+            return Vec::new();
+        }
+        let n = (((b - a) / step - 1e-3).ceil() as usize).max(1);
+        (0..=n)
+            .map(|k| {
+                let s = a + (b - a) * k as f32 / n as f32;
+                let p = self.point_at(s);
+                Vec3::new(p.x, profile.height_at(s), p.y)
+            })
+            .collect()
+    }
+
     /// Smallest turning radius (m) along the curve.
     #[must_use]
     pub fn min_radius_m(&self) -> f32 {

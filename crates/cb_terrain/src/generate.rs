@@ -135,6 +135,44 @@ impl World {
         }
     }
 
+    /// A flat world at `h` with a straight valley along the z axis (tests, scenarios): depth
+    /// `depth_m` at `x = 0`, smoothstep walls out to `|x| = width_m / 2`, filled with a river
+    /// up to `water_m` above the valley floor (`None`: dry).
+    #[must_use]
+    pub fn valley(
+        params: &WorldGenParams,
+        h: f32,
+        depth_m: f32,
+        width_m: f32,
+        water_m: Option<f32>,
+    ) -> Self {
+        let mut w = Self::flat(params, h);
+        let n = w.base.n();
+        let half = 0.5 * width_m.max(1.0);
+        for j in 0..n {
+            for i in 0..n {
+                let x = w.base.pos(i, j).x.abs();
+                let t = (1.0 - x / half).clamp(0.0, 1.0);
+                let k = t * t * (3.0 - 2.0 * t);
+                w.base.set(i, j, h - depth_m * k);
+            }
+        }
+        if let Some(wm) = water_m {
+            let level = h - depth_m + wm;
+            let id = w.water.add_body(crate::WaterBodyKind::River);
+            for j in 0..n {
+                for i in 0..n {
+                    if w.base.get(i, j) < level {
+                        w.water.set(i, j, level, id);
+                    }
+                }
+            }
+        }
+        let (wdist, wlevel) = materials::water_distance(&w.water, 64.0);
+        w.materials = materials::compute(&w.base, &w.water, &wdist, &wlevel, &w.forest, 0);
+        w
+    }
+
     /// Stable hash of everything generation produces (base, water, forest, materials) — compared
     /// across operating systems by the determinism probe.
     #[must_use]

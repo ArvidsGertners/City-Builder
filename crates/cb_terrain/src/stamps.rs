@@ -96,6 +96,10 @@ pub enum StampShape {
         core_half_width_m: f32,
         /// Carve below the surface (m).
         carve_m: f32,
+        /// Soft ends `[start, end]`: beyond such an end the corridor has no core, only blend
+        /// (ADR-0065 soft end cap where a ground run meets a bridge span), so the abutment pad
+        /// under the deck wins.
+        soft_ends: [bool; 2],
     },
     /// Flat pad (building foundation, plaza): core inside the polygon, blend over `falloff_m`.
     Pad {
@@ -122,6 +126,9 @@ pub enum StampShape {
         polygon: Vec<Vec2>,
     },
 }
+
+/// Length of a corridor's soft end cap (m, ADR-0065).
+pub const SOFT_END_M: f32 = 4.0;
 
 /// Stamp priorities (higher wins on cores): junction > road > abutment > pad.
 pub mod priority {
@@ -265,6 +272,7 @@ fn rasterize_k(stamp: &Stamp, base: &HeightGrid, kmul: f32) -> Raster {
             centerline,
             core_half_width_m,
             carve_m,
+            soft_ends,
         } => {
             let cl2: Vec<Vec2> = centerline.iter().map(|p| Vec2::new(p.x, p.z)).collect();
             // Reach: core + blend for the largest |e| along the centreline.
@@ -279,8 +287,10 @@ fn rasterize_k(stamp: &Stamp, base: &HeightGrid, kmul: f32) -> Raster {
                 SampleRect::from_world(base, lo - Vec2::splat(reach), hi + Vec2::splat(reach));
             let w = rect.i1 - rect.i0 + 1;
             let hgt = rect.j1 - rect.j0 + 1;
-            // Nearest centreline distance and interpolated surface height per sample.
-            let mut best = vec![(f32::INFINITY, 0.0f32); w * hgt];
+            // Nearest centreline distance, interpolated surface height and whether the sample
+            // lies beyond a soft end, per sample.
+            let mut best = vec![(f32::INFINITY, 0.0f32, false); w * hgt];
+            let last = cl2.len().saturating_sub(2);
             for q in 0..cl2.len().saturating_sub(1) {
                 let (a, b) = (cl2[q], cl2[q + 1]);
                 let (ha, hb) = (centerline[q].y, centerline[q + 1].y);
@@ -294,11 +304,14 @@ fn rasterize_k(stamp: &Stamp, base: &HeightGrid, kmul: f32) -> Raster {
                 for j in sr.j0.max(rect.j0)..=sr.j1.min(rect.j1) {
                     for i in sr.i0.max(rect.i0)..=sr.i1.min(rect.i1) {
                         let p = base.pos(i, j);
-                        let t = ((p - a).dot(ab) / l2).clamp(0.0, 1.0);
+                        let raw = (p - a).dot(ab) / l2;
+                        let t = raw.clamp(0.0, 1.0);
                         let d = (p - (a + ab * t)).length();
+                        let beyond = (q == 0 && raw < 0.0 && soft_ends[0])
+                            || (q == last && raw > 1.0 && soft_ends[1]);
                         let c = &mut best[(j - rect.j0) * w + (i - rect.i0)];
                         if d < c.0 {
-                            *c = (d, ha + (hb - ha) * t);
+                            *c = (d, ha + (hb - ha) * t, beyond);
                         }
                     }
                 }
@@ -307,14 +320,25 @@ fn rasterize_k(stamp: &Stamp, base: &HeightGrid, kmul: f32) -> Raster {
             let mut earth = 0.0;
             for j in rect.j0..=rect.j1 {
                 for i in rect.i0..=rect.i1 {
-                    let (d, surf) = best[(j - rect.j0) * w + (i - rect.i0)];
+                    let (d, surf, beyond) = best[(j - rect.j0) * w + (i - rect.i0)];
                     if !d.is_finite() {
                         continue;
                     }
                     let target = surf - carve_m;
                     let bh = base.get(i, j);
                     let idx = base.index(i, j) as u32;
-                    if d <= *core_half_width_m {
+                    if beyond {
+                        // Soft end cap: blend only, fading over the abutment length.
+                        if d < SOFT_END_M {
+                            let weight = 1.0 - smoothstep(0.0, SOFT_END_M, d);
+                            entries.push(Entry {
+                                idx,
+                                target,
+                                weight,
+                                core: false,
+                            });
+                        }
+                    } else if d <= *core_half_width_m {
                         entries.push(Entry {
                             idx,
                             target,
@@ -538,6 +562,7 @@ mod tests {
                 centerline,
                 core_half_width_m: 7.0,
                 carve_m: CARVE_M,
+                soft_ends: [false; 2],
             },
         }
     }
