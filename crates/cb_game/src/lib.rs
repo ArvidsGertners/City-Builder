@@ -3,13 +3,16 @@
 
 pub mod app;
 pub mod bootstrap;
+pub mod camera;
 pub mod debug;
 pub mod l10n;
 pub mod platform;
+pub mod render;
 pub mod scene;
 pub mod settings;
 pub mod states;
 pub mod ui;
+pub mod view;
 
 use std::process::ExitCode;
 

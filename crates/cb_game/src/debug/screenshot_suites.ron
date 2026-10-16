@@ -2,6 +2,16 @@
 // focus + distance (m) + pitch above the horizon + yaw around +Y (degrees).
 (
     suites: {
+        "M2dev": (
+            resolution: (1600, 900),
+            settle_frames: 20,
+            shots: [
+                (name: "dev-01-overview", camera: (focus: (0.0, 0.0, 0.0), distance: 2000.0, pitch_deg: 60.0, yaw_deg: 0.0)),
+                (name: "dev-02-town", camera: (focus: (0.0, 0.0, 0.0), distance: 300.0, pitch_deg: 45.0, yaw_deg: 25.0)),
+                (name: "dev-03-block", camera: (focus: (40.0, 0.0, 30.0), distance: 120.0, pitch_deg: 35.0, yaw_deg: 120.0)),
+                (name: "dev-04-street", camera: (focus: (0.0, 0.0, 0.0), distance: 45.0, pitch_deg: 20.0, yaw_deg: 240.0)),
+            ],
+        ),
         "M1": (
             resolution: (1600, 900),
             settle_frames: 30,

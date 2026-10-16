@@ -152,7 +152,7 @@ pub fn sample(inp: &MaterialInputs<'_>, i: usize, j: usize) -> [u8; MATERIALS] {
     let fj = ((j as f32 * fscale).round() as usize).min(inp.forest.n() - 1);
     let forest_w = f32::from(inp.forest.get(fi, fj)) / 255.0 * (1.0 - disturbed);
     let dirt =
-        (smoothstep(0.35, 0.6, noise::fbm(p, 200.0, 3, inp.seed)) * 0.6).max(disturbed * 0.85);
+        (smoothstep(0.35, 0.6, noise::fbm(p, 200.0, 3, inp.seed)) * 0.6).max(disturbed * 0.3);
     let r = rock;
     let sa = sand * (1.0 - r);
     let f = forest_w * (1.0 - r - sa).max(0.0);

@@ -107,8 +107,7 @@ pub fn build(boot: Boot) -> App {
     .add_plugins(EguiPlugin::default())
     .add_plugins(SimPlugins {
         seed: cli.seed.unwrap_or(1),
-        // Terrain generation moves here with the world view (M2.6).
-        ..SimPlugins::default()
+        terrain: cb_sim::TerrainSetup::Generate,
     })
     .init_state::<AppState>()
     .configure_sets(
@@ -129,7 +128,15 @@ pub fn build(boot: Boot) -> App {
     .insert_resource(LogCounters(log_counters))
     .insert_resource(l10n)
     .add_plugins(UiPlugin)
-    .add_systems(Startup, (scene::setup, enter_game))
+    .add_plugins((
+        crate::render::WorldRenderPlugin,
+        crate::camera::CameraPlugin,
+        crate::view::ViewPlugin,
+    ))
+    .add_systems(
+        Startup,
+        (scene::setup, scene::demo_town, enter_game).chain(),
+    )
     .add_systems(Update, record_adapter_info);
 
     if !verification_run && let Some((path, text)) = crash::last_crash(&paths.crashes_dir) {

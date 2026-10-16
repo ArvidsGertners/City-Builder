@@ -10,7 +10,9 @@ use serde::Deserialize;
 use tracing::{error, info};
 
 use super::screenshot_metrics::{ShotMetrics, metrics_rgba8, to_json};
-use crate::scene::{CameraPose, WorldCamera};
+use crate::camera::{CameraRig, CameraScripted};
+use crate::scene::{CameraPose, SceneAnchor};
+use crate::view::ViewBacklog;
 
 /// One shot.
 #[derive(Clone, Debug, Deserialize)]
@@ -87,9 +89,12 @@ impl Plugin for ScreenshotPlugin {
 fn drive(
     mut commands: Commands,
     mut runner: ResMut<ScreenshotRunner>,
-    mut cameras: Query<&mut Transform, With<WorldCamera>>,
+    mut rig: ResMut<CameraRig>,
+    anchor: Option<Res<SceneAnchor>>,
+    backlog: Res<ViewBacklog>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    commands.insert_resource(CameraScripted);
     if let Some(n) = runner.exit_in.as_mut() {
         if *n == 0 {
             exit.write(AppExit::Success);
@@ -122,12 +127,14 @@ fn drive(
         return;
     };
     if runner.waited == 0 {
-        for mut t in &mut cameras {
-            *t = shot.camera.transform();
-        }
+        let mut r = shot.camera.rig();
+        // Shots are placed relative to the scene anchor (the starting town).
+        r.focus += anchor.map_or(Vec3::ZERO, |a| a.0);
+        *rig = r;
     }
     runner.waited += 1;
-    if runner.waited < runner.suite.settle_frames {
+    // Wait for the settle frames and for chunk work near the new view to finish.
+    if runner.waited < runner.suite.settle_frames || (backlog.0 > 0 && runner.waited < 600) {
         return;
     }
     runner.waited = 0;

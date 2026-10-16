@@ -16,8 +16,12 @@ dev = ["cb_sim/debug_schedule"]
 
 [dependencies]
 cb_core.workspace = true
+cb_geometry.workspace = true
 cb_l10n.workspace = true
+cb_network.workspace = true
+cb_procgen.workspace = true
 cb_sim.workspace = true
+cb_terrain.workspace = true
 bevy = { workspace = true, features = [
     "std",
     "async_executor",
