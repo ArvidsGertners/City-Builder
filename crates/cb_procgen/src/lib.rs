@@ -7,6 +7,7 @@
 //! with AO in alpha, packed slot/surface attribute — [`surface`]). See `docs/ALGORITHMS.md` §11.
 
 pub mod building;
+pub mod junction_mesh;
 pub mod paint;
 pub mod palette;
 pub mod road_mesh;
