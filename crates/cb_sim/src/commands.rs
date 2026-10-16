@@ -41,6 +41,27 @@ pub struct BuildRoad {
     pub end: Endpoint,
 }
 
+/// What `EditRoadGeometry` changes (ADR-0055).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum GeometryEdit {
+    /// Move a node; its segments follow with unchanged tangents.
+    MoveNode {
+        /// The node.
+        node: NodeId,
+        /// New plan position.
+        to: Vec2,
+    },
+    /// Move a segment's two inner Bézier control points.
+    Reshape {
+        /// The segment.
+        segment: SegmentId,
+        /// New first control point.
+        p1: Vec2,
+        /// New second control point.
+        p2: Vec2,
+    },
+}
+
 /// One side of a segment between two arc lengths.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FrontageSpan {
@@ -77,6 +98,8 @@ pub enum PlayerCommand {
         /// The segment.
         segment: SegmentId,
     },
+    /// Move a node or reshape a segment.
+    EditRoadGeometry(GeometryEdit),
     /// Upgrade/downgrade: change a segment's road type and variant (bus lanes, tram tracks).
     SetRoadType {
         /// The segment.
@@ -142,6 +165,7 @@ impl PlayerCommand {
             Self::BuildRoad(_) => "undo-build-road",
             Self::RemoveSegment { .. } => "undo-remove-segment",
             Self::SetRoadType { .. } => "undo-set-road-type",
+            Self::EditRoadGeometry(_) => "undo-edit-road",
             Self::SetSegmentStyle { .. } => "undo-set-segment-style",
             Self::SetApproachControl { .. } => "undo-set-control",
             Self::CreatePlot(_) => "undo-create-plot",
@@ -262,6 +286,7 @@ fn apply(world: &mut World, cmd: &PlayerCommand, tick: u64) -> Result<Money, Val
             kind,
             variant,
         } => crate::roads::set_road_type(world, *segment, *kind, *variant),
+        PlayerCommand::EditRoadGeometry(e) => crate::roads::edit_road_geometry(world, e),
         PlayerCommand::SetSegmentStyle { segment, style } => {
             crate::roads::set_segment_style(world, *segment, *style)
         }
@@ -336,6 +361,7 @@ pub const ALL_KEYS: &[&str] = &[
     "road-invalid-bridge-pier-conflict",
     "road-invalid-bridge-too-high",
     "road-invalid-crossing-clearance",
+    "road-invalid-edit-crossing",
     "road-invalid-junction-on-bridge",
     "road-invalid-junction-too-close",
     "road-invalid-overpass-unavailable",

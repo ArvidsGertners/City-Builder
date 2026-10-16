@@ -351,3 +351,13 @@ fn replay_command_log_reproduces_hash() {
     }
     assert_eq!(r.state_hash(), want);
 }
+
+#[test]
+fn undo_edit_road_geometry_restores_state_hash() {
+    roundtrip("edit_road_geometry", |s| {
+        PlayerCommand::EditRoadGeometry(cb_sim::commands::GeometryEdit::MoveNode {
+            node: junction(s),
+            to: Vec2::new(8.0, 3.0),
+        })
+    });
+}

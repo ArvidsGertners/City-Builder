@@ -488,11 +488,11 @@ unlocked" until M7.
       `no_junction_on_a_bridge`; synthetic `TerrainSetup::Valley`).
 - [x] Decorations: `decor_spacing_within_5pct_on_curves`, `decor_height_matches_profile_1cm`
       (plus `segment_style_costs_decorations_and_slows_cobblestone`).
-- [ ] Editing: `edit_road_geometry_regenerates_junctions`, `edit_road_geometry_repoints_dependents`.
-- [ ] Undo/redo: per command variant `undo_<cmd>_restores_state_hash`, `redo_<cmd>_equals_apply`;
+- [x] Editing: `edit_road_geometry_regenerates_junctions`, `edit_road_geometry_repoints_dependents`.
+- [x] Undo/redo: per command variant `undo_<cmd>_restores_state_hash`, `redo_<cmd>_equals_apply`;
       `undo_depth_limit_100`, `undo_blocked_reports_reason`, `undo_refund_decays`,
-      `undo_after_window_rejected`, `replay_command_log_reproduces_hash` (all pass for the
-      current commands in `crates/cb_sim/tests/undo.rs`; `EditRoadGeometry` follows).
+      `undo_after_window_rejected`, `replay_command_log_reproduces_hash`
+      (`crates/cb_sim/tests/undo.rs`).
 - [ ] Bulldoze: `demolish_validate_lists_dependents`; dialog shot M3-12.
 - [ ] Shots (noon clear; d in m; pitch 40° unless noted):
 

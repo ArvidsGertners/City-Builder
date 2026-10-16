@@ -28,7 +28,7 @@ use glam::{Vec2, Vec3};
 use smallvec::SmallVec;
 
 use crate::catalog::Catalog;
-use crate::commands::{BuildRoad, Endpoint, ValidationError};
+use crate::commands::{BuildRoad, Endpoint, GeometryEdit, ValidationError};
 use crate::ids::Ids;
 use crate::terrain;
 
@@ -1775,6 +1775,242 @@ pub fn preview_segment_style(
     }
     let delta = style_cost(cat, seg, st) - style_cost(cat, seg, &seg.style);
     Ok(Money(delta.max(0)))
+}
+
+// ---------- geometry editing (ALGORITHMS §1, ADR-0055) ----------
+
+/// A planned geometry edit.
+struct EditPlan {
+    node_moves: Vec<(NodeId, Vec3)>,
+    segs: Vec<(SegmentId, CubicBezier2, SegmentGeom, BridgePlan)>,
+    cost: Money,
+}
+
+/// Plans `EditRoadGeometry` without touching the world: moved node or reshaped curve, profiles
+/// re-solved, bridges re-planned, shape and junction validation; new crossings are not allowed
+/// (build a road for that).
+fn plan_edit(world: &World, edit: &GeometryEdit) -> Result<EditPlan, ValidationError> {
+    let Some(cat) = world.get_resource::<Catalog>() else {
+        return Err(ValidationError::new("internal-no-catalog"));
+    };
+    let ground = terrain::ground(world);
+    let (snaps, nodes) = snapshot(world);
+    let missing = || ValidationError::new("road-invalid-target-missing");
+    let mut node_moves: Vec<(NodeId, Vec3)> = Vec::new();
+    let mut curves: Vec<(usize, CubicBezier2)> = Vec::new();
+    match *edit {
+        GeometryEdit::MoveNode { node, to } => {
+            let (pos, incident) = nodes.get(&node).ok_or_else(missing)?;
+            let from = Vec2::new(pos.x, pos.z);
+            let delta = to - from;
+            // Keep the node's elevation over the ground.
+            let lift = pos.y - ground.height(from);
+            node_moves.push((node, Vec3::new(to.x, ground.height(to) + lift, to.y)));
+            for sid in incident {
+                let k = snaps
+                    .iter()
+                    .position(|x| x.id == *sid)
+                    .ok_or_else(missing)?;
+                let mut c = snaps[k].curve;
+                if snaps[k].start == node {
+                    c.p[0] += delta;
+                    c.p[1] += delta;
+                }
+                if snaps[k].end == node {
+                    c.p[3] += delta;
+                    c.p[2] += delta;
+                }
+                curves.push((k, c));
+            }
+        }
+        GeometryEdit::Reshape { segment, p1, p2 } => {
+            let k = snaps
+                .iter()
+                .position(|x| x.id == segment)
+                .ok_or_else(missing)?;
+            let mut c = snaps[k].curve;
+            c.p[1] = p1;
+            c.p[2] = p2;
+            curves.push((k, c));
+        }
+    }
+    let edited: Vec<SegmentId> = curves.iter().map(|(k, _)| snaps[*k].id).collect();
+    let node_pos = |n: NodeId| -> Option<Vec3> {
+        node_moves
+            .iter()
+            .find(|m| m.0 == n)
+            .map(|m| m.1)
+            .or_else(|| nodes.get(&n).map(|v| v.0))
+    };
+    let mut planned = Vec::with_capacity(curves.len());
+    let mut cost = 0i64;
+    for (k, curve) in &curves {
+        let s = &snaps[*k];
+        let lim = limits(cat, s.kind);
+        let geom = SegmentGeom::new(*curve, lim.half_width_m);
+        let (Some(a), Some(b)) = (node_pos(s.start), node_pos(s.end)) else {
+            return Err(missing());
+        };
+        let (lo, hi) = curve.bounds();
+        let pad = lim.half_width_m + 30.0;
+        let near: Vec<usize> = (0..snaps.len())
+            .filter(|&q| !edited.contains(&snaps[q].id))
+            .filter(|&q| {
+                let (x0, x1) = snaps[q].curve.bounds();
+                let r = snaps[q].geom.half_width_m + pad;
+                x0.x - r <= hi.x && lo.x <= x1.x + r && x0.y - r <= hi.y && lo.y <= x1.y + r
+            })
+            .collect();
+        let existing: Vec<Existing<'_>> = near
+            .iter()
+            .map(|&q| {
+                let o = &snaps[q];
+                let shared = [s.start, s.end]
+                    .into_iter()
+                    .find(|n| o.start == *n || o.end == *n)
+                    .and_then(node_pos)
+                    .map(|v| Vec2::new(v.x, v.z));
+                Existing {
+                    geom: &o.geom,
+                    profile: &o.profile,
+                    shares_node_at: shared,
+                }
+            })
+            .collect();
+        let base = validation::ground_input(&geom, &ground, a.y, b.y, &lim);
+        let (follow, crossings) = validation::resolve_crossings(&geom, &base, &existing)?;
+        if let Some((c, _)) = crossings.first() {
+            return Err(ValidationError::at("road-invalid-edit-crossing", c.at));
+        }
+        let bplan = plan_bridges(
+            cat,
+            s.kind,
+            &geom,
+            &ground,
+            &base,
+            follow,
+            &[],
+            &near,
+            &snaps,
+        )?;
+        if let Some(e) = validation::validate_shape(&geom, &lim, &ground, &existing, &[])
+            .into_iter()
+            .find(|e| match e {
+                cb_network::Invalid::WaterNoBridge { at } => {
+                    !bridge::on_span(&bplan.spans, geom.project(*at).0)
+                }
+                _ => true,
+            })
+        {
+            return Err(e.into());
+        }
+        let new_cost = road_cost_with(cat, s.kind, s.variant, geom.length()).0 + bplan.cost.0;
+        let old_cost = road_cost_with(cat, s.kind, s.variant, s.geom.length()).0;
+        cost += (new_cost - old_cost).max(0);
+        planned.push((s.id, *curve, geom, bplan));
+    }
+    // Junctions at every end of an edited segment.
+    let mut ends: Vec<NodeId> = curves
+        .iter()
+        .flat_map(|(k, _)| [snaps[*k].start, snaps[*k].end])
+        .collect();
+    ends.sort();
+    ends.dedup();
+    for n in ends {
+        let Some((_, incident)) = nodes.get(&n) else {
+            continue;
+        };
+        let mut sorted = incident.clone();
+        sorted.sort();
+        let mut apps: Vec<(RoadKind, Approach)> = Vec::new();
+        for sid in sorted {
+            let Some(o) = snaps.iter().find(|o| o.id == sid) else {
+                continue;
+            };
+            let (g, prof) = match planned.iter().find(|p| p.0 == sid) {
+                Some(p) => (&p.2, &p.3.profile),
+                None => (&o.geom, &o.profile),
+            };
+            if o.start == n {
+                apps.push((o.kind, approach(cat, (o.kind, o.variant), g, prof, true)));
+            }
+            if o.end == n {
+                apps.push((o.kind, approach(cat, (o.kind, o.variant), g, prof, false)));
+            }
+        }
+        if let Some(Err(e)) = node_junction(&apps) {
+            let at = node_pos(n).map(|v| Vec2::new(v.x, v.z));
+            return Err(ValidationError { key: e.key(), at });
+        }
+    }
+    Ok(EditPlan {
+        node_moves,
+        segs: planned,
+        cost: Money(cost),
+    })
+}
+
+/// Read-only preview of `EditRoadGeometry`: its cost.
+///
+/// # Errors
+/// The first validation failure.
+pub fn preview_edit_geometry(world: &World, edit: &GeometryEdit) -> Result<Money, ValidationError> {
+    plan_edit(world, edit).map(|p| p.cost)
+}
+
+/// `EditRoadGeometry`: moves a node (its segments follow, keeping their tangents) or reshapes a
+/// segment; profiles, bridges, stamps, junctions and lanes are rebuilt, plots on the moved road
+/// edges re-attach. Charges what the longer/bridged roads cost beyond the old ones.
+///
+/// # Errors
+/// The first validation failure or `money-insufficient`.
+pub(crate) fn edit_road_geometry(
+    world: &mut World,
+    edit: &GeometryEdit,
+) -> Result<Money, ValidationError> {
+    let plan = plan_edit(world, edit)?;
+    crate::economy::charge(world, plan.cost)?;
+    let mut touched: Vec<NodeId> = Vec::new();
+    for (n, pos) in &plan.node_moves {
+        if let Some(e) = node_entity(world, *n)
+            && let Some(mut nd) = world.get_mut::<RoadNode>(e)
+        {
+            nd.pos = *pos;
+        }
+        touched.push(*n);
+    }
+    for (sid, curve, geom, bplan) in plan.segs {
+        let Some(e) = segment_entity(world, sid) else {
+            continue;
+        };
+        let Some(mut seg) = world.get::<RoadSegment>(e).cloned() else {
+            continue;
+        };
+        let (lo0, hi0) = cb_geometry::polygon::bounds(&seg.geom.corridor);
+        for st in &seg.stamps {
+            terrain::remove_stamp(world, *st);
+        }
+        seg.curve = curve;
+        seg.geom = geom;
+        seg.profile = bplan.profile;
+        seg.spans = bplan.spans;
+        seg.piers = bplan.piers;
+        add_segment_stamps(world, &mut seg);
+        let (lo1, hi1) = cb_geometry::polygon::bounds(&seg.geom.corridor);
+        crate::zoning::mark_near(world, lo0.min(lo1), hi0.max(hi1));
+        touched.extend([seg.start, seg.end]);
+        if let Some(mut sm) = world.get_mut::<RoadSegment>(e) {
+            *sm = seg;
+        }
+        world.write_message(NetworkChanged::Segment(sid));
+    }
+    touched.sort();
+    touched.dedup();
+    for n in &touched {
+        refresh_node(world, *n);
+    }
+    update_rings(world, &touched);
+    Ok(plan.cost)
 }
 
 // ---------- restore (undo/redo, ADR-0055) ----------
