@@ -21,7 +21,7 @@ use tracing::{error, info};
 use crate::app::GameSet;
 use crate::camera::{CameraRig, CameraScripted, WorldCamera};
 use crate::scene::{SceneAnchor, SceneFeatures};
-use crate::view::{ViewBacklog, ViewState};
+use crate::view::{ViewBacklog, ViewState, ViewStep};
 
 /// Scenes known to `--benchmark`.
 pub const SCENES: [&str; 3] = ["m2_slice", "bench_city", "empty"];
@@ -153,6 +153,10 @@ pub struct Benchmark {
     marks: [Option<Instant>; 5],
     /// Per-segment times (ms): before `Update`, the four `GameSet`s, after `Update`.
     segments: [Vec<f32>; 6],
+    /// Instants after each `ViewStep` this frame.
+    view_marks: [Option<Instant>; 5],
+    /// Per-step view-sync times (ms).
+    view_steps: [Vec<f32>; 5],
     exit_in: Option<u32>,
 }
 
@@ -178,6 +182,19 @@ fn game_sets(segments: &[Vec<f32>; 6]) -> Vec<f32> {
 fn mark<const N: usize>(mut bench: ResMut<Benchmark>) {
     bench.marks[N] = Some(Instant::now());
 }
+
+fn view_mark<const N: usize>(mut bench: ResMut<Benchmark>) {
+    bench.view_marks[N] = Some(Instant::now());
+}
+
+/// Names of the view-sync steps (`ViewStep` order).
+const VIEW_STEPS: [&str; 5] = [
+    "view:network",
+    "view:buildings",
+    "view:zoning",
+    "view:terrain",
+    "view:scatter",
+];
 
 /// Benchmark plugin.
 pub struct BenchmarkPlugin {
@@ -206,6 +223,8 @@ impl Plugin for BenchmarkPlugin {
             frame_ms: Vec::with_capacity(8192),
             marks: [None; 5],
             segments: Default::default(),
+            view_marks: [None; 5],
+            view_steps: Default::default(),
             exit_in: None,
         })
         .insert_resource(CameraScripted)
@@ -221,6 +240,21 @@ impl Plugin for BenchmarkPlugin {
                     .after(GameSet::ViewSync)
                     .before(GameSet::Presentation),
                 mark::<4>.after(GameSet::Presentation),
+                view_mark::<0>
+                    .after(ViewStep::Network)
+                    .before(ViewStep::Buildings),
+                view_mark::<1>
+                    .after(ViewStep::Buildings)
+                    .before(ViewStep::Zoning),
+                view_mark::<2>
+                    .after(ViewStep::Zoning)
+                    .before(ViewStep::Terrain),
+                view_mark::<3>
+                    .after(ViewStep::Terrain)
+                    .before(ViewStep::Scatter),
+                view_mark::<4>
+                    .after(ViewStep::Scatter)
+                    .in_set(GameSet::ViewSync),
             ),
         )
         .add_systems(Last, frame_end);
@@ -323,6 +357,14 @@ fn frame_end(world: &mut World) {
                         bench.segments[i].push(b.duration_since(a).as_secs_f32() * 1000.0);
                     }
                 }
+                // View steps: from the start of view-sync through each step's end mark.
+                let mut prev = bench.marks[2];
+                for i in 0..VIEW_STEPS.len() {
+                    if let (Some(a), Some(b)) = (prev, bench.view_marks[i]) {
+                        bench.view_steps[i].push(b.duration_since(a).as_secs_f32() * 1000.0);
+                    }
+                    prev = bench.view_marks[i];
+                }
             }
             if let Some(l) = bench.last_end {
                 bench
@@ -393,7 +435,13 @@ fn report(world: &mut World, bench: &Benchmark) {
             + &format!(
                 "{}\n",
                 Stats::of(&game_sets(&bench.segments)).line("game sets")
-            ),
+            )
+            + &bench
+                .view_steps
+                .iter()
+                .zip(VIEW_STEPS)
+                .map(|(v, n)| format!("  {}\n", Stats::of(v).line(n)))
+                .collect::<String>(),
     );
     println!("{text}");
     info!("benchmark report:\n{text}");

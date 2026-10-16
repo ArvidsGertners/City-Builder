@@ -128,21 +128,46 @@ impl ViewState {
 /// View plugin.
 pub struct ViewPlugin;
 
+/// The steps of `GameSet::ViewSync`, in order (the benchmark times each one).
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ViewStep {
+    /// Road segments, junctions, bridges, decorations, signal heads.
+    Network,
+    /// Houses and yards.
+    Buildings,
+    /// Zoning overlay invalidation.
+    Zoning,
+    /// Terrain and water chunks (off-thread meshing, hand-over).
+    Terrain,
+    /// Natural scatter (trees, rocks).
+    Scatter,
+}
+
 impl Plugin for ViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ViewState>()
             .init_resource::<ViewBacklog>()
-            .add_systems(
+            .configure_sets(
                 Update,
                 (
-                    sync_network,
-                    sync_buildings,
-                    sync_zoning,
-                    sync_terrain,
-                    sync_scatter,
+                    ViewStep::Network,
+                    ViewStep::Buildings,
+                    ViewStep::Zoning,
+                    ViewStep::Terrain,
+                    ViewStep::Scatter,
                 )
                     .chain()
                     .in_set(crate::app::GameSet::ViewSync),
+            )
+            .add_systems(
+                Update,
+                (
+                    sync_network.in_set(ViewStep::Network),
+                    sync_buildings.in_set(ViewStep::Buildings),
+                    sync_zoning.in_set(ViewStep::Zoning),
+                    sync_terrain.in_set(ViewStep::Terrain),
+                    sync_scatter.in_set(ViewStep::Scatter),
+                ),
             )
             .add_systems(
                 Update,
