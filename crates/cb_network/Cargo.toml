@@ -13,6 +13,7 @@ cb_core.workspace = true
 cb_geometry.workspace = true
 glam.workspace = true
 serde.workspace = true
+smallvec.workspace = true
 
 [dev-dependencies]
 cb_l10n.workspace = true

@@ -139,6 +139,7 @@ pub fn build(boot: Boot) -> App {
         crate::picking::PickingPlugin,
         crate::tools::ToolsPlugin,
         crate::overlay::OverlayPlugin,
+        crate::debug::lane_overlay::LaneOverlayPlugin,
     ))
     .add_systems(
         Startup,

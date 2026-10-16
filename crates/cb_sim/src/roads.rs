@@ -44,6 +44,8 @@ pub struct RoadNode {
     pub(crate) pos: Vec3,
     pub(crate) segments: SmallVec<[SegmentId; 4]>,
     pub(crate) junction: Option<Junction>,
+    /// Approaches in junction input order: (segment, node is its curve start).
+    pub(crate) approaches: SmallVec<[(SegmentId, bool); 4]>,
     /// Terrain stamp of the junction surface (`priority::JUNCTION`).
     pub(crate) junction_stamp: Option<u32>,
 }
@@ -68,6 +70,12 @@ impl RoadNode {
     #[must_use]
     pub fn junction(&self) -> Option<&Junction> {
         self.junction.as_ref()
+    }
+    /// Approaches in junction input order: (segment, node is its curve start); junction
+    /// approach and connector indices refer to this order.
+    #[must_use]
+    pub fn approaches(&self) -> &[(SegmentId, bool)] {
+        &self.approaches
     }
 }
 
@@ -577,6 +585,7 @@ fn spawn_node(world: &mut World, pos: Vec3) -> Result<NodeId, ValidationError> {
             pos,
             segments: SmallVec::new(),
             junction: None,
+            approaches: SmallVec::new(),
             junction_stamp: None,
         })
         .id();
@@ -740,6 +749,7 @@ fn refresh_node(world: &mut World, id: NodeId) {
     });
     if let Some(mut n) = world.get_mut::<RoadNode>(ne) {
         n.junction = j;
+        n.approaches = order.into_iter().collect();
         n.junction_stamp = stamp;
     }
     world.write_message(NetworkChanged::Node(id));

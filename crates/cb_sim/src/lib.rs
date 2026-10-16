@@ -14,6 +14,7 @@ pub mod driver;
 pub mod economy;
 pub mod hash;
 pub mod ids;
+pub mod lanes;
 pub mod roads;
 pub mod schedule;
 pub mod terrain;
@@ -88,12 +89,14 @@ impl Plugin for WorldStatePlugin {
             .init_resource::<CommandQueue>()
             .init_resource::<commands::CommandLog>()
             .init_resource::<zoning::DirtyPlots>()
+            .init_resource::<lanes::LaneNetwork>()
             .add_message::<CommandResult>()
             .add_message::<roads::NetworkChanged>()
             .add_message::<terrain::TerrainChanged>()
             .add_message::<zoning::ZoningChanged>()
             .add_message::<buildings::BuildingChanged>()
             .add_systems(SimEdit, commands::apply_commands.in_set(EditSet::Commands))
+            .add_systems(SimEdit, lanes::patch_lanes.in_set(EditSet::Lanes))
             .add_systems(SimEdit, zoning::update_dirty_plots.in_set(EditSet::Zoning))
             .add_systems(SimTick, buildings::growth.in_set(TickSet::SubRate));
     }

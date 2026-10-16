@@ -7,6 +7,7 @@
 pub mod connectors;
 pub mod cross_section;
 pub mod junction;
+pub mod lane_graph;
 pub mod lanes;
 pub mod profile;
 pub mod segment_geom;

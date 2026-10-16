@@ -1753,6 +1753,7 @@ dependencies = [
  "cb_l10n",
  "glam",
  "serde",
+ "smallvec",
 ]
 
 [[package]]

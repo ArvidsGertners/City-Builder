@@ -137,6 +137,13 @@ struct SegmentStyle {
 ### 4.2 Lanes and graphs (resources, derived)
 
 ```rust
+// M3 implementation: cb_network::lane_graph::LaneGraph, held by the cb_sim resource
+// `lanes::LaneNetwork` and patched in EditSet::Lanes from NetworkChanged. Arenas are
+// cb_core::collections::Slots (generational, last-freed-first reuse → deterministic keys);
+// by_segment/by_node are BTreeMaps; nodes store their junction input order (`approaches`) so
+// junction connector indices map to (segment, direction, lane index). Dead ends get a
+// U-turn connector, plain continuations lane-by-lane connectors. upstream_horizon and
+// reserved_m arrive with the traffic runtime (M8).
 #[derive(Resource)] struct LaneGraph {          // cb_network::LaneGraph
     lanes: DenseSlotMap<LaneId, Lane>,
     connectors: DenseSlotMap<ConnectorId, Connector>,

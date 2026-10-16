@@ -51,6 +51,9 @@ pub struct Shot {
     /// Render with a magenta background and no sky dome; the `holes` metric must be 0.
     #[serde(default)]
     pub crack_check: bool,
+    /// Lane graph debug overlay on.
+    #[serde(default)]
+    pub lanes: bool,
 }
 
 /// A suite.
@@ -127,6 +130,7 @@ struct ShotState<'w, 's> {
     lighting: ResMut<'w, LightingState>,
     ui: ResMut<'w, UiVisible>,
     zoning: ResMut<'w, ZoningView>,
+    lanes: ResMut<'w, crate::debug::lane_overlay::LaneOverlay>,
     tool: ResMut<'w, ActiveTool>,
     cursor: ResMut<'w, ScriptedCursor>,
     features: Option<Res<'w, SceneFeatures>>,
@@ -160,6 +164,7 @@ impl ShotState<'_, '_> {
         self.lighting.hour = shot.hour.unwrap_or(12.0);
         self.ui.0 = shot.ui;
         self.zoning.0 = shot.zoning;
+        self.lanes.0 = shot.lanes;
         self.cursor.0 = None;
         *self.tool = ActiveTool::None;
         let feature = |name: &str| self.features.as_ref().and_then(|f| f.0.get(name).copied());

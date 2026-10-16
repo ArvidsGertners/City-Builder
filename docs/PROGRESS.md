@@ -38,14 +38,21 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**M3 — Full road system.** In order: (1) `crates/cb_network/src/lanes.rs` — lane layout per cross-section (`CrossSection::of`
-+ one-way/bus/tram variants) with `lanes_count_offsets_per_cross_section`; (2) junction
-connectors and conflict zones in `cb_network::junction` from the S-J spike (`spikes/s_j`,
-ADR-0063: per-kind connector radii, connector-driven growth), with
-`junction_connectors_cover_all_allowed_movements` and `junction_random_10k_valid_or_typed_error`;
-(3) `cb_network::lane_graph` (ADR-0008) built incrementally from `NetworkChanged`; (4) road
-hierarchy upgrade/downgrade commands; (5) junction mesh interior vertices (fixes the known shading
-fan); then controls, bridges, decorations, editing, undo/redo, bulldoze dialog and the M3 suite.
+**M3 — Full road system**, in progress. Done: (1) lane layout per cross-section + variants
+(`cb_network::lanes`, `CrossSection::with`), (2) junction connectors + conflict zones
+(`cb_network::connectors`, ADR-0063 growth rules), (3) `cb_network::lane_graph::LaneGraph`
+patched in `EditSet::Lanes` (`cb_sim::lanes::patch_lanes`) + lane overlay (F5 in `dev`, shot flag
+`lanes`). Next: (4) segment style (`RoadSegment.variant`, segments built with
+`CrossSection::with`) and the `SetRoadType { segment, kind, variant }` command in
+`crates/cb_sim/src/roads.rs` (upgrade cost = new − 50 % old, downgrade free; re-plan via
+`plan_build`-style junction validation of both nodes; corridor re-stamp; plots re-clip via
+`zoning::mark_near`) with `upgrade_street_to_avenue_rebuilds_lanes`,
+`upgrade_clips_plots_and_prices_demolition`, `downgrade_refund_zero`; (5) node control
+(`NodeControl`, `SetApproachControl`) + signal phase plans in `cb_network` (tests
+`light_plan_no_conflicting_greens_*`, `every_movement_green_in_some_phase`) + ring detection
+(`ring_detected_as_roundabout`) + markings (crosswalks, stop lines, arrows) and junction mesh
+interior vertices (shading fan); then bridges, decorations, editing, undo/redo, bulldoze
+dialog and the M3 suite.
 
 ## Process conventions (ADR-0058)
 
@@ -464,7 +471,7 @@ phase clock for signal heads, ray–deck picking, LaneGraph `DebugView`, progres
 unlocked" until M7.
 - [ ] Hierarchy + upgrade/downgrade: `upgrade_street_to_avenue_rebuilds_lanes`,
       `upgrade_clips_plots_and_prices_demolition`, `downgrade_refund_zero`.
-- [ ] Lanes: `lanes_count_offsets_per_cross_section` (5 types × one-way × bus/tram variants).
+- [x] Lanes: `lanes_count_offsets_per_cross_section` (5 types × one-way × bus/tram variants).
 - [ ] Junctions (S-J metrics as tests): `junction_random_10k_valid_or_typed_error`,
       `junction_connectors_cover_all_allowed_movements`, `junction_surface_continuous_8pct`,
       `ring_detected_as_roundabout`.
@@ -809,6 +816,15 @@ Known gaps (planned):
   sets p95 3.90 ms (≤ 4); suite M2 reviewed (`docs/screenshots/M2/`). Fixed during review: corner
   plot lots not grown (`m2_scripted_lots_all_grow`), tonemapped magenta missed by the gate
   (hue-based test), overview/fill framing. Golden subdivision hash pinned.
+- 2026-10-16 — M3.1–M3.3: lane kinds and variants; junction connectors with per-kind curvature
+  limits, carriageway containment, re-sourced crossings (unresolved → growth) and conflict
+  zones (`junction_random_10k_valid_or_typed_error`: 5 269 of 10 000 valid, rest typed errors;
+  `junction_connectors_cover_all_allowed_movements`, `junction_surface_continuous_8pct`);
+  `LaneGraph` with generational ids (`cb_core::collections::Slots`), U-turns at dead ends,
+  lane-by-lane continuations, patched incrementally and equal to a full rebuild
+  (`lane_graph_follows_network_edits`, `lane_graph_town_every_lane_enterable_and_leavable`).
+  The m2_scene probe hash changes (one junction grows, 289 houses); the 2 rejected demo-town
+  roads predate M3.
 - 2026-10-16 — M2 CI confirmed on `f36cdef`: `ci.yml` run 30 green
   (https://github.com/ArvidsGertners/City-Builder/actions/runs/38884263345); `nightly.yml`
   dispatch run 3 green — macOS check default + dev, macOS smoke, determinism probe on

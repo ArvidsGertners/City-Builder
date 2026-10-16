@@ -167,9 +167,173 @@ impl BitSet {
     }
 }
 
+/// Key into a [`Slots`] arena: slot index plus generation, so a key of a removed value never
+/// reaches the slot's next occupant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SlotKey {
+    index: u32,
+    generation: u32,
+}
+
+impl SlotKey {
+    /// Slot index (dense, reused after removal).
+    #[must_use]
+    pub fn index(self) -> u32 {
+        self.index
+    }
+
+    /// Generation of the slot when the key was issued.
+    #[must_use]
+    pub fn generation(self) -> u32 {
+        self.generation
+    }
+}
+
+/// Generational arena (DATA_MODEL §4.2). Freed slots are reused last-freed-first, so the keys
+/// handed out depend only on the sequence of inserts and removes (deterministic); iteration is
+/// in slot order.
+#[derive(Clone, Debug)]
+pub struct Slots<T> {
+    slots: Vec<(u32, Option<T>)>,
+    free: Vec<u32>,
+    len: usize,
+}
+
+impl<T> Default for Slots<T> {
+    fn default() -> Self {
+        Self {
+            slots: Vec::new(),
+            free: Vec::new(),
+            len: 0,
+        }
+    }
+}
+
+impl<T> Slots<T> {
+    /// An empty arena.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Stores `value` and returns its key.
+    pub fn insert(&mut self, value: T) -> SlotKey {
+        self.len += 1;
+        if let Some(index) = self.free.pop() {
+            let slot = &mut self.slots[index as usize];
+            slot.1 = Some(value);
+            return SlotKey {
+                index,
+                generation: slot.0,
+            };
+        }
+        let index = u32::try_from(self.slots.len()).unwrap_or(u32::MAX);
+        self.slots.push((0, Some(value)));
+        SlotKey {
+            index,
+            generation: 0,
+        }
+    }
+
+    /// Removes and returns the value under `key` (`None` for stale keys).
+    pub fn remove(&mut self, key: SlotKey) -> Option<T> {
+        let slot = self.slots.get_mut(key.index as usize)?;
+        if slot.0 != key.generation {
+            return None;
+        }
+        let value = slot.1.take()?;
+        slot.0 = slot.0.wrapping_add(1);
+        self.free.push(key.index);
+        self.len -= 1;
+        Some(value)
+    }
+
+    /// The value under `key`.
+    #[must_use]
+    pub fn get(&self, key: SlotKey) -> Option<&T> {
+        let slot = self.slots.get(key.index as usize)?;
+        if slot.0 == key.generation {
+            slot.1.as_ref()
+        } else {
+            None
+        }
+    }
+
+    /// The value under `key`, mutably.
+    pub fn get_mut(&mut self, key: SlotKey) -> Option<&mut T> {
+        let slot = self.slots.get_mut(key.index as usize)?;
+        if slot.0 == key.generation {
+            slot.1.as_mut()
+        } else {
+            None
+        }
+    }
+
+    /// Whether `key` is live.
+    #[must_use]
+    pub fn contains(&self, key: SlotKey) -> bool {
+        self.get(key).is_some()
+    }
+
+    /// Number of live values.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether no value is live.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Live values in slot order.
+    pub fn iter(&self) -> impl Iterator<Item = (SlotKey, &T)> + '_ {
+        self.slots
+            .iter()
+            .enumerate()
+            .filter_map(|(i, (generation, v))| {
+                v.as_ref().map(|v| {
+                    (
+                        SlotKey {
+                            index: u32::try_from(i).unwrap_or(u32::MAX),
+                            generation: *generation,
+                        },
+                        v,
+                    )
+                })
+            })
+    }
+
+    /// Upper bound of slot indices (for dense side tables indexed by [`SlotKey::index`]).
+    #[must_use]
+    pub fn capacity_index(&self) -> usize {
+        self.slots.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slots_generations_and_reuse() {
+        let mut s = Slots::new();
+        let a = s.insert("a");
+        let b = s.insert("b");
+        assert_eq!(s.remove(a), Some("a"));
+        assert_eq!(s.get(a), None);
+        let c = s.insert("c");
+        // The freed slot is reused with a new generation; the stale key stays dead.
+        assert_eq!(c.index(), a.index());
+        assert_ne!(c.generation(), a.generation());
+        assert_eq!(s.remove(a), None);
+        assert_eq!(s.get(c), Some(&"c"));
+        assert_eq!(s.len(), 2);
+        let order: Vec<&str> = s.iter().map(|(_, v)| *v).collect();
+        assert_eq!(order, vec!["c", "b"]);
+        assert!(s.contains(b));
+    }
 
     #[test]
     fn lookup_map_basic_and_sorted_keys() {

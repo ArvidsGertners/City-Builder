@@ -209,6 +209,7 @@ City-Builder/
     │   │   ├── rng.rs          SimRng streams (counter-based)
     │   │   ├── commands/       mod.rs (PlayerCommand, CommandQueue), history.rs (undo/redo),
     │   │   │                   road.rs, plot.rs, building.rs, transit.rs, policy.rs
+    │   │   ├── lanes.rs        LaneNetwork resource: LaneGraph patched from NetworkChanged (M3)
     │   │   ├── roads/          editor.rs (split/merge/connect), junctions.rs, lanes_sync.rs,
     │   │   │                   connectivity.rs, outside.rs (outside connections)
     │   │   ├── terrain.rs      Terrain resource, stamp application, dirty regions
@@ -279,7 +280,7 @@ City-Builder/
             ├── save_io.rs      Save slots, autosave rotation, async file IO
             └── debug/          perf_overlay.rs, inspector.rs, sim_controls.rs (step/time scale/time+weather
                                 override), gizmo_overlays.rs (graph, lanes, connectors, paths, spatial,
-                                subdivision), procgen_gallery.rs, console.rs (log tail), debug_view.rs
+                                subdivision; M3: lane_overlay.rs, F5, shot flag `lanes`), procgen_gallery.rs, console.rs (log tail), debug_view.rs
                                 (DebugView trait for pure-crate resources), screenshot.rs + screenshot_suites.ron
                                 (suites, settle rule), screenshot_metrics.rs (luminance/clipping/NaN metrics,
                                 semantic class pass), benchmark.rs (--benchmark, --no-gpu-work), smoke.rs
