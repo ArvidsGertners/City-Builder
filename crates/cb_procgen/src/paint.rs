@@ -63,12 +63,26 @@ impl Painter {
         id: u32,
         outward: Vec3,
     ) {
+        let c = c.scale(1.0 + 0.02 * (2.0 * self.rng.next_f32() - 1.0));
+        self.face_exact(pts, ao, c, kind, id, outward);
+    }
+
+    /// Like [`Self::face_ao`] but without the per-face colour jitter: for surfaces split into
+    /// many small triangles (junction fans), where jitter would show the triangulation.
+    pub fn face_exact(
+        &mut self,
+        pts: &[Vec3],
+        ao: &[f32],
+        c: Rgb,
+        kind: Surface,
+        id: u32,
+        outward: Vec3,
+    ) {
         if pts.len() < 3 {
             return;
         }
         let n = (pts[1] - pts[0]).cross(pts[2] - pts[0]);
         let flip = n.dot(outward) < 0.0;
-        let c = c.scale(1.0 + 0.02 * (2.0 * self.rng.next_f32() - 1.0));
         let packed = pack(self.slot, kind, id);
         let base = self.mesh.vertex_count() as u32;
         for (p, a) in pts.iter().zip(ao) {

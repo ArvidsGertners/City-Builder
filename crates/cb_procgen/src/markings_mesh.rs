@@ -1,9 +1,9 @@
 //! Junction markings and signal heads (ALGORITHMS §5 step 5, ART_DIRECTION): zebra crosswalks,
-//! stop lines and lane arrows as thin decals lifted above the asphalt; signal poles with heads
-//! and three lamp slots. Lit lamps are separate small meshes the game toggles per phase.
+//! stop and give-way lines and lane arrows as thin decals lifted above the asphalt; raised
+//! splitter islands; signal poles with heads and three lamp slots. Lit lamps are separate small meshes the game toggles per phase.
 
 use cb_geometry::MeshData;
-use cb_network::markings::{ArrowTurns, LaneArrow, Markings, StopLine};
+use cb_network::markings::{ArrowTurns, Island, LaneArrow, LineKind, Markings, StopLine};
 use glam::{Vec2, Vec3};
 
 use crate::paint::Painter;
@@ -99,20 +99,116 @@ pub fn paint_markings(p: &mut Painter, m: &Markings) {
     for ar in &m.arrows {
         arrow(p, ar);
     }
+    for is in &m.islands {
+        island(p, is);
+    }
 }
+
+/// Give-way dash length and gap across the road (m); shark tooth base and length (m).
+const DASH_M: f32 = 0.6;
+const DASH_GAP_M: f32 = 0.3;
+const TOOTH_BASE_M: f32 = 0.6;
+const TOOTH_LEN_M: f32 = 0.9;
 
 fn stop_line(p: &mut Painter, sl: &StopLine) {
     let h = sl.along * (0.5 * cb_network::markings::STOP_LINE_WIDTH_M);
     let o = Vec3::new(h.x, 0.0, h.y);
     let [a, b] = sl.ends;
-    p.face_ao(
-        &[up(a - o), up(b - o), up(b + o), up(a + o)],
-        &[1.0; 4],
-        palette::MARKING,
-        Surface::Paved,
-        0,
-        Vec3::Y,
-    );
+    let quad = |p: &mut Painter, a: Vec3, b: Vec3| {
+        p.face_ao(
+            &[up(a - o), up(b - o), up(b + o), up(a + o)],
+            &[1.0; 4],
+            palette::MARKING,
+            Surface::Paved,
+            0,
+            Vec3::Y,
+        );
+    };
+    match sl.kind {
+        LineKind::Solid => quad(p, a, b),
+        LineKind::GiveWay => {
+            let w = Vec2::new(b.x - a.x, b.z - a.z).length();
+            let period = DASH_M + DASH_GAP_M;
+            let n = ((w + DASH_GAP_M) / period).floor().max(1.0) as usize;
+            let pad = 0.5 * (w - (n as f32 * period - DASH_GAP_M)).max(0.0);
+            // Teeth point upstream (toward arriving drivers), one per dash.
+            let tip =
+                sl.along * (0.5 * cb_network::markings::STOP_LINE_WIDTH_M + 0.3 + TOOTH_LEN_M);
+            let base = sl.along * (0.5 * cb_network::markings::STOP_LINE_WIDTH_M + 0.3);
+            for k in 0..n {
+                let t0 = (pad + k as f32 * period) / w.max(1e-3);
+                let t1 = (pad + k as f32 * period + DASH_M) / w.max(1e-3);
+                let (d0, d1) = (a.lerp(b, t0), a.lerp(b, t1.min(1.0)));
+                quad(p, d0, d1);
+                let mid = d0.lerp(d1, 0.5);
+                let half = (d1 - d0).normalize_or_zero() * (0.5 * TOOTH_BASE_M);
+                let b3 = Vec3::new(base.x, 0.0, base.y);
+                let t3 = Vec3::new(tip.x, 0.0, tip.y);
+                p.face_ao(
+                    &[up(mid - half + b3), up(mid + t3), up(mid + half + b3)],
+                    &[1.0; 3],
+                    palette::MARKING,
+                    Surface::Paved,
+                    0,
+                    Vec3::Y,
+                );
+            }
+        }
+    }
+}
+
+/// Raised splitter island: kerb walls around the outline and a paved top.
+fn island(p: &mut Painter, is: &Island) {
+    let h = cb_network::markings::ISLAND_HEIGHT_M;
+    let n = is.left.len().min(is.right.len());
+    if n < 2 {
+        return;
+    }
+    let lift = |v: Vec3| v + Vec3::Y * h;
+    for k in 0..n - 1 {
+        let (l0, l1, r0, r1) = (is.left[k], is.left[k + 1], is.right[k], is.right[k + 1]);
+        p.face_ao(
+            &[lift(r0), lift(r1), lift(l1), lift(l0)],
+            &[1.0; 4],
+            palette::PAVING,
+            Surface::Paved,
+            0,
+            Vec3::Y,
+        );
+        for (a, b, ref_pt) in [(l0, l1, r0), (r1, r0, l0)] {
+            let along = b - a;
+            let out = Vec3::new(along.z, 0.0, -along.x).normalize_or_zero();
+            let out = if out.dot(a - ref_pt) < 0.0 { -out } else { out };
+            p.face_ao(
+                &[a, b, lift(b), lift(a)],
+                &[0.8, 0.8, 1.0, 1.0],
+                palette::CURB,
+                Surface::Solid,
+                0,
+                out,
+            );
+        }
+    }
+    // End caps.
+    for (l, r, sgn) in [
+        (is.left[0], is.right[0], -1.0f32),
+        (is.left[n - 1], is.right[n - 1], 1.0),
+    ] {
+        let other = if sgn < 0.0 {
+            is.left[1]
+        } else {
+            is.left[n - 2]
+        };
+        let out = (l - other) * Vec3::new(1.0, 0.0, 1.0);
+        p.face_ao(
+            &[l, r, lift(r), lift(l)],
+            &[0.8, 0.8, 1.0, 1.0],
+            palette::CURB,
+            Surface::Solid,
+            0,
+            out.normalize_or_zero(),
+        );
+    }
 }
 
 /// Lane arrow: shaft, straight head and left/right branches in a local frame (x right, y in
@@ -262,7 +358,7 @@ mod tests {
             })
             .collect();
         let j = build(&apps).unwrap();
-        let m = markings(&apps, &j);
+        let m = markings(&apps, &j, &[]);
         let mut p = Painter::new(0, 1);
         paint_markings(&mut p, &m);
         let slots = paint_signals(&mut p, &m.stop_lines);

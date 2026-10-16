@@ -40,7 +40,7 @@ pub fn junction_mesh(j: &Junction, slot: u16) -> MeshData {
     // smooth instead of large tilted ear-clipped triangles (shading fan, slivers that left
     // holes). Non-star polygons fall back to ear clipping.
     for pts in cb_network::junction::carriageway_triangles(&j.inner) {
-        p.face_ao(
+        p.face_exact(
             &pts,
             &[1.0; 3],
             palette::ASPHALT,

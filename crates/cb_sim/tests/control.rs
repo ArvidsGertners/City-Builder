@@ -8,6 +8,7 @@ use cb_core::ids::NodeId;
 use cb_geometry::CubicBezier2;
 use cb_network::RoadKind;
 use cb_network::control::{ApproachControl, ControlMode};
+use cb_network::markings::LineKind;
 use cb_sim::commands::{BuildRoad, Endpoint, PlayerCommand};
 use cb_sim::ids::Ids;
 use cb_sim::roads::{RoadNode, RoadSegment};
@@ -79,9 +80,17 @@ fn auto_control_gives_the_avenue_priority() {
         assert_eq!(c.controls()[k], want);
     }
     assert!(c.phases().is_empty());
-    // Markings: crosswalks and stop lines on all four arms.
+    // Markings: crosswalks on all four arms; give-way lines only on the yielding street arms
+    // (the priority avenue has none).
     assert_eq!(c.markings().crosswalks.len(), 4);
-    assert_eq!(c.markings().stop_lines.len(), 4);
+    assert_eq!(c.markings().stop_lines.len(), 2);
+    for sl in &c.markings().stop_lines {
+        assert_eq!(sl.kind, LineKind::GiveWay);
+        assert_eq!(
+            seg_kind(&s, c.approaches()[sl.approach].0),
+            RoadKind::Street
+        );
+    }
 }
 
 #[test]
@@ -98,6 +107,14 @@ fn lights_and_custom_control_via_command() {
     assert_eq!(c.control(), ControlMode::Lights);
     let conns = c.junction().unwrap().connectors.len();
     assert!(c.phases().len() >= 2);
+    // Signalised: solid stop lines (carrying the signal poles) on every arm.
+    assert_eq!(c.markings().stop_lines.len(), 4);
+    assert!(
+        c.markings()
+            .stop_lines
+            .iter()
+            .all(|l| l.kind == LineKind::Solid)
+    );
     for k in 0..conns {
         assert!(c.phases().iter().any(|p| p.connectors.contains(&k)));
     }
@@ -175,6 +192,21 @@ fn ring_detected_as_roundabout() {
             };
             assert_eq!(n.controls()[k], want, "{}", n.id());
         }
+        // Markings only on the entry: give-way line at the ring, crosswalk set back, a
+        // splitter island in two pieces around the pedestrian refuge; nothing on the ring.
+        let entry = n
+            .approaches()
+            .iter()
+            .position(|(sid, _)| seg_kind(&s, *sid) == RoadKind::Street)
+            .unwrap();
+        let m = n.markings();
+        assert!(m.crosswalks.iter().all(|c| c.approach == entry));
+        assert_eq!(m.crosswalks.len(), 1);
+        assert_eq!(m.stop_lines.len(), 1);
+        assert_eq!(m.stop_lines[0].kind, LineKind::GiveWay);
+        assert!(m.arrows.is_empty());
+        assert_eq!(m.islands.len(), 2, "{}", n.id());
+        assert!(m.islands.iter().all(|i| i.approach == entry));
     }
     // Lanes: every lane can be entered and left (the ring is navigable).
     let g = s.world().resource::<cb_sim::lanes::LaneNetwork>().graph();

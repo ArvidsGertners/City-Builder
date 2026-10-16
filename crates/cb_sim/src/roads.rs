@@ -18,7 +18,7 @@ use cb_geometry::{CubicBezier2, Polyline2};
 use cb_network::bridge::{self, Pier};
 use cb_network::control::{ApproachControl, ControlMode, SignalPhase};
 use cb_network::junction::{self, Approach, Junction};
-use cb_network::markings::Markings;
+use cb_network::markings::{ApproachMarks, Markings};
 use cb_network::style::{self, SegmentStyle};
 use cb_network::validation::{self, CrossingKind, Existing, Ground, RoadLimits};
 use cb_network::{CrossSection, Profile, ProfileInput, RoadKind, SegmentGeom, Variant};
@@ -1130,6 +1130,39 @@ fn despawn_segment(world: &mut World, id: SegmentId) -> Option<RoadSegment> {
 }
 
 /// Recomputes a node's junction and its segments' cut-backs; removes isolated nodes.
+/// The approaches of `node` in junction input order (segments sorted by id; a loop segment
+/// contributes two).
+fn node_approaches(
+    world: &World,
+    id: NodeId,
+    node: &RoadNode,
+) -> Option<(Vec<(RoadKind, Approach)>, Vec<(SegmentId, bool)>)> {
+    let cat = world.get_resource::<Catalog>()?;
+    let mut apps: Vec<(RoadKind, Approach)> = Vec::new();
+    let mut order: Vec<(SegmentId, bool)> = Vec::new();
+    let mut sorted = node.segments.to_vec();
+    sorted.sort();
+    for sid in &sorted {
+        if let Some(s) = segment(world, *sid) {
+            if s.start == id {
+                apps.push((
+                    s.kind,
+                    approach(cat, (s.kind, s.variant), &s.geom, &s.profile, true),
+                ));
+                order.push((*sid, true));
+            }
+            if s.end == id {
+                apps.push((
+                    s.kind,
+                    approach(cat, (s.kind, s.variant), &s.geom, &s.profile, false),
+                ));
+                order.push((*sid, false));
+            }
+        }
+    }
+    Some((apps, order))
+}
+
 fn refresh_node(world: &mut World, id: NodeId) {
     let Some(ne) = node_entity(world, id) else {
         return;
@@ -1146,32 +1179,9 @@ fn refresh_node(world: &mut World, id: NodeId) {
         world.write_message(NetworkChanged::NodeRemoved(id));
         return;
     }
-    let Some(cat) = world.get_resource::<Catalog>().cloned() else {
+    let Some((apps, order)) = node_approaches(world, id, &node) else {
         return;
     };
-    let mut apps: Vec<(RoadKind, Approach)> = Vec::new();
-    let mut order: Vec<(SegmentId, bool)> = Vec::new();
-    let mut sorted = node.segments.to_vec();
-    sorted.sort();
-    for sid in &sorted {
-        if let Some(s) = segment(world, *sid) {
-            // A loop segment (both ends here) contributes two approaches.
-            if s.start == id {
-                apps.push((
-                    s.kind,
-                    approach(&cat, (s.kind, s.variant), &s.geom, &s.profile, true),
-                ));
-                order.push((*sid, true));
-            }
-            if s.end == id {
-                apps.push((
-                    s.kind,
-                    approach(&cat, (s.kind, s.variant), &s.geom, &s.profile, false),
-                ));
-                order.push((*sid, false));
-            }
-        }
-    }
     let j = match node_junction(&apps) {
         Some(Ok(j)) => Some(j),
         Some(Err(e)) => {
@@ -1259,8 +1269,17 @@ fn derive_control(
     } else {
         Vec::new()
     };
+    let lights = node.control == ControlMode::Lights;
+    let marks: Vec<ApproachMarks> = controls
+        .iter()
+        .map(|c| ApproachMarks::for_control(*c, lights))
+        .collect();
     let raw: Vec<Approach> = apps.iter().map(|a| a.1.clone()).collect();
-    (controls, phases, cb_network::markings::markings(&raw, j))
+    (
+        controls,
+        phases,
+        cb_network::markings::markings(&raw, j, &marks),
+    )
 }
 
 /// Detects roundabout rings among the one-way segments near `around` (ADR-0063) and gives
@@ -1318,23 +1337,52 @@ pub(crate) fn update_rings(world: &mut World, around: &[NodeId]) {
             let Some(ne) = node_entity(world, *n) else {
                 continue;
             };
-            if let Some(mut nd) = world.get_mut::<RoadNode>(ne) {
-                if nd.ring {
-                    continue;
-                }
-                nd.ring = true;
-                if nd.junction.is_some() && nd.control == ControlMode::Auto {
-                    nd.controls = nd
+            let Some(nd) = world.get::<RoadNode>(ne).cloned() else {
+                continue;
+            };
+            if nd.ring {
+                continue;
+            }
+            // Ring control and markings: ring approaches Priority without markings, entries
+            // Yield with give-way lines and splitter islands.
+            let ringed = (nd.control == ControlMode::Auto)
+                .then_some(nd.junction.as_ref())
+                .flatten()
+                .and_then(|j| {
+                    let on_ring: Vec<bool> = nd
                         .approaches
                         .iter()
-                        .map(|(sid, _)| {
-                            if ring.segments.contains(sid) {
+                        .map(|(sid, _)| ring.segments.contains(sid))
+                        .collect();
+                    let (apps, _) = node_approaches(world, *n, &nd)?;
+                    let raw: Vec<Approach> = apps.into_iter().map(|a| a.1).collect();
+                    let marks: Vec<ApproachMarks> = on_ring
+                        .iter()
+                        .map(|r| {
+                            if *r {
+                                ApproachMarks::Ring
+                            } else {
+                                ApproachMarks::RingEntry
+                            }
+                        })
+                        .collect();
+                    let controls = on_ring
+                        .iter()
+                        .map(|r| {
+                            if *r {
                                 ApproachControl::Priority
                             } else {
                                 ApproachControl::Yield
                             }
                         })
                         .collect();
+                    Some((controls, cb_network::markings::markings(&raw, j, &marks)))
+                });
+            if let Some(mut nd) = world.get_mut::<RoadNode>(ne) {
+                nd.ring = true;
+                if let Some((controls, markings)) = ringed {
+                    nd.controls = controls;
+                    nd.markings = markings;
                 }
             }
             world.write_message(NetworkChanged::Node(*n));

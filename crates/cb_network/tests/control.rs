@@ -10,7 +10,9 @@ use cb_network::control::{
     ApproachControl, SignalState, auto_controls, phase_plan, rank, stub_phase_at,
 };
 use cb_network::junction::{Approach, Junction, build};
-use cb_network::markings::{CROSSWALK_OFFSET_M, STOP_GAP_M, markings};
+use cb_network::markings::{
+    ApproachMarks, CROSSWALK_OFFSET_M, ISLAND_HALF_WIDTH_M, LineKind, STOP_GAP_M, markings,
+};
 use cb_network::{CrossSection, Profile, RoadKind, Variant};
 use glam::Vec2;
 
@@ -178,7 +180,7 @@ fn stub_clock_cycles_through_phases() {
 #[test]
 fn markings_placed_behind_cut_lines() {
     let (apps, j) = case(&[0.0, 90.0, 180.0]);
-    let m = markings(&apps, &j);
+    let m = markings(&apps, &j, &[]);
     assert_eq!(m.crosswalks.len(), 3);
     assert_eq!(m.stop_lines.len(), 3);
     // One arriving lane per street approach, each with its movements painted.
@@ -199,5 +201,49 @@ fn markings_placed_behind_cut_lines() {
     assert!(t_stem.turns.left && t_stem.turns.right && !t_stem.turns.straight);
     // No markings on bends.
     let (b, jb) = case(&[0.0, 150.0]);
-    assert_eq!(markings(&b, &jb), Default::default());
+    assert_eq!(markings(&b, &jb, &[]), Default::default());
+}
+
+#[test]
+fn markings_follow_control_and_ring_roles() {
+    let (apps, j) = case(&[0.0, 90.0, 180.0, 270.0]);
+    let marks = [
+        ApproachMarks::Free,
+        ApproachMarks::GiveWay,
+        ApproachMarks::Ring,
+        ApproachMarks::RingEntry,
+    ];
+    let m = markings(&apps, &j, &marks);
+    // Priority: crosswalk and arrows, no line. Ring: nothing at all.
+    assert!(m.stop_lines.iter().all(|l| l.approach != 0));
+    assert!(m.arrows.iter().any(|a| a.approach == 0));
+    assert!(m.crosswalks.iter().all(|c| c.approach != 2));
+    assert!(m.arrows.iter().all(|a| a.approach != 2 && a.approach != 3));
+    let line = |i: usize| m.stop_lines.iter().find(|l| l.approach == i).unwrap();
+    assert_eq!(line(1).kind, LineKind::GiveWay);
+    assert_eq!(line(3).kind, LineKind::GiveWay);
+    // Entry: the give-way line sits at the ring edge, the crosswalk is set back behind it and
+    // the splitter island is cut for the pedestrian refuge.
+    let a = &apps[3];
+    let s_of = |p: glam::Vec3| a.centerline.project(Vec2::new(p.x, p.z)).0;
+    let sl = s_of((line(3).ends[0] + line(3).ends[1]) * 0.5);
+    let cw = m.crosswalks.iter().find(|c| c.approach == 3).unwrap();
+    let sc = s_of((cw.ends[0] + cw.ends[1]) * 0.5);
+    assert!(
+        sl < j.cuts[3] + 1.0 && sc > sl + 4.0,
+        "line {sl} crosswalk {sc}"
+    );
+    let islands: Vec<_> = m.islands.iter().filter(|i| i.approach == 3).collect();
+    assert_eq!(islands.len(), 2);
+    for is in &islands {
+        for p in is.left.iter().chain(&is.right) {
+            let (s, d) = a.centerline.project(Vec2::new(p.x, p.z));
+            // Clear of the crosswalk band and of vehicles at both lane centres.
+            assert!((s - sc).abs() > 1.5, "island on the crosswalk at {s}");
+            assert!(d.abs() <= ISLAND_HALF_WIDTH_M + 1e-3, "{d}");
+            for l in &a.lanes {
+                assert!((l.offset_m - d).abs() > 0.9, "lane {} vs {d}", l.offset_m);
+            }
+        }
+    }
 }
