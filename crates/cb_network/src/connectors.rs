@@ -32,6 +32,8 @@ pub struct ApproachLane {
     pub index: u8,
     /// Users.
     pub kind: LaneKind,
+    /// Lane width (m).
+    pub width_m: f32,
 }
 
 /// Lanes of a segment seen from one of its nodes (`at_start`: the node is the curve start).
@@ -48,6 +50,7 @@ pub fn approach_lanes(cs: &CrossSection, at_start: bool) -> Vec<ApproachLane> {
                 incoming: !leaving,
                 index: l.index,
                 kind: l.kind,
+                width_m: l.width_m,
             }
         })
         .collect()
