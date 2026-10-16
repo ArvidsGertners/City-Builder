@@ -561,6 +561,41 @@ mod tests {
     }
 
     #[test]
+    fn grading_continuous_compositing() {
+        // A fill corridor and a cut corridor whose blend zones overlap: base + max fill + min
+        // cut stays continuous, so outside cores no step exceeds the sum of both side slopes.
+        let base = flat(10.0);
+        let a = road(14.0);
+        let mut b = road(6.0);
+        b.id = 2;
+        if let StampShape::Corridor { centerline, .. } = &mut b.shape {
+            for p in centerline.iter_mut() {
+                p.z += 24.0;
+            }
+        }
+        let (ra, rb) = (rasterize(&a, &base), rasterize(&b, &base));
+        let (h, core) = run(&base, &[(a, ra), (b, rb)]);
+        let n = base.n();
+        let bound = base.spacing_m() * (FILL_SLOPE + CUT_SLOPE) + 0.1;
+        let mut worst = 0.0f32;
+        for j in 0..n {
+            for i in 0..n {
+                let k = j * n + i;
+                assert!(h[k].is_finite());
+                for k2 in [(i + 1 < n).then(|| k + 1), (j + 1 < n).then(|| k + n)]
+                    .into_iter()
+                    .flatten()
+                {
+                    if !core[k] && !core[k2] {
+                        worst = worst.max((h[k] - h[k2]).abs());
+                    }
+                }
+            }
+        }
+        assert!(worst <= bound, "step {worst} > {bound}");
+    }
+
+    #[test]
     fn pad_and_clear() {
         let base = flat(5.0);
         let poly = vec![

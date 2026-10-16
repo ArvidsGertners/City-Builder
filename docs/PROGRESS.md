@@ -34,8 +34,8 @@ format (ART_DIRECTION house palette, gable/hip roofs), then `yard.rs`, `trees.rs
 golden-hash tests and triangle budgets (TESTING §2, PERFORMANCE). Afterwards M2.5 `cb_sim`
 (commands ADR-0055, terrain resource, roads, plots/lots via `cb_geometry::subdivide`, growth
 stub, economy stub, citygen) and M2.6 `cb_game`. Still open in pure crates for the M2 checklist:
-`plot_clipped_by_new_corridor` (sim level, M2.5), `grading_continuous_compositing`,
-procgen golden hashes.
+`plot_clipped_by_new_corridor` (sim level, M2.5) and procgen golden hashes
+(`grading_continuous_compositing` passes in `cb_terrain`).
 
 ## Process conventions (ADR-0058)
 
