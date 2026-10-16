@@ -171,11 +171,27 @@ pub fn deck_input(
     p: &BridgeParams,
 ) -> ProfileInput {
     let mut inp = base.clone();
+    let follow_at = |s: f32| {
+        let k =
+            x.s.partition_point(|v| *v <= s)
+                .clamp(1, x.s.len().max(2) - 1);
+        let (s0, s1) = (x.s[k - 1], x.s[k]);
+        let t = if s1 > s0 {
+            ((s - s0) / (s1 - s0)).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        x.follow[k - 1] + (x.follow[k] - x.follow[k - 1]) * t
+    };
     for i in 0..inp.s.len() {
         inp.ground[i] = x.follow[i];
-        if !on_span(spans, inp.s[i]) {
+        let Some(&(a, b)) = spans.iter().find(|(a, b)| inp.s[i] >= *a && inp.s[i] <= *b) else {
             continue;
-        }
+        };
+        // Start from the straight line between the span ends: with no terrain attraction the
+        // smoothing alone would need far more passes to lift a long deck out of the valley.
+        let t = if b > a { (inp.s[i] - a) / (b - a) } else { 0.0 };
+        inp.ground[i] = follow_at(a) + (follow_at(b) - follow_at(a)) * t;
         inp.weight[i] = 0.0;
         let mut lo = f32::NEG_INFINITY;
         if let Some(w) = x.water[i] {

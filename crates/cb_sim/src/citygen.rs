@@ -690,3 +690,195 @@ pub fn m2_features(world: &mut World, town: Vec2, town_half: Vec2) -> M2Features
     }
     out
 }
+
+/// The scripted M3 scene features (PROGRESS M3 shot list).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct M3Features {
+    /// Middle of a street bridge over the river (piers in the water).
+    pub river_bridge: Option<Feature>,
+    /// Middle of a street bridge over a dry valley with piers taller than 25 m.
+    pub valley_bridge: Option<Feature>,
+    /// Where a street on the valley floor passes under the valley bridge.
+    pub overpass: Option<Feature>,
+    /// Counts.
+    pub report: CityGenReport,
+}
+
+/// Builds the scripted M3 features around the town: a river bridge, a valley bridge with tall
+/// piers and a street under it. Sandbox mode; features without a site are left out.
+pub fn m3_features(world: &mut World, town: Vec2, town_half: Vec2) -> M3Features {
+    let mut out = M3Features::default();
+    let saved = world.get_resource::<SimConfig>().cloned();
+    if let Some(mut c) = world.get_resource_mut::<SimConfig>() {
+        c.sandbox = true;
+    }
+    let Some(terrain) = world
+        .get_resource::<crate::terrain::TerrainRes>()
+        .map(|t| t.terrain().clone())
+    else {
+        return out;
+    };
+    let probe = Probe(&terrain);
+    let lim = probe.half() - 150.0;
+    let keep_out = town_half + Vec2::splat(260.0);
+    let usable = |p: Vec2| {
+        p.x.abs() < lim
+            && p.y.abs() < lim
+            && ((p.x - town.x).abs() > keep_out.x || (p.y - town.y).abs() > keep_out.y)
+    };
+    let dirs: Vec<Vec2> = (0..8)
+        .map(|k| {
+            let a = k as f32 * std::f32::consts::PI / 8.0;
+            Vec2::new(cb_core::math::cos(a), cb_core::math::sin(a))
+        })
+        .collect();
+    let tick = world
+        .get_resource::<crate::SimClock>()
+        .map_or(0, |c| c.tick().0);
+    let try_build =
+        |world: &mut World, a: Vec2, b: Vec2, need: &dyn Fn(&roads::RoadPreview) -> bool| {
+            let cmd = BuildRoad {
+                kind: RoadKind::Street,
+                curve: CubicBezier2::straight(a, b),
+                start: Endpoint::Free,
+                end: Endpoint::Free,
+            };
+            match roads::preview_road(world, &cmd) {
+                Ok(pv) if need(&pv) => roads::build_road(world, &cmd, tick).is_ok(),
+                _ => false,
+            }
+        };
+
+    // 1. River bridge: the nearest wet point, crossed where the water is narrowest.
+    let mut wet: Vec<(f32, Vec2)> = Vec::new();
+    for k in 0..64 {
+        let ang = k as f32 * std::f32::consts::TAU / 64.0;
+        let d = Vec2::new(cb_core::math::cos(ang), cb_core::math::sin(ang));
+        let mut r = 200.0;
+        while r < 1800.0 {
+            let p = town + d * r;
+            if usable(p) && probe.wet(p) {
+                wet.push((r, p));
+                break;
+            }
+            r += 20.0;
+        }
+    }
+    wet.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut previews = 0;
+    'river: for (_, p) in wet.iter().take(12) {
+        let mut cands: Vec<(f32, Vec2, Vec2)> = Vec::new();
+        for d in &dirs {
+            let extent = |sgn: f32| {
+                let mut t = 0.0;
+                while t < 160.0 && probe.wet(*p + *d * (sgn * t)) {
+                    t += 4.0;
+                }
+                t
+            };
+            let (e0, e1) = (extent(-1.0), extent(1.0));
+            if e0 >= 160.0 || e1 >= 160.0 {
+                continue;
+            }
+            cands.push((e0 + e1, *d, *p + *d * (0.5 * (e1 - e0))));
+        }
+        cands.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for (w, d, c) in cands.into_iter().take(3) {
+            let half = 0.5 * w + 45.0;
+            let (a, b) = (c - d * half, c + d * half);
+            if !usable(a) || !usable(b) || probe.wet(a) || probe.wet(b) {
+                continue;
+            }
+            previews += 1;
+            if try_build(world, a, b, &|pv| {
+                !pv.spans.is_empty() && !pv.piers.is_empty()
+            }) {
+                out.report.segments += 1;
+                out.river_bridge = Some(Feature {
+                    pos: c,
+                    dir: d,
+                    depth_m: 0.0,
+                });
+                break 'river;
+            }
+            if previews > 30 {
+                break 'river;
+            }
+        }
+    }
+
+    // 2. Valley bridge with piers > 25 m: a 240–320 m line whose middle lies 28–45 m below both
+    //    ends.
+    let mut best: Option<(f32, Vec2, Vec2, f32)> = None;
+    for gz in -36..=36 {
+        for gx in -36..=36 {
+            let c = town + Vec2::new(gx as f32, gz as f32) * 50.0;
+            if !usable(c) {
+                continue;
+            }
+            for d in &dirs {
+                for half in [120.0f32, 160.0] {
+                    let (a, b) = (c - *d * half, c + *d * half);
+                    if !usable(a) || !usable(b) || probe.wet(a) || probe.wet(b) {
+                        continue;
+                    }
+                    let ends = probe.h(a).min(probe.h(b));
+                    let low = (1..16)
+                        .map(|k| probe.h(a.lerp(b, k as f32 / 16.0)))
+                        .fold(f32::INFINITY, f32::min);
+                    let drop = ends - low;
+                    let rise = (probe.h(a) - probe.h(b)).abs();
+                    if (28.0..=45.0).contains(&drop) && rise < 10.0 {
+                        let score =
+                            c.distance(town) / 1000.0 + rise * 0.05 + (drop - 34.0).abs() * 0.02;
+                        if best.is_none_or(|bb| score < bb.0) {
+                            best = Some((score, c, *d, half));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    tracing::debug!("valley bridge site: {best:?}");
+    if let Some((_, c, d, half)) = best {
+        let (a, b) = (c - d * half, c + d * half);
+        let tall = |pv: &roads::RoadPreview| {
+            pv.piers
+                .iter()
+                .any(|p| p.height_m() > cb_network::bridge::TAPERED_PIER_M)
+        };
+        if try_build(world, a, b, &tall) {
+            out.report.segments += 1;
+            // The lowest point under the deck.
+            let q = (1..40)
+                .map(|k| a.lerp(b, k as f32 / 40.0))
+                .min_by(|x, y| probe.h(*x).total_cmp(&probe.h(*y)))
+                .unwrap_or(c);
+            out.valley_bridge = Some(Feature {
+                pos: q,
+                dir: d,
+                depth_m: 0.0,
+            });
+            // 3. A street along the valley floor under the deck.
+            let n = d.perp();
+            for half in [100.0, 80.0, 60.0] {
+                if try_build(world, q - n * half, q + n * half, &|_| true) {
+                    out.report.segments += 1;
+                    out.overpass = Some(Feature {
+                        pos: q,
+                        dir: n,
+                        depth_m: 0.0,
+                    });
+                    break;
+                }
+                out.report.roads_rejected += 1;
+            }
+        } else {
+            out.report.roads_rejected += 1;
+        }
+    }
+    if let Some(c) = saved {
+        world.insert_resource(c);
+    }
+    out
+}

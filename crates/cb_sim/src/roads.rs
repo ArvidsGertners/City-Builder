@@ -420,7 +420,7 @@ fn plan_build(
     world: &World,
     cmd: &BuildRoad,
     tick: u64,
-) -> Result<(Plan, Money, Profile), ValidationError> {
+) -> Result<(Plan, Money, Profile, BridgePlan), ValidationError> {
     let Some(cat) = world.get_resource::<Catalog>() else {
         return Err(ValidationError::new("internal-no-catalog"));
     };
@@ -682,6 +682,7 @@ fn plan_build(
         plan,
         road_cost(cat, cmd.kind, len).saturating_add(bplan.cost),
         profile,
+        bplan,
     ))
 }
 
@@ -1367,6 +1368,10 @@ pub struct RoadPreview {
     pub start: Endpoint,
     /// End after snapping.
     pub end: Endpoint,
+    /// Bridge spans `[s0, s1]` of the new road.
+    pub spans: Vec<(f32, f32)>,
+    /// Bridge piers of the new road.
+    pub piers: Vec<Pier>,
 }
 
 /// Read-only preview of `BuildRoad` with the same planning as the command (validation reasons,
@@ -1382,7 +1387,7 @@ pub fn preview_road(world: &World, cmd: &BuildRoad) -> Result<RoadPreview, Valid
         end,
         ..cmd.clone()
     };
-    let (_, cost, profile) = plan_build(world, &snapped, 0)?;
+    let (_, cost, profile, bplan) = plan_build(world, &snapped, 0)?;
     let geom = SegmentGeom::new(cmd.curve, CrossSection::of(cmd.kind).half_width_m());
     Ok(RoadPreview {
         cost,
@@ -1390,6 +1395,8 @@ pub fn preview_road(world: &World, cmd: &BuildRoad) -> Result<RoadPreview, Valid
         profile,
         start,
         end,
+        spans: bplan.spans,
+        piers: bplan.piers,
     })
 }
 
@@ -1435,7 +1442,7 @@ pub(crate) fn build_road(
         end: snap_endpoint(world, cmd.end, cmd.curve.end()),
         ..cmd.clone()
     };
-    let (plan, cost, _) = plan_build(world, cmd, tick)?;
+    let (plan, cost, _, _) = plan_build(world, cmd, tick)?;
     crate::economy::charge(world, cost)?;
     let mut new_ids: Vec<NodeId> = Vec::with_capacity(plan.new_nodes.len());
     for p in &plan.new_nodes {

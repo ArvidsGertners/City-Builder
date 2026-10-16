@@ -159,6 +159,8 @@ pub fn demo_town(world: &mut World) {
     let half = Vec2::new(spec.blocks.0 as f32, spec.blocks.1 as f32) * spec.block_m * 0.5;
     let f = cb_sim::citygen::m2_features(world, site, half);
     tracing::info!("scripted features: {:?}", f.report);
+    let f3 = cb_sim::citygen::m3_features(world, site, half);
+    tracing::info!("scripted M3 features: {:?}", f3.report);
     let terrain = world.get_resource::<TerrainRes>();
     let ground = |p: Vec2| terrain.map_or(0.0, |t| t.terrain().height_at(p));
     let y = ground(site);
@@ -185,6 +187,9 @@ pub fn demo_town(world: &mut World) {
         ("cut", f.cut),
         ("shore", f.shore),
         ("steep", f.steep),
+        ("river_bridge", f3.river_bridge),
+        ("valley_bridge", f3.valley_bridge),
+        ("overpass", f3.overpass),
     ] {
         if let Some(ft) = feat {
             put(name, ft.pos, ft.dir);
