@@ -3,12 +3,13 @@
 //! kerbs to their meeting point), the outer (sidewalk) and inner (carriageway) polygons with
 //! per-vertex heights, and polygon-simplicity growth.
 //!
-//! M2 builds the geometry only; connectors, conflict zones and the connector-driven growth of
-//! ADR-0063 are added with the lane graph in M3 (same cut-back rules, so geometry stays put).
+//! Connectors and conflict zones (`crate::connectors`) are built inside the same growth loop:
+//! cut-backs grow while a connector is too sharp for its lane kind or leaves the carriageway.
 
 use cb_geometry::Polyline2;
 use glam::{Vec2, Vec3};
 
+use crate::connectors::{self, ApproachLane, ConflictZone, Connector, CutFrame};
 use crate::profile::Profile;
 
 /// Minimum angle between adjacent approaches (deg).
@@ -38,6 +39,8 @@ pub struct Approach {
     pub profile: Profile,
     /// The segment runs toward the node (profile arc length measured from the far end).
     pub reversed: bool,
+    /// Driving lanes seen from the node (`connectors::approach_lanes`); empty: no connectors.
+    pub lanes: Vec<ApproachLane>,
 }
 
 impl Approach {
@@ -83,6 +86,8 @@ pub enum JunctionError {
     PolygonInvalid,
     /// More than six approaches.
     DegreeTooHigh,
+    /// A connector stays sharper than its lane kind allows after growing the cut-backs.
+    ConnectorTooSharp,
 }
 
 impl JunctionError {
@@ -94,6 +99,7 @@ impl JunctionError {
             Self::TooClose => "road-invalid-junction-too-close",
             Self::PolygonInvalid => "road-invalid-junction-shape",
             Self::DegreeTooHigh => "road-invalid-junction-degree",
+            Self::ConnectorTooSharp => "road-invalid-junction-connector",
         }
     }
 }
@@ -125,6 +131,37 @@ pub struct Junction {
     pub inner: Vec<Vec3>,
     /// Corners in counter-clockwise order.
     pub corners: Vec<Corner>,
+    /// Lane-to-lane connectors (approach indices are input order).
+    pub connectors: Vec<Connector>,
+    /// Conflict zones between connectors.
+    pub zones: Vec<ConflictZone>,
+}
+
+/// Connector tolerance outside the carriageway polygon (m).
+pub const CONNECTOR_OUTSIDE_TOL_M: f32 = 0.3;
+
+fn point_in_polygon(p: Vec2, poly: &[Vec2]) -> bool {
+    let mut c = false;
+    let n = poly.len();
+    for k in 0..n {
+        let (a, b) = (poly[k], poly[(k + n - 1) % n]);
+        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+            c = !c;
+        }
+    }
+    c
+}
+
+fn dist_to_polygon(p: Vec2, poly: &[Vec2]) -> f32 {
+    let n = poly.len();
+    (0..n)
+        .map(|k| {
+            let (a, b) = (poly[k], poly[(k + 1) % n]);
+            let ab = b - a;
+            let t = ((p - a).dot(ab) / ab.length_squared().max(1e-9)).clamp(0.0, 1.0);
+            (p - (a + ab * t)).length()
+        })
+        .fold(f32::INFINITY, f32::min)
 }
 
 fn seg_intersect(p: Vec2, p2: Vec2, q: Vec2, q2: Vec2) -> Option<(f32, f32)> {
@@ -319,10 +356,35 @@ pub fn build(apps: &[Approach]) -> Result<Junction, JunctionError> {
         })
         .collect();
 
+    let lanes: Vec<Vec<ApproachLane>> = apps.iter().map(|a| a.lanes.clone()).collect();
+    let mut last_err = JunctionError::PolygonInvalid;
     for _ in 0..GROW_ITERS {
         if (0..n).any(|k| cuts[k] > MAX_CUT_FRACTION * apps[order[k]].len()) {
             return Err(JunctionError::TooClose);
         }
+        // Connectors first: too-sharp ones grow their approaches (input → sorted index).
+        let mut cut_in = vec![0.0; n];
+        for k in 0..n {
+            cut_in[order[k]] = cuts[k];
+        }
+        let frames: Vec<CutFrame> = (0..n)
+            .map(|i| CutFrame {
+                point: apps[i].point(cut_in[i]),
+                tangent: apps[i].tangent(cut_in[i]),
+                height: apps[i].height(cut_in[i]),
+            })
+            .collect();
+        let sorted_of = |i: usize| order.iter().position(|&o| o == i).unwrap_or(0);
+        let mut conns = match connectors::build_connectors(&frames, &lanes) {
+            Ok(c) => c,
+            Err(sharp) => {
+                for i in sharp {
+                    cuts[sorted_of(i)] += GROW_M;
+                }
+                last_err = JunctionError::ConnectorTooSharp;
+                continue;
+            }
+        };
         let mut outer: Vec<Vec3> = Vec::new();
         let mut inner: Vec<Vec3> = Vec::new();
         let mut corners: Vec<Corner> = Vec::with_capacity(n);
@@ -378,17 +440,49 @@ pub fn build(apps: &[Approach]) -> Result<Junction, JunctionError> {
         let flat_o: Vec<Vec2> = outer.iter().map(|v| Vec2::new(v.x, v.z)).collect();
         let flat_i: Vec<Vec2> = inner.iter().map(|v| Vec2::new(v.x, v.z)).collect();
         if n <= 2 || (is_simple(&flat_o) && is_simple(&flat_i)) {
-            let mut cuts_in = vec![0.0; n];
-            for k in 0..n {
-                cuts_in[order[k]] = cuts[k];
+            // Connectors must stay on the carriageway (junctions of three or more approaches;
+            // bends and width changes have no enclosed surface to leave).
+            if let Err(grow) = connectors::resolve_crossings(&mut conns, &frames, &lanes) {
+                for i in grow {
+                    cuts[sorted_of(i)] += GROW_M;
+                }
+                last_err = JunctionError::ConnectorTooSharp;
+                continue;
             }
+            if n >= 3 {
+                let mut grow: Vec<usize> = Vec::new();
+                for c in &conns {
+                    let off = c.points.iter().any(|p| {
+                        let q = Vec2::new(p.x, p.z);
+                        !point_in_polygon(q, &flat_i)
+                            && dist_to_polygon(q, &flat_i) > CONNECTOR_OUTSIDE_TOL_M
+                    });
+                    if off {
+                        grow.push(c.from);
+                        grow.push(c.to);
+                    }
+                }
+                if !grow.is_empty() {
+                    grow.sort_unstable();
+                    grow.dedup();
+                    for i in grow {
+                        cuts[sorted_of(i)] += GROW_M;
+                    }
+                    last_err = JunctionError::ConnectorTooSharp;
+                    continue;
+                }
+            }
+            let zones = connectors::conflict_zones(&conns);
             return Ok(Junction {
-                cuts: cuts_in,
+                cuts: cut_in,
                 outer,
                 inner,
                 corners,
+                connectors: conns,
+                zones,
             });
         }
+        last_err = JunctionError::PolygonInvalid;
         // Grow the approaches owning crossing edges.
         let m = flat_o.len();
         let mut grow = vec![false; n];
@@ -419,7 +513,7 @@ pub fn build(apps: &[Approach]) -> Result<Junction, JunctionError> {
             }
         }
     }
-    Err(JunctionError::PolygonInvalid)
+    Err(last_err)
 }
 
 #[cfg(test)]
@@ -437,6 +531,7 @@ mod tests {
             corner_radius_m: 6.0,
             profile: Profile::flat(len, 10.0),
             reversed: false,
+            lanes: Vec::new(),
         }
     }
 
@@ -495,6 +590,7 @@ mod tests {
             JunctionError::TooClose,
             JunctionError::PolygonInvalid,
             JunctionError::DegreeTooHigh,
+            JunctionError::ConnectorTooSharp,
         ] {
             for loc in cb_l10n::Locale::ALL {
                 assert!(

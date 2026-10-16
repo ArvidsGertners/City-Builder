@@ -116,6 +116,7 @@ mod tests {
                 corner_radius_m: 6.0,
                 profile: Profile::flat(100.0, 3.0),
                 reversed: false,
+                lanes: Vec::new(),
             })
             .collect();
         let j = build(&apps).unwrap();

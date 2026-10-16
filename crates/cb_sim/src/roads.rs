@@ -286,6 +286,7 @@ fn approach(
         corner_radius_m: cat.road(kind).corner_radius_m,
         profile: profile.clone(),
         reversed: !at_start,
+        lanes: cb_network::connectors::approach_lanes(&cs, at_start),
     }
 }
 

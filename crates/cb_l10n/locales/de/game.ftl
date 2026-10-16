@@ -10,6 +10,7 @@ road-invalid-junction-angle = Straßen treffen in zu spitzem Winkel aufeinander
 road-invalid-junction-too-close = Zu nah an einer anderen Kreuzung
 road-invalid-junction-shape = Die Kreuzung lässt sich hier nicht formen
 road-invalid-junction-degree = Zu viele Straßen an einer Kreuzung
+road-invalid-junction-connector = Abbiegen wäre hier zu eng für Fahrzeuge
 road-invalid-overpass-unavailable = Überführungen sind noch nicht verfügbar: ebenerdig kreuzen
 road-invalid-target-missing = Die Straße zum Anschließen existiert nicht mehr
 plot-invalid-frontage = Ein Grundstück braucht mindestens 8 m an einer Straße

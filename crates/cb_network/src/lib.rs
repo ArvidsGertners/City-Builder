@@ -4,6 +4,7 @@
 //!
 //! See `docs/ALGORITHMS.md` §1–§6. World plane coordinates are `Vec2(x, z)` (ADR-0033).
 
+pub mod connectors;
 pub mod cross_section;
 pub mod junction;
 pub mod lanes;

@@ -10,6 +10,7 @@ road-invalid-junction-angle = Roads meet at too sharp an angle
 road-invalid-junction-too-close = Too close to another junction
 road-invalid-junction-shape = The junction can't be shaped here
 road-invalid-junction-degree = Too many roads at one junction
+road-invalid-junction-connector = Turns here would be too tight for vehicles
 road-invalid-overpass-unavailable = Overpasses are not available yet: cross at street level
 road-invalid-target-missing = The road to connect to no longer exists
 plot-invalid-frontage = A plot needs at least 8 m along a road
