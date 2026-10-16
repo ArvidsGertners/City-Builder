@@ -5,7 +5,7 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Current status
 
-- **Phase:** M2 vertical slice ☑ (CI pending; user verification UV-2/3/4 open) → M3 next. Phase S ☑ — S-Render ☑, S-Time ☑ (fallback
+- **Phase:** M2 vertical slice ☑ (user verification UV-2/3/4 open) → M3 next. Phase S ☑ — S-Render ☑, S-Time ☑ (fallback
   ADR-0062), S-J ☑ (ADR-0063), S-P ☑ (ADR-0064), S-G ☑ (ADR-0065), S-T ☑ (ADR-0066/0067).
 - **M2 done so far (pure crates):** `cb_terrain` (worldgen with rivers/lakes/outside connections,
   stamps + order-independent compositing, chunk meshes LOD0–3 with skirts, raycast, scatter;
@@ -30,7 +30,7 @@ milestone and before ending a session (skill `milestone-completion`).
   end/depth handles, ± lots, depth ±, delete), bulldoze, toolbar + money HUD + toasts, zoning
   overlay (draped fills, outlines, lot lines), `--benchmark` (per-set timings) and the 14-shot M2
   suite (`at:`/`hour:`/`ui:`/`zoning:`/`tool:`/`crack_check:` per shot), off-thread chunk
-  meshing, merged far terrain, junction terrain stamps. M2 complete; CI confirmation pending.
+  meshing, merged far terrain, junction terrain stamps. M2 complete, CI green on all three OSes.
 - **Last updated:** 2026-10-16
 - **Verified environment:** Bevy 0.20.0 (2026-10-08), bevy_egui 0.43.1 (Bevy 0.20), rustc 1.97.1;
   `bevy-inspector-egui` 0.37 targets Bevy 0.19 (ADR-0031); `mesa-vulkan-drivers` (lavapipe) and
@@ -38,9 +38,7 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**M3 — Full road system.** First confirm CI for the M2 commit (Linux + Windows `ci.yml`, one
-`nightly.yml` dispatch for macOS + 3-OS determinism) and record the run URLs in the log. Then, in
-order: (1) `crates/cb_network/src/lanes.rs` — lane layout per cross-section (`CrossSection::of`
+**M3 — Full road system.** In order: (1) `crates/cb_network/src/lanes.rs` — lane layout per cross-section (`CrossSection::of`
 + one-way/bus/tram variants) with `lanes_count_offsets_per_cross_section`; (2) junction
 connectors and conflict zones in `cb_network::junction` from the S-J spike (`spikes/s_j`,
 ADR-0063: per-kind connector radii, connector-driven growth), with
@@ -75,7 +73,7 @@ fan); then controls, bridges, decorations, editing, undo/redo, bulldoze dialog a
 | 0 | Phase 1 planning package + independent review | 2 | 2 | ☑ |
 | 1 | Project setup | 4 | 1 | ☑ |
 | S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | ≈ 4 | ☑ (S-Render ☑, S-Time ☑ fallback, S-J ☑ ADR-0063, S-P ☑ ADR-0064, S-G ☑ ADR-0065, S-T ☑ ADR-0066/0067) |
-| 2 | Vertical slice | 12 | ≈ 6 | ☑ CI-pending (☑ᵤ UV-2/3/4) |
+| 2 | Vertical slice | 12 | ≈ 6 | ☑ (☑ᵤ UV-2/3/4 open) |
 | 3 | Full road system | 12 | | ☐ |
 | 4 | All zone types, special buildings, leveling visuals | 10 | | ☐ |
 | 5 | Simulation core | 12 | | ☐ |
@@ -811,3 +809,8 @@ Known gaps (planned):
   sets p95 3.90 ms (≤ 4); suite M2 reviewed (`docs/screenshots/M2/`). Fixed during review: corner
   plot lots not grown (`m2_scripted_lots_all_grow`), tonemapped magenta missed by the gate
   (hue-based test), overview/fill framing. Golden subdivision hash pinned.
+- 2026-10-16 — M2 CI confirmed on `f36cdef`: `ci.yml` run 30 green
+  (https://github.com/ArvidsGertners/City-Builder/actions/runs/38884263345); `nightly.yml`
+  dispatch run 3 green — macOS check default + dev, macOS smoke, determinism probe on
+  Linux/Windows/macOS with matching hashes, soak, bench
+  (https://github.com/ArvidsGertners/City-Builder/actions/runs/38884289448).
