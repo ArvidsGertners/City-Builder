@@ -222,6 +222,8 @@ pub fn demo_town(world: &mut World) {
     tracing::info!("scripted features: {:?}", f.report);
     let f3 = cb_sim::citygen::m3_features(world, site, half);
     tracing::info!("scripted M3 features: {:?}", f3.report);
+    let f4 = cb_sim::citygen::m4_features(world, site, half);
+    tracing::info!("scripted M4 features: {f4:?}");
     let terrain = world.get_resource::<TerrainRes>();
     let ground = |p: Vec2| terrain.map_or(0.0, |t| t.terrain().height_at(p));
     let y = ground(site);
@@ -257,6 +259,10 @@ pub fn demo_town(world: &mut World) {
         ("five_way", f3.five_way),
         ("one_way", f3.one_way),
         ("roundabout", f3.roundabout),
+        ("conditions", f4.conditions),
+        ("construction", f4.construction),
+        ("m4_lots", f4.lots),
+        ("town_hall", f4.town_hall),
     ] {
         if let Some(ft) = feat {
             put(name, ft.pos, ft.dir);

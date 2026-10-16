@@ -154,7 +154,8 @@ pub fn build(boot: Boot) -> App {
             crashes_dir: paths.crashes_dir.clone(),
         });
     }
-    if cli.procgen_gallery {
+    let suite_scene = suite.as_ref().and_then(|s| s.scene.clone());
+    if cli.procgen_gallery || suite_scene.as_deref() == Some("gallery") {
         app.add_plugins(crate::debug::gallery::GalleryPlugin);
     }
     if let Some(frames) = cli.smoke_test {
@@ -167,7 +168,7 @@ pub fn build(boot: Boot) -> App {
             .unwrap_or_else(|| paths.screenshots_dir.clone());
         app.add_plugins(ScreenshotPlugin { suite, out });
     }
-    if cli.scene.as_deref() == Some("city10k") {
+    if cli.scene.as_deref() == Some("city10k") || suite_scene.as_deref() == Some("city10k") {
         app.insert_resource(scene::City10k);
     }
     if let Some(scene) = cli.benchmark.clone() {

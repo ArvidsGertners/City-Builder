@@ -1,7 +1,8 @@
 //! `--procgen-gallery` (ALGORITHMS §11): a flat site with rows of lots, every building generated
 //! straight from `cb_procgen` without the simulation. Row 0 walks the residential typologies
 //! L1 → L5 along one frontage; then one row per zone and level (R L1–L5, C L1–L3, I L1–L3) on
-//! alternately straight and curved frontages. Debug tooling: labels are English only.
+//! alternately straight and curved frontages. In front: every vehicle type, then the civic set A
+//! lineup. Debug tooling: labels are English only.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
@@ -21,6 +22,9 @@ use crate::scene::{FeatureAnchor, NoDemoTown, SceneAnchor, SceneFeatures};
 
 /// Depth of the civic lineup row including its street and gap (m).
 const CIVIC_ROW_DEPTH_M: f64 = 110.0;
+
+/// Depth of the vehicle row including its gap (m).
+const VEHICLE_ROW_DEPTH_M: f64 = 30.0;
 
 /// Gallery plugin (replaces the demo town).
 pub struct GalleryPlugin;
@@ -128,8 +132,58 @@ fn build_gallery(world: &mut World) {
     let mut meshes: Vec<cb_geometry::MeshData> = Vec::new();
     let mut features = SceneFeatures::default();
     let mut exclusion = crate::view::ScatterExclusion::default();
-    let total_depth: f64 = rows.iter().map(|r| r.depth + 30.0).sum::<f64>() + CIVIC_ROW_DEPTH_M;
+    let total_depth: f64 =
+        rows.iter().map(|r| r.depth + 30.0).sum::<f64>() + CIVIC_ROW_DEPTH_M + VEHICLE_ROW_DEPTH_M;
     let mut z = -0.5 * total_depth;
+    // Every vehicle type parked nose to tail along a short street, front row.
+    {
+        use cb_procgen::vehicle::{self, VehicleKind};
+        let gap = 3.0;
+        let total: f32 = VehicleKind::ALL
+            .iter()
+            .map(|k| k.length_m() + gap)
+            .sum::<f32>()
+            - gap;
+        let lane_z = site.y + z as f32 + 8.0;
+        let line = [
+            Vec2::new(site.x - 0.5 * total - 8.0, lane_z),
+            Vec2::new(site.x + 0.5 * total + 8.0, lane_z),
+        ];
+        let mut road = Painter::new(0, 3);
+        road.ground_strip(
+            &line,
+            8.0,
+            0.05,
+            cb_procgen::palette::ASPHALT,
+            cb_procgen::surface::Surface::Paved,
+            &ground,
+        );
+        meshes.push(road.finish());
+        let mut u = site.x - 0.5 * total;
+        for (i, kind) in VehicleKind::ALL.into_iter().enumerate() {
+            let c = Vec2::new(u + 0.5 * kind.length_m(), lane_z);
+            let base = Vec3::new(c.x, ground(c) + 0.06, c.y);
+            meshes.extend(vehicle::meshes(kind, base, 0.0, 31 + i as u64, 0));
+            u += kind.length_m() + gap;
+        }
+        exclusion.0.push(cb_geometry::polygon::convex_hull(&[
+            line[0] - Vec2::Y * 6.0,
+            line[1] - Vec2::Y * 6.0,
+            line[1] + Vec2::Y * 6.0,
+            line[0] + Vec2::Y * 6.0,
+        ]));
+        let c = Vec2::new(site.x, lane_z);
+        features.0.insert(
+            "gallery_vehicles".to_owned(),
+            FeatureAnchor {
+                pos: Vec3::new(c.x, ground(c), c.y),
+                yaw_deg: 0.0,
+                dir: Vec2::X,
+            },
+        );
+        gallery.rows.push("Vehicles".to_owned());
+    }
+    z += VEHICLE_ROW_DEPTH_M;
     // Civic lineup (generator set A) along one straight street.
     {
         let gap = 8.0;

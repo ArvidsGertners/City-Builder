@@ -412,9 +412,13 @@ and shadows match. A scaffold mesh (`building::condition::scaffold`) stands arou
 while constructing; `Ruined` swaps the mesh for `building::condition::ruin` (jagged wall stubs,
 rubble heaps).
 
-Vehicles: parametric profiles (hatchback, sedan, van, pickup, SUV, truck variants, fire truck,
-ambulance, police, garbage truck, bus 12 m, tram 3 sections), 8-sided wheels, emissive light
-faces, color index via `MeshTag`.
+Vehicles (`cb_procgen::vehicle`, M4): parametric profiles (hatchback, sedan, van, pickup, SUV,
+box truck, fire truck, ambulance, police, garbage truck, bus 12 m, tram 3 sections of 10 m) built
+from a body slab, a sloped glass cabin frustum, load boxes and 8-sided wheels; head/tail lights are
+window-surface faces so they glow at night; 150–400 triangles per vehicle (tram: per section).
+Local frame x forward; `meshes(kind, base, yaw, seed, slot)` returns one mesh per section. M4 bakes
+the car colour from the seed; the pooled instanced vehicle view (M6/M9) moves it to a colour index
+via `MeshTag`.
 
 ## 12. Pathfinding — `cb_traffic::router`, `cb_traffic::route_cache` (ADR-0067)
 

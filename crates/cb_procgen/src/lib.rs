@@ -17,4 +17,5 @@ pub mod road_decor;
 pub mod road_mesh;
 pub mod surface;
 pub mod vegetation;
+pub mod vehicle;
 pub mod yard;

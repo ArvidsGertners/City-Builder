@@ -33,6 +33,9 @@ pub enum ShotTool {
     /// Road tool placing a 35 m roundabout preset beside the `y30` feature (ring ghost, radius
     /// and cost label).
     RoundaboutPreset,
+    /// Plot tool in polygon mode with the hand-drawn L-shaped plot of the `m4_lots` feature
+    /// selected (vertex and edge handles).
+    PlotOutline,
 }
 
 /// One shot.
@@ -75,6 +78,12 @@ pub struct Suite {
     /// World seed (unless `--seed` is given).
     #[serde(default)]
     pub seed: Option<u64>,
+    /// Start scene: `gallery` (procgen gallery) or `city10k`; the demo town when absent.
+    #[serde(default)]
+    pub scene: Option<String>,
+    /// Keep the simulation paused for the whole suite (construction progress stays put).
+    #[serde(default)]
+    pub paused: bool,
     /// Shots in order.
     pub shots: Vec<Shot>,
 }
@@ -247,6 +256,28 @@ impl ShotState<'_, '_> {
                     ..Default::default()
                 });
             }
+            Some(ShotTool::PlotOutline) => {
+                // The L plot spans 15–75 m of the 180 m street; the anchor is the street centre.
+                let c = feature("m4_lots").map(|f| Vec2::new(f.pos.x, f.pos.z) - f.dir * 45.0);
+                let selected = c.and_then(|c| {
+                    let ids = self.ids.as_ref()?;
+                    ids.plots
+                        .iter()
+                        .filter_map(|(id, e)| {
+                            let p = self.plots.get(e).ok()?;
+                            let n = p.polygon().len().max(1) as f32;
+                            let centroid = p.polygon().iter().copied().sum::<Vec2>() / n;
+                            Some((centroid.distance(c), id))
+                        })
+                        .min_by(|x, y| x.0.total_cmp(&y.0))
+                        .map(|x| x.1)
+                });
+                *self.tool = ActiveTool::Plot(PlotTool {
+                    selected,
+                    polygon: true,
+                    ..Default::default()
+                });
+            }
             Some(ShotTool::BulldozeDialog) => {
                 let Some(c) = feature("slope").map(|f| Vec2::new(f.pos.x, f.pos.z)) else {
                     return;
@@ -296,6 +327,9 @@ fn drive(
     mut state: ShotState,
 ) {
     commands.insert_resource(CameraScripted);
+    if runner.suite.paused {
+        commands.insert_resource(cb_sim::SimSpeed::Paused);
+    }
     if let Some(n) = runner.exit_in.as_mut() {
         if *n == 0 {
             exit.write(AppExit::Success);

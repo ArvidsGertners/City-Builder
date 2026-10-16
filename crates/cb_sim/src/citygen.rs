@@ -1136,3 +1136,221 @@ pub fn m3_features(world: &mut World, town: Vec2, town_half: Vec2) -> M3Features
     }
     out
 }
+
+/// The scripted M4 scene features (PROGRESS M4 shot list).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct M4Features {
+    /// Four neighbouring houses: active, declining, abandoned, ruined (in frontage order).
+    pub conditions: Option<Feature>,
+    /// A house half built (the sim clock starts 3 game hours in so it can be).
+    pub construction: Option<Feature>,
+    /// An angled street with an L-shaped and a skewed polygon-mode plot, decorations opposite.
+    pub lots: Option<Feature>,
+    /// The L-shaped plot (plot-tool shot).
+    pub l_plot: Option<cb_core::ids::PlotId>,
+    /// The auto-placed town hall.
+    pub town_hall: Option<Feature>,
+}
+
+/// Builds the scripted M4 features: building conditions in the town, a construction site,
+/// polygon-mode lots on an angled street with decorations, and the town hall anchor.
+pub fn m4_features(world: &mut World, town: Vec2, town_half: Vec2) -> M4Features {
+    use crate::buildings::{Building, BuildingKind, Condition};
+    use crate::zoning::{Lot, Plot};
+    let mut out = M4Features::default();
+    let saved = world.get_resource::<SimConfig>().cloned();
+    if let Some(mut c) = world.get_resource_mut::<SimConfig>() {
+        c.sandbox = true;
+    }
+    let centre = |b: &Building| {
+        b.outlines().first().map_or(Vec2::ZERO, |o| {
+            o.iter().copied().sum::<Vec2>() / o.len().max(1) as f32
+        })
+    };
+    // 1. Conditions and construction: the residential plot nearest the town centre with five
+    //    built lots in a row.
+    const HALF_BUILT_TICKS: u64 = 1800;
+    let now = world
+        .get_resource::<crate::SimClock>()
+        .map_or(0, |c| c.tick().0)
+        .max(2 * HALF_BUILT_TICKS);
+    world.insert_resource(crate::SimClock::at(now));
+    let rows: Vec<(f32, Vec<(cb_core::ids::BuildingId, Vec2)>, Vec2)> = {
+        let Some(ids) = world.get_resource::<Ids>() else {
+            return out;
+        };
+        ids.plots
+            .iter()
+            .filter_map(|(_, e)| {
+                let p = world.get::<Plot>(e)?;
+                if p.zone() != ZoneKind::Residential || p.frontage().len() < 2 {
+                    return None;
+                }
+                let bs: Vec<(cb_core::ids::BuildingId, Vec2)> = p
+                    .lots()
+                    .iter()
+                    .filter_map(|l| {
+                        let le = ids.lots.get(*l)?;
+                        let bid = world.get::<Lot>(le)?.building()?;
+                        let b = world.get::<Building>(ids.buildings.get(bid)?)?;
+                        Some((bid, centre(b)))
+                    })
+                    .collect();
+                let f = p.frontage();
+                let dir = (f[f.len() - 1] - f[0]).normalize_or(Vec2::X);
+                (bs.len() >= 5 && bs.len() == p.lots().len())
+                    .then(|| (bs[2].1.distance(town), bs, dir))
+            })
+            .collect()
+    };
+    if let Some((_, bs, dir)) = rows.into_iter().min_by(|a, b| a.0.total_cmp(&b.0)) {
+        for ((id, _), cond) in bs.iter().zip([
+            Condition::Active,
+            Condition::Declining,
+            Condition::Abandoned,
+            Condition::Ruined,
+        ]) {
+            crate::buildings::set_condition(world, *id, cond);
+        }
+        crate::buildings::set_condition(
+            world,
+            bs[4].0,
+            Condition::Constructing {
+                start_tick: now - HALF_BUILT_TICKS,
+                duration_ticks: 2 * HALF_BUILT_TICKS,
+            },
+        );
+        out.conditions = Some(Feature {
+            pos: (bs[1].1 + bs[2].1) * 0.5,
+            dir,
+            depth_m: 0.0,
+        });
+        out.construction = Some(Feature {
+            pos: bs[4].1,
+            dir,
+            depth_m: 0.0,
+        });
+    }
+    // 2. An angled street outside the town with polygon-mode lots on its left side.
+    let (s35, c35) = cb_core::math::sin_cos(35f32.to_radians());
+    let d = Vec2::new(c35, s35);
+    let n = d.perp();
+    let tick = now;
+    let mut built: Option<(cb_core::ids::SegmentId, Vec2)> = None;
+    'site: for r in [1.0f32, 1.3, 1.6, 2.0] {
+        for k in 0..16 {
+            let a = k as f32 * std::f32::consts::TAU / 16.0;
+            let (sa, ca) = cb_core::math::sin_cos(a);
+            let c = town + Vec2::new(ca * (town_half.x + 200.0), sa * (town_half.y + 200.0)) * r;
+            let cmd = BuildRoad {
+                kind: RoadKind::Street,
+                curve: CubicBezier2::straight(c - d * 90.0, c + d * 90.0),
+                start: Endpoint::Free,
+                end: Endpoint::Free,
+            };
+            if roads::preview_road(world, &cmd).is_ok()
+                && roads::build_road(world, &cmd, tick).is_ok()
+            {
+                let sid = world.get_resource::<Ids>().and_then(|ids| {
+                    ids.segments
+                        .iter()
+                        .filter_map(|(id, e)| {
+                            let s = world.get::<RoadSegment>(e)?;
+                            let g = s.geom();
+                            Some((g.centerline.project(c).1.abs(), id))
+                        })
+                        .min_by(|a, b| a.0.total_cmp(&b.0))
+                        .map(|x| x.1)
+                });
+                if let Some(sid) = sid {
+                    built = Some((sid, c));
+                    break 'site;
+                }
+            }
+        }
+    }
+    if let Some((sid, c)) = built
+        && let Some(seg) = roads::segment(world, sid).cloned()
+    {
+        // Edge point at arc length `s` along the street direction (left side).
+        let start_c = c - d * 90.0;
+        let f = |s: f32| {
+            let (s0, _) = seg.geom().centerline.project(start_c + d * s);
+            roads::edge_polyline(&seg, true, s0, s0)[0]
+        };
+        let l_shape = vec![
+            f(15.0),
+            f(75.0),
+            f(75.0) + n * 22.0,
+            f(45.0) + n * 22.0,
+            f(45.0) + n * 44.0,
+            f(15.0) + n * 44.0,
+        ];
+        let skew = n * 30.0 - d * 14.0;
+        let angled = vec![f(90.0), f(150.0), f(150.0) + skew, f(90.0) + skew];
+        for (k, v) in [l_shape, angled].into_iter().enumerate() {
+            if let Ok(pid) = crate::zoning::create_plot_polygon(world, ZoneKind::Residential, &v, 0)
+            {
+                if k == 0 {
+                    out.l_plot = Some(pid);
+                }
+                let lots: Vec<cb_core::ids::LotId> = world
+                    .get_resource::<Ids>()
+                    .and_then(|i| i.plots.get(pid))
+                    .and_then(|e| world.get::<Plot>(e))
+                    .map(|p| p.lots().to_vec())
+                    .unwrap_or_default();
+                for l in lots {
+                    crate::buildings::grow_lot_with(world, l, true);
+                }
+            }
+        }
+        // Decorations across the street.
+        let opposite = c - n * 22.0;
+        let _ = crate::props::place_prop(world, crate::props::DecorKind::Fountain, opposite, 0.0);
+        for (k, kind) in [
+            crate::props::DecorKind::Tree,
+            crate::props::DecorKind::Bench,
+            crate::props::DecorKind::FlowerBed,
+            crate::props::DecorKind::TreeCluster,
+            crate::props::DecorKind::Planter,
+            crate::props::DecorKind::Tree,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let a = k as f32 * std::f32::consts::TAU / 6.0;
+            let (sa, ca) = cb_core::math::sin_cos(a);
+            let p = opposite + Vec2::new(ca, sa) * 9.0;
+            let _ = crate::props::place_prop(world, kind, p, a);
+        }
+        out.lots = Some(Feature {
+            pos: c + n * 18.0,
+            dir: d,
+            depth_m: 0.0,
+        });
+    }
+    // 3. The town hall.
+    out.town_hall = world.get_resource::<Ids>().and_then(|ids| {
+        ids.buildings.iter().find_map(|(_, e)| {
+            let b = world.get::<Building>(e)?;
+            (b.kind() == BuildingKind::Civic(cb_procgen::building::civic::CivicKind::TownHall))
+                .then(|| {
+                    let fr = match b.site() {
+                        crate::buildings::Site::Civic(fr) => *fr,
+                        crate::buildings::Site::Zoned(_) => return None,
+                    };
+                    Some(Feature {
+                        pos: centre(b),
+                        dir: fr.ex,
+                        depth_m: 0.0,
+                    })
+                })
+                .flatten()
+        })
+    });
+    if let Some(c) = saved {
+        world.insert_resource(c);
+    }
+    out
+}
