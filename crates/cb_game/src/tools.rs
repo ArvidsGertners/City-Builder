@@ -1,5 +1,7 @@
-//! Player tools (GAME_DESIGN §12, ALGORITHMS §1, §9): road (straight, curved, freehand), plot
-//! (frontage drag, edit handles, sub-plot ±, depth), bulldoze; the toolbar and the cursor label.
+//! Player tools (GAME_DESIGN §3, ALGORITHMS §1, §9): road (straight, curved, freehand,
+//! roundabout preset), road editing (upgrade/downgrade, surface and decorations, junction
+//! control, move node), plot (frontage drag, edit handles, sub-plot ±, depth), bulldoze; the
+//! toolbar and the cursor label.
 //! Tools only emit `PlayerCommand`s; previews call the sim's read-only planning functions so the
 //! ghost always agrees with what the command will do.
 
@@ -9,14 +11,17 @@ use bevy::light::NotShadowCaster;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
-use cb_core::ids::{PlotId, SegmentId};
+use cb_core::Money;
+use cb_core::ids::{NodeId, PlotId, SegmentId};
 use cb_geometry::CubicBezier2;
 use cb_l10n::{Arg, Key as LKey, format, keys};
+use cb_network::control::ControlMode;
+use cb_network::style::{LAMP_SPACING_M, RoadSurface, SegmentStyle, TREE_SPACING_M};
 use cb_network::{RoadKind, SegmentGeom};
 use cb_sim::catalog::{Catalog, ZoneKind};
 use cb_sim::commands::{
-    BuildRoad, CommandQueue, CommandResult, CreatePlot, Endpoint, FrontageSpan, PlayerCommand,
-    ValidationError,
+    BuildRoad, CommandQueue, CommandResult, CreatePlot, Endpoint, FrontageSpan, GeometryEdit,
+    PlayerCommand, ValidationError,
 };
 use cb_sim::economy::Treasury;
 use cb_sim::ids::Ids;
@@ -47,6 +52,8 @@ pub enum RoadMode {
     Curved,
     /// Drag a stroke; fitted with Béziers on release.
     Freehand,
+    /// Roundabout preset: click the centre, move to set the radius, click to build.
+    Roundabout,
 }
 
 /// Road tool state.
@@ -64,6 +71,10 @@ pub struct RoadTool {
     pub pending: Option<BuildRoad>,
     /// Preview result.
     pub preview: Option<Result<RoadPreview, ValidationError>>,
+    /// Roundabout being placed: centre and radius (m).
+    pub ring: Option<(Vec2, f32)>,
+    /// Roundabout preview: total cost of its arcs, or why it cannot be built.
+    pub ring_preview: Option<Result<Money, ValidationError>>,
 }
 
 /// Road kind selection (wrapper with a default).
@@ -132,6 +143,70 @@ impl Default for PlotTool {
     }
 }
 
+/// Road edit tool modes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EditMode {
+    /// Change a segment's road type (upgrade or downgrade).
+    #[default]
+    Upgrade,
+    /// Apply surface and decorations to a segment.
+    Style,
+    /// Set a junction's control mode.
+    Control,
+    /// Drag a node to a new position.
+    Move,
+}
+
+/// What the road edit tool points at.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum EditTarget {
+    /// A road segment.
+    Segment(SegmentId),
+    /// A node (junction or road end).
+    Node(NodeId),
+}
+
+/// Road edit tool state.
+#[derive(Clone, Debug)]
+pub struct RoadEditTool {
+    /// Mode.
+    pub mode: EditMode,
+    /// Target road type for `Upgrade`.
+    pub kind: RoadKindSel,
+    /// Style applied by `Style`.
+    pub style: SegmentStyle,
+    /// Control mode applied by `Control`.
+    pub control: ControlMode,
+    /// What the cursor points at.
+    pub hover: Option<EditTarget>,
+    /// `Move`: the dragged node and where it goes.
+    pub drag: Option<(NodeId, Vec2)>,
+    /// The command a click (or drag release) would issue, with its preview.
+    pub pending: Option<PlayerCommand>,
+    /// Preview: cost or why the command would be rejected.
+    pub preview: Option<Result<Money, ValidationError>>,
+}
+
+impl Default for RoadEditTool {
+    fn default() -> Self {
+        Self {
+            mode: EditMode::Upgrade,
+            kind: RoadKindSel(RoadKind::Avenue),
+            style: SegmentStyle {
+                surface: RoadSurface::DarkAsphalt,
+                grass_strip: [true, true],
+                tree_spacing_m: Some(12.0),
+                lamp_spacing_m: Some(30.0),
+            },
+            control: ControlMode::Lights,
+            hover: None,
+            drag: None,
+            pending: None,
+            preview: None,
+        }
+    }
+}
+
 /// The active tool.
 #[derive(Resource, Clone, Debug, Default)]
 pub enum ActiveTool {
@@ -140,6 +215,8 @@ pub enum ActiveTool {
     None,
     /// Road tool.
     Road(Box<RoadTool>),
+    /// Road edit tool.
+    RoadEdit(Box<RoadEditTool>),
     /// Plot tool.
     Plot(PlotTool),
     /// Bulldozer.
@@ -230,10 +307,19 @@ fn tool_keys(
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         match &mut *tool {
-            ActiveTool::Road(r) if !r.points.is_empty() || !r.stroke.is_empty() => {
+            ActiveTool::Road(r)
+                if !r.points.is_empty() || !r.stroke.is_empty() || r.ring.is_some() =>
+            {
                 r.points.clear();
                 r.stroke.clear();
                 r.preview = None;
+                r.ring = None;
+                r.ring_preview = None;
+            }
+            ActiveTool::RoadEdit(e) if e.drag.is_some() => {
+                e.drag = None;
+                e.pending = None;
+                e.preview = None;
             }
             ActiveTool::Plot(p) if p.drag.is_some() || p.selected.is_some() => {
                 p.drag = None;
@@ -268,6 +354,8 @@ fn tool_keys(
     }
     if ch("r") {
         *tool = ActiveTool::Road(Box::default());
+    } else if ch("u") {
+        *tool = ActiveTool::RoadEdit(Box::default());
     } else if ch("z") {
         *tool = ActiveTool::Plot(PlotTool::default());
     } else if ch("b") {
@@ -319,6 +407,33 @@ fn edge_under(p: Vec2, segs: &Query<&RoadSegment>) -> Option<(SegmentId, bool, f
     best.map(|b| (b.1, b.2, b.3))
 }
 
+/// The segment under `p` (a bridge deck under the cursor wins over the ground below it).
+fn segment_under(
+    p: Vec2,
+    deck: Option<SegmentId>,
+    segs: &Query<&RoadSegment>,
+) -> Option<SegmentId> {
+    deck.or_else(|| {
+        segs.iter()
+            .find(|s| {
+                let (sp, d) = s.geom().project(p);
+                d.abs() < s.geom().half_width_m && sp > 0.0 && sp < s.geom().length()
+            })
+            .map(RoadSegment::id)
+    })
+}
+
+/// The nearest node within the snap radius of `p`; `junctions_only` skips bends and ends.
+fn node_under(p: Vec2, nodes: &Query<&RoadNode>, junctions_only: bool) -> Option<NodeId> {
+    nodes
+        .iter()
+        .filter(|n| !junctions_only || n.junction().is_some())
+        .map(|n| (Vec2::new(n.pos().x, n.pos().z).distance(p), n.id()))
+        .filter(|(d, _)| *d < SNAP_NODE_M)
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, id)| id)
+}
+
 fn span_of(d: &EdgeDrag) -> FrontageSpan {
     FrontageSpan {
         segment: d.segment,
@@ -345,7 +460,8 @@ fn tool_input(
     mut dialog: ResMut<BulldozeDialog>,
 ) {
     owns.0 = matches!(&*tool, ActiveTool::Plot(_))
-        || matches!(&*tool, ActiveTool::Road(r) if r.mode == RoadMode::Freehand);
+        || matches!(&*tool, ActiveTool::Road(r) if r.mode == RoadMode::Freehand)
+        || matches!(&*tool, ActiveTool::RoadEdit(e) if e.mode == EditMode::Move);
     if over_ui.0 {
         return;
     }
@@ -360,6 +476,8 @@ fn tool_input(
                 r.stroke.clear();
                 r.preview = None;
                 r.pending = None;
+                r.ring = None;
+                r.ring_preview = None;
                 return;
             }
             let q = snap(p, &nodes, &segs);
@@ -403,6 +521,24 @@ fn tool_input(
                         }
                     }
                 }
+                RoadMode::Roundabout => {
+                    r.pending = None;
+                    if let Some(c) = r.points.first().copied() {
+                        r.ring = Some((c, c.distance(p)));
+                    }
+                    if buttons.just_pressed(MouseButton::Left) && !alt {
+                        if let Some((center, radius_m)) = r.ring {
+                            if matches!(r.ring_preview, Some(Ok(_))) {
+                                queue.push(PlayerCommand::BuildRoundabout { center, radius_m });
+                            }
+                            r.points.clear();
+                            r.ring = None;
+                            r.ring_preview = None;
+                        } else {
+                            r.points = vec![p];
+                        }
+                    }
+                }
                 RoadMode::Freehand => {
                     if buttons.pressed(MouseButton::Left) && !alt {
                         if r.stroke
@@ -429,6 +565,74 @@ fn tool_input(
                         r.preview = None;
                     }
                 }
+            }
+        }
+        ActiveTool::RoadEdit(e) => {
+            if buttons.just_pressed(MouseButton::Right) {
+                e.drag = None;
+            }
+            let deck = pick.deck.map(|d| d.0);
+            e.hover = match e.mode {
+                EditMode::Upgrade | EditMode::Style => {
+                    segment_under(p, deck, &segs).map(EditTarget::Segment)
+                }
+                EditMode::Control => node_under(p, &nodes, true).map(EditTarget::Node),
+                EditMode::Move => e
+                    .drag
+                    .map(|(n, _)| n)
+                    .or_else(|| node_under(p, &nodes, false))
+                    .map(EditTarget::Node),
+            };
+            if e.mode == EditMode::Move {
+                if buttons.just_pressed(MouseButton::Left)
+                    && !alt
+                    && let Some(EditTarget::Node(n)) = e.hover
+                {
+                    e.drag = Some((n, p));
+                }
+                if let Some(d) = &mut e.drag {
+                    d.1 = p;
+                }
+                e.pending = e.drag.map(|(node, to)| {
+                    PlayerCommand::EditRoadGeometry(GeometryEdit::MoveNode { node, to })
+                });
+                if buttons.just_released(MouseButton::Left) && e.drag.take().is_some() {
+                    if let (Some(cmd), Some(Ok(_))) = (e.pending.take(), e.preview.as_ref()) {
+                        queue.push(cmd);
+                    }
+                    e.preview = None;
+                }
+                return;
+            }
+            e.pending = match (e.mode, e.hover) {
+                (EditMode::Upgrade, Some(EditTarget::Segment(segment))) => {
+                    Some(PlayerCommand::SetRoadType {
+                        segment,
+                        kind: e.kind.0,
+                        variant: cb_network::Variant::default(),
+                    })
+                }
+                (EditMode::Style, Some(EditTarget::Segment(segment))) => {
+                    Some(PlayerCommand::SetSegmentStyle {
+                        segment,
+                        style: e.style,
+                    })
+                }
+                (EditMode::Control, Some(EditTarget::Node(node))) => {
+                    Some(PlayerCommand::SetApproachControl {
+                        node,
+                        mode: e.control,
+                        custom: Vec::new(),
+                    })
+                }
+                _ => None,
+            };
+            if buttons.just_pressed(MouseButton::Left)
+                && !alt
+                && let (Some(cmd), Some(Ok(_))) = (e.pending.clone(), e.preview.as_ref())
+            {
+                queue.push(cmd);
+                e.preview = None;
             }
         }
         ActiveTool::Plot(pt) => {
@@ -532,18 +736,7 @@ fn tool_input(
         }
         ActiveTool::Bulldoze => {
             if buttons.just_pressed(MouseButton::Left) && !alt && dialog.segment.is_none() {
-                // A bridge deck under the cursor wins over the ground below it.
-                let seg = pick.deck.map(|d| d.0).or_else(|| {
-                    segs.iter()
-                        .find(|s| {
-                            s.geom().project(p).1.abs() < s.geom().half_width_m && {
-                                let sp = s.geom().project(p).0;
-                                sp > 0.0 && sp < s.geom().length()
-                            }
-                        })
-                        .map(RoadSegment::id)
-                });
-                if let Some(sid) = seg {
+                if let Some(sid) = segment_under(p, pick.deck.map(|d| d.0), &segs) {
                     // Plots fronting the road: ask what to do with them (ALGORITHMS §14).
                     let (deps, houses) = segment_dependents(sid, &plots, &lots, ids.as_deref());
                     if deps.is_empty() {
@@ -664,10 +857,20 @@ fn tool_preview(world: &mut World) {
                 .pending
                 .as_ref()
                 .map(|cmd| cb_sim::roads::preview_road(world, cmd));
+            let ring_preview = r.ring.map(|(c, radius)| ring_preview(world, c, radius));
             if let Some(mut t) = world.get_resource_mut::<ActiveTool>()
                 && let ActiveTool::Road(rt) = &mut *t
             {
                 rt.preview = preview;
+                rt.ring_preview = ring_preview;
+            }
+        }
+        ActiveTool::RoadEdit(e) => {
+            let preview = e.pending.as_ref().map(|cmd| edit_preview(world, cmd));
+            if let Some(mut t) = world.get_resource_mut::<ActiveTool>()
+                && let ActiveTool::RoadEdit(et) = &mut *t
+            {
+                et.preview = preview;
             }
         }
         ActiveTool::Plot(pt) => {
@@ -701,6 +904,37 @@ fn tool_preview(world: &mut World) {
             }
         }
         ActiveTool::None | ActiveTool::Bulldoze => {}
+    }
+}
+
+/// Roundabout preview: radius within the preset range and the summed cost of its arcs (each
+/// previewed on its own; crossings with existing roads are resolved when it is built).
+fn ring_preview(world: &World, center: Vec2, radius: f32) -> Result<Money, ValidationError> {
+    use cb_network::rings::{RING_MAX_RADIUS_M, RING_MIN_RADIUS_M};
+    if !(RING_MIN_RADIUS_M..=RING_MAX_RADIUS_M).contains(&radius) {
+        return Err(ValidationError::new("road-invalid-roundabout-radius"));
+    }
+    cb_sim::roads::roundabout_arcs(center, radius)
+        .iter()
+        .try_fold(Money::ZERO, |acc, cmd| {
+            cb_sim::roads::preview_road(world, cmd).map(|pv| acc.saturating_add(pv.cost))
+        })
+}
+
+/// Cost (or rejection) of a road edit command, from the sim's read-only planners.
+fn edit_preview(world: &World, cmd: &PlayerCommand) -> Result<Money, ValidationError> {
+    match cmd {
+        PlayerCommand::SetRoadType {
+            segment,
+            kind,
+            variant,
+        } => cb_sim::roads::preview_set_road_type(world, *segment, *kind, *variant).map(|p| p.cost),
+        PlayerCommand::SetSegmentStyle { segment, style } => {
+            cb_sim::roads::preview_segment_style(world, *segment, style)
+        }
+        PlayerCommand::EditRoadGeometry(e) => cb_sim::roads::preview_edit_geometry(world, e),
+        // Control changes are free; the sim rejects nodes that are not junctions.
+        _ => Ok(Money::ZERO),
     }
 }
 
@@ -821,6 +1055,8 @@ fn draw_gizmos(
     terrain: Option<Res<TerrainRes>>,
     ids: Option<Res<Ids>>,
     plots: Query<&Plot>,
+    segs: Query<&RoadSegment>,
+    nodes: Query<&RoadNode>,
     dialog: Res<BulldozeDialog>,
 ) {
     let ground = |q: Vec2| terrain.as_ref().map_or(0.0, |t| t.terrain().height_at(q)) + 0.4;
@@ -855,6 +1091,21 @@ fn draw_gizmos(
             if !r.stroke.is_empty() {
                 gizmos.linestrip(r.stroke.iter().map(|q| p3(*q)), teal);
             }
+            if let Some((c, radius)) = r.ring {
+                let col = if matches!(r.ring_preview, Some(Ok(_))) {
+                    teal
+                } else {
+                    coral
+                };
+                let pts: Vec<Vec3> = (0..=64)
+                    .map(|k| {
+                        let a = k as f32 / 64.0 * std::f32::consts::TAU;
+                        p3(c + Vec2::new(a.cos(), a.sin()) * radius)
+                    })
+                    .collect();
+                gizmos.linestrip(pts, col);
+                gizmos.line(p3(c), p3(c + Vec2::X * radius), col);
+            }
             if let Some(p) = pick.point {
                 gizmos.circle(
                     Isometry3d::new(
@@ -864,6 +1115,57 @@ fn draw_gizmos(
                     2.0,
                     teal,
                 );
+            }
+        }
+        ActiveTool::RoadEdit(e) => {
+            let col = if matches!(e.preview, Some(Err(_))) {
+                coral
+            } else {
+                teal
+            };
+            match e.hover {
+                Some(EditTarget::Segment(sid)) => {
+                    if let Some(sg) = ids
+                        .as_ref()
+                        .and_then(|i| i.segments.get(sid))
+                        .and_then(|en| segs.get(en).ok())
+                    {
+                        for edge in [&sg.geom().left, &sg.geom().right] {
+                            let pts: Vec<Vec3> = edge
+                                .points()
+                                .iter()
+                                .map(|q| p3(*q) + Vec3::Y * 0.4)
+                                .collect();
+                            gizmos.linestrip(pts, col);
+                        }
+                    }
+                }
+                Some(EditTarget::Node(nid)) => {
+                    if let Some(n) = ids
+                        .as_ref()
+                        .and_then(|i| i.nodes.get(nid))
+                        .and_then(|en| nodes.get(en).ok())
+                    {
+                        let at = n.pos() + Vec3::Y * 0.6;
+                        gizmos.circle(
+                            Isometry3d::new(at, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
+                            6.0,
+                            col,
+                        );
+                        if let Some((_, to)) = e.drag {
+                            gizmos.line(at, p3(to), col);
+                            gizmos.circle(
+                                Isometry3d::new(
+                                    p3(to),
+                                    Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+                                ),
+                                6.0,
+                                col,
+                            );
+                        }
+                    }
+                }
+                None => {}
             }
         }
         ActiveTool::Plot(pt) => {
@@ -934,6 +1236,7 @@ fn toolbar_contents(
 ) {
     ui.horizontal(|ui| {
         let is_road = matches!(*tool, ActiveTool::Road(_));
+        let is_edit = matches!(*tool, ActiveTool::RoadEdit(_));
         let is_plot = matches!(*tool, ActiveTool::Plot(_));
         let is_bull = matches!(*tool, ActiveTool::Bulldoze);
         if ui
@@ -945,6 +1248,17 @@ fn toolbar_contents(
                 ActiveTool::None
             } else {
                 ActiveTool::Road(Box::default())
+            };
+        }
+        if ui
+            .selectable_label(is_edit, l.tr(keys::TOOLBAR_EDIT_ROAD))
+            .on_hover_text(l.tr(keys::TOOLTIP_EDIT_ROAD))
+            .clicked()
+        {
+            *tool = if is_edit {
+                ActiveTool::None
+            } else {
+                ActiveTool::RoadEdit(Box::default())
             };
         }
         if ui
@@ -1005,15 +1319,19 @@ fn toolbar_contents(
                     (RoadMode::Straight, keys::ROAD_MODE_STRAIGHT),
                     (RoadMode::Curved, keys::ROAD_MODE_CURVED),
                     (RoadMode::Freehand, keys::ROAD_MODE_FREEHAND),
+                    (RoadMode::Roundabout, keys::ROAD_MODE_ROUNDABOUT),
                 ] {
                     if ui.selectable_label(r.mode == m, l.tr(key)).clicked() {
                         r.mode = m;
                         r.points.clear();
                         r.stroke.clear();
+                        r.ring = None;
+                        r.ring_preview = None;
                     }
                 }
             });
         }
+        ActiveTool::RoadEdit(e) => edit_toolbar(ui, e, l, loc),
         ActiveTool::Plot(pt) => {
             ui.horizontal(|ui| {
                 for (z, key) in [
@@ -1029,6 +1347,111 @@ fn toolbar_contents(
             });
         }
         ActiveTool::None | ActiveTool::Bulldoze => {}
+    }
+}
+
+/// Road edit tool options: mode, then what the mode applies.
+fn edit_toolbar(ui: &mut egui::Ui, e: &mut RoadEditTool, l: &cb_l10n::L10n, loc: cb_l10n::Locale) {
+    ui.horizontal(|ui| {
+        for (m, key) in [
+            (EditMode::Upgrade, keys::EDIT_MODE_UPGRADE),
+            (EditMode::Style, keys::EDIT_MODE_STYLE),
+            (EditMode::Control, keys::EDIT_MODE_CONTROL),
+            (EditMode::Move, keys::EDIT_MODE_MOVE),
+        ] {
+            if ui.selectable_label(e.mode == m, l.tr(key)).clicked() {
+                e.mode = m;
+                e.drag = None;
+                e.pending = None;
+                e.preview = None;
+            }
+        }
+    });
+    let spacing = |m: f32| {
+        l.tr_args(
+            keys::STYLE_SPACING,
+            &[("m", Arg::from(format::int(loc, m.round() as i64).as_str()))],
+        )
+    };
+    match e.mode {
+        EditMode::Upgrade => {
+            ui.horizontal(|ui| {
+                for k in [
+                    RoadKind::Dirt,
+                    RoadKind::Street,
+                    RoadKind::OneWayStreet,
+                    RoadKind::Avenue,
+                    RoadKind::OneWayAvenue,
+                ] {
+                    if ui
+                        .selectable_label(e.kind.0 == k, l.tr(road_kind_key(k)))
+                        .clicked()
+                    {
+                        e.kind = RoadKindSel(k);
+                    }
+                }
+            });
+        }
+        EditMode::Style => {
+            ui.horizontal(|ui| {
+                for (sf, key) in [
+                    (RoadSurface::DarkAsphalt, keys::STYLE_SURFACE_DARK),
+                    (RoadSurface::LightAsphalt, keys::STYLE_SURFACE_LIGHT),
+                    (RoadSurface::Cobblestone, keys::STYLE_SURFACE_COBBLE),
+                ] {
+                    if ui
+                        .selectable_label(e.style.surface == sf, l.tr(key))
+                        .clicked()
+                    {
+                        e.style.surface = sf;
+                    }
+                }
+                ui.separator();
+                ui.checkbox(&mut e.style.grass_strip[0], l.tr(keys::STYLE_GRASS_LEFT));
+                ui.checkbox(&mut e.style.grass_strip[1], l.tr(keys::STYLE_GRASS_RIGHT));
+            });
+            for (key, value, (lo, hi), default) in [
+                (
+                    keys::STYLE_TREES,
+                    &mut e.style.tree_spacing_m,
+                    TREE_SPACING_M,
+                    12.0,
+                ),
+                (
+                    keys::STYLE_LAMPS,
+                    &mut e.style.lamp_spacing_m,
+                    LAMP_SPACING_M,
+                    30.0,
+                ),
+            ] {
+                ui.horizontal(|ui| {
+                    let mut on = value.is_some();
+                    if ui.checkbox(&mut on, l.tr(key)).changed() {
+                        *value = on.then_some(default);
+                    }
+                    if let Some(v) = value {
+                        ui.add(egui::Slider::new(v, lo..=hi).step_by(1.0).show_value(false));
+                        ui.label(spacing(*v));
+                    }
+                });
+            }
+        }
+        EditMode::Control => {
+            ui.horizontal(|ui| {
+                for (c, key) in [
+                    (ControlMode::Auto, keys::CONTROL_AUTO),
+                    (ControlMode::AllWayStop, keys::CONTROL_ALL_WAY_STOP),
+                    (ControlMode::Lights, keys::CONTROL_LIGHTS),
+                ] {
+                    if ui.selectable_label(e.control == c, l.tr(key)).clicked() {
+                        e.control = c;
+                    }
+                }
+            });
+        }
+        EditMode::Move => {
+            ui.label(l.tr(keys::EDIT_MOVE_HINT));
+        }
     }
 }
 
@@ -1234,12 +1657,53 @@ fn toolbar_ui(
             *dialog = BulldozeDialog::default();
         }
     }
+    // Cursor label for the roundabout preset and the road edit tool: radius, reason or cost.
+    if let Some(cursor) = pick.cursor {
+        let (radius, preview) = match &*tool {
+            ActiveTool::Road(r) => (r.ring.map(|(_, rad)| rad), r.ring_preview.as_ref()),
+            ActiveTool::RoadEdit(e) => (None, e.preview.as_ref()),
+            _ => (None, None),
+        };
+        if radius.is_some() || preview.is_some() {
+            egui::Area::new(egui::Id::new("tool-label-edit"))
+                .fixed_pos(egui::pos2(cursor.x + 18.0, cursor.y + 14.0))
+                .interactable(false)
+                .show(ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        let cream = egui::Color32::from_rgb(0xED, 0xE6, 0xD3);
+                        if let Some(rad) = radius {
+                            let r = format::int(loc, rad.round() as i64);
+                            ui.colored_label(
+                                cream,
+                                l.tr_args(keys::TOOL_RADIUS, &[("r", Arg::from(r.as_str()))]),
+                            );
+                        }
+                        match preview {
+                            Some(Ok(cost)) => {
+                                let c = format::money(loc, *cost);
+                                ui.colored_label(
+                                    cream,
+                                    l.tr_args(keys::TOOL_COST, &[("cost", Arg::from(c.as_str()))]),
+                                );
+                            }
+                            Some(Err(e)) => {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(0xF2, 0x9A, 0x78),
+                                    l.tr(LKey(e.key)),
+                                );
+                            }
+                            None => {}
+                        }
+                    });
+                });
+        }
+    }
     // Cursor label: invalid reason or cost.
     if let (ActiveTool::Road(r), Some(cursor)) = (&*tool, pick.cursor)
         && let Some(preview) = &r.preview
     {
         let cream = egui::Color32::from_rgb(0xED, 0xE6, 0xD3);
-        let cost_line = |cost: cb_core::Money| {
+        let cost_line = |cost: Money| {
             let c = format::money(loc, cost);
             l.tr_args(keys::TOOL_COST, &[("cost", Arg::from(c.as_str()))])
         };

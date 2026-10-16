@@ -261,3 +261,71 @@ fn approach_control_persists_in_snapshot() {
     assert_eq!(center(&s).control(), ControlMode::Lights);
     assert!(!center(&s).phases().is_empty());
 }
+
+#[test]
+fn build_roundabout_command_makes_entries_and_undoes_in_one_step() {
+    let mut s = Scenario::new(1);
+    // Out of the 15–60 m preset range.
+    let r = s.command(PlayerCommand::BuildRoundabout {
+        center: Vec2::ZERO,
+        radius_m: 10.0,
+    });
+    assert_eq!(r.outcome.unwrap_err().key, "road-invalid-roundabout-radius");
+    // A street through the centre becomes two entries of the ring.
+    road(
+        &mut s,
+        RoadKind::Street,
+        Vec2::new(-120.0, 0.0),
+        Vec2::new(120.0, 0.0),
+    );
+    let r = s.command(PlayerCommand::BuildRoundabout {
+        center: Vec2::new(0.0, 0.0),
+        radius_m: 30.0,
+    });
+    assert!(r.outcome.is_ok(), "{:?}", r.outcome);
+    let ring: Vec<RoadNode> = nodes(&s).into_iter().filter(RoadNode::ring).collect();
+    assert!(ring.len() >= 4, "ring nodes {}", ring.len());
+    let entries = ring
+        .iter()
+        .flat_map(|n| n.controls().iter())
+        .filter(|c| **c == ApproachControl::Yield)
+        .count();
+    assert_eq!(entries, 2, "both street halves enter the ring");
+    // One undo removes the whole ring and restores the street.
+    let r = s.command(PlayerCommand::Undo);
+    assert!(r.outcome.is_ok(), "{:?}", r.outcome);
+    let ids = s.world().resource::<Ids>();
+    assert_eq!(ids.segments.iter().count(), 1);
+    assert!(nodes(&s).iter().all(|n| !n.ring()));
+}
+
+#[test]
+fn build_roundabout_rolls_back_when_an_arc_fails() {
+    use cb_core::Money;
+    use cb_sim::economy::Treasury;
+    let mut s = Scenario::new(1);
+    // Enough money for about one arc: a later arc fails on funds, everything is rolled back.
+    let arc = cb_sim::roads::preview_road(
+        s.world(),
+        &cb_sim::roads::roundabout_arcs(Vec2::ZERO, 40.0)[0],
+    )
+    .unwrap()
+    .cost;
+    s.world_mut()
+        .insert_resource(Treasury::new(Money(arc.0 * 3 / 2)));
+    let before = s.world().resource::<Treasury>().balance();
+    let r = s.command(PlayerCommand::BuildRoundabout {
+        center: Vec2::ZERO,
+        radius_m: 40.0,
+    });
+    assert_eq!(r.outcome.unwrap_err().key, "money-insufficient");
+    assert_eq!(s.world().resource::<Treasury>().balance(), before);
+    assert_eq!(s.world().resource::<Ids>().segments.iter().count(), 0);
+    assert!(nodes(&s).is_empty());
+    assert!(
+        s.world()
+            .resource::<cb_sim::history::History>()
+            .undo_entries()
+            .is_empty()
+    );
+}

@@ -27,6 +27,12 @@ pub enum ShotTool {
     /// Bulldozer with the dialog open for the street nearest the `slope` feature (dependent
     /// plots highlighted).
     BulldozeDialog,
+    /// Road edit tool upgrading the through street of the `y30` feature to an avenue (segment
+    /// highlight, cost label, mode bar).
+    EditUpgrade,
+    /// Road tool placing a 35 m roundabout preset beside the `y30` feature (ring ghost, radius
+    /// and cost label).
+    RoundaboutPreset,
 }
 
 /// One shot.
@@ -192,6 +198,33 @@ impl ShotState<'_, '_> {
                         .as_ref()
                         .map_or(f.pos.y, |t| t.terrain().height_at(b));
                     self.cursor.0 = Some(Vec3::new(b.x, y, b.y));
+                }
+            }
+            Some(ShotTool::EditUpgrade) => {
+                if let Some(f) = feature("y30") {
+                    let p = Vec2::new(f.pos.x, f.pos.z) - Vec2::X * 55.0;
+                    *self.tool = ActiveTool::RoadEdit(Box::default());
+                    let y = self
+                        .terrain
+                        .as_ref()
+                        .map_or(f.pos.y, |t| t.terrain().height_at(p));
+                    self.cursor.0 = Some(Vec3::new(p.x, y, p.y));
+                }
+            }
+            Some(ShotTool::RoundaboutPreset) => {
+                if let Some(f) = feature("y30") {
+                    let c = Vec2::new(f.pos.x, f.pos.z) + Vec2::new(-40.0, -70.0);
+                    let edge = c + Vec2::X * 35.0;
+                    *self.tool = ActiveTool::Road(Box::new(RoadTool {
+                        mode: crate::tools::RoadMode::Roundabout,
+                        points: vec![c],
+                        ..Default::default()
+                    }));
+                    let y = self
+                        .terrain
+                        .as_ref()
+                        .map_or(f.pos.y, |t| t.terrain().height_at(edge));
+                    self.cursor.0 = Some(Vec3::new(edge.x, y, edge.y));
                 }
             }
             Some(ShotTool::PlotEdit) => {

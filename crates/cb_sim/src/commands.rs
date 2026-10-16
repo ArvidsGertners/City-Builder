@@ -102,6 +102,13 @@ pub enum PlayerCommand {
         #[serde(default)]
         remove_plots: bool,
     },
+    /// Roundabout preset: a one-way street ring of 15–60 m radius; crossing roads become entries.
+    BuildRoundabout {
+        /// Ring centre.
+        center: Vec2,
+        /// Ring radius (m).
+        radius_m: f32,
+    },
     /// Move a node or reshape a segment.
     EditRoadGeometry(GeometryEdit),
     /// Upgrade/downgrade: change a segment's road type and variant (bus lanes, tram tracks).
@@ -167,6 +174,7 @@ impl PlayerCommand {
     pub fn undo_label(&self) -> Option<&'static str> {
         Some(match self {
             Self::BuildRoad(_) => "undo-build-road",
+            Self::BuildRoundabout { .. } => "undo-build-roundabout",
             Self::RemoveSegment { .. } => "undo-remove-segment",
             Self::SetRoadType { .. } => "undo-set-road-type",
             Self::EditRoadGeometry(_) => "undo-edit-road",
@@ -282,6 +290,9 @@ impl CommandLog {
 fn apply(world: &mut World, cmd: &PlayerCommand, tick: u64) -> Result<Money, ValidationError> {
     match cmd {
         PlayerCommand::BuildRoad(b) => crate::roads::build_road(world, b, tick),
+        PlayerCommand::BuildRoundabout { center, radius_m } => {
+            crate::roads::build_roundabout(world, *center, *radius_m, tick)
+        }
         PlayerCommand::RemoveSegment {
             segment,
             remove_plots,
@@ -377,6 +388,7 @@ pub const ALL_KEYS: &[&str] = &[
     "road-invalid-junction-on-bridge",
     "road-invalid-junction-too-close",
     "road-invalid-overpass-unavailable",
+    "road-invalid-roundabout-radius",
     "road-invalid-style-no-sidewalk",
     "road-invalid-style-spacing",
     "road-invalid-style-surface",
@@ -385,6 +397,7 @@ pub const ALL_KEYS: &[&str] = &[
     "road-invalid-variant",
     "road-invalid-water-no-bridge",
     "undo-build-road",
+    "undo-build-roundabout",
     "undo-create-plot",
     "undo-delete-plot",
     "undo-edit-plot",

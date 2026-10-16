@@ -33,6 +33,8 @@
                 (name: "M3-14-lights-yaw120", at: Some("lights_x"), camera: (focus: (0.0, 0.0, 0.0), distance: 80.0, pitch_deg: 40.0, yaw_deg: 120.0)),
                 (name: "M3-15-lights-yaw240", at: Some("lights_x"), camera: (focus: (0.0, 0.0, 0.0), distance: 80.0, pitch_deg: 40.0, yaw_deg: 240.0)),
                 (name: "M3-16-roundabout", at: Some("roundabout"), camera: (focus: (0.0, 0.0, 0.0), distance: 80.0, pitch_deg: 50.0, yaw_deg: 0.0)),
+                (name: "M3-17-edit-upgrade", at: Some("y30"), ui: true, tool: Some(EditUpgrade), camera: (focus: (-40.0, 0.0, 0.0), distance: 70.0, pitch_deg: 45.0, yaw_deg: 0.0)),
+                (name: "M3-18-roundabout-tool", at: Some("y30"), ui: true, tool: Some(RoundaboutPreset), camera: (focus: (-40.0, 0.0, -50.0), distance: 110.0, pitch_deg: 55.0, yaw_deg: 0.0)),
             ],
         ),
         "M3dev": (
@@ -40,14 +42,8 @@
             settle_frames: 20,
             seed: Some(1234),
             shots: [
-                (name: "slope-a", at: Some("corner"), camera: (focus: (0.0, 0.0, 0.0), distance: 45.0, pitch_deg: 20.0, yaw_deg: 180.0)),
-                (name: "slope-b", at: Some("corner"), camera: (focus: (0.0, 0.0, 0.0), distance: 55.0, pitch_deg: 15.0, yaw_deg: 150.0)),
-                (name: "slope-c", at: Some("corner"), camera: (focus: (0.0, 0.0, 0.0), distance: 50.0, pitch_deg: 18.0, yaw_deg: 90.0)),
-                (name: "oneway", at: Some("one_way"), camera: (focus: (0.0, 0.0, 40.0), distance: 150.0, pitch_deg: 50.0, yaw_deg: 0.0)),
-                (name: "roundabout", at: Some("roundabout"), camera: (focus: (0.0, 0.0, 0.0), distance: 80.0, pitch_deg: 50.0, yaw_deg: 0.0)),
-                (name: "roundabout-entry", at: Some("roundabout"), camera: (focus: (35.0, 0.0, 0.0), distance: 35.0, pitch_deg: 35.0, yaw_deg: 250.0)),
-                (name: "t-junction", at: Some("corner"), camera: (focus: (0.0, 0.0, 0.0), distance: 60.0, pitch_deg: 40.0, yaw_deg: 0.0)),
-                (name: "decorated-close", at: Some("decorated"), camera: (focus: (0.0, 0.0, 0.0), distance: 35.0, pitch_deg: 55.0, yaw_deg: 20.0)),
+                (name: "edit-upgrade", at: Some("y30"), ui: true, tool: Some(EditUpgrade), camera: (focus: (-40.0, 0.0, 0.0), distance: 70.0, pitch_deg: 45.0, yaw_deg: 0.0)),
+                (name: "roundabout-tool", at: Some("y30"), ui: true, tool: Some(RoundaboutPreset), camera: (focus: (-40.0, 0.0, -50.0), distance: 110.0, pitch_deg: 55.0, yaw_deg: 0.0)),
             ],
         ),
         "M2": (

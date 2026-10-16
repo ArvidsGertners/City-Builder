@@ -29,6 +29,7 @@ use smallvec::SmallVec;
 
 use crate::catalog::Catalog;
 use crate::commands::{BuildRoad, Endpoint, GeometryEdit, ValidationError};
+use crate::economy::Treasury;
 use crate::ids::Ids;
 use crate::terrain;
 
@@ -1388,6 +1389,93 @@ pub(crate) fn update_rings(world: &mut World, around: &[NodeId]) {
             world.write_message(NetworkChanged::Node(*n));
         }
     }
+}
+
+/// `BuildRoundabout` (ALGORITHMS §1 roundabout preset): four one-way street arcs of radius
+/// `radius_m` around `center`, counter-clockwise in (x, z); roads crossing the ring become its
+/// entries (ADR-0063 ring detection gives them Yield) and their pieces inside the ring are
+/// removed. All or nothing: when a step is rejected everything already done is rolled back,
+/// money included.
+///
+/// # Errors
+/// `road-invalid-roundabout-radius` outside 15–60 m, else the first arc's validation failure.
+pub(crate) fn build_roundabout(
+    world: &mut World,
+    center: Vec2,
+    radius_m: f32,
+    tick: u64,
+) -> Result<Money, ValidationError> {
+    use cb_network::rings::{RING_MAX_RADIUS_M, RING_MIN_RADIUS_M};
+    if !(RING_MIN_RADIUS_M..=RING_MAX_RADIUS_M).contains(&radius_m) {
+        return Err(ValidationError::at(
+            "road-invalid-roundabout-radius",
+            center,
+        ));
+    }
+    let before = crate::save::snapshot::capture(world);
+    let treasury = world.get_resource::<Treasury>().copied();
+    let mut total = Money::ZERO;
+    // Roads through the central island: the pieces inside the ring go; their outer parts stay
+    // as entries.
+    let inner = |world: &mut World| -> Result<Money, ValidationError> {
+        let ids: Vec<SegmentId> = world
+            .get_resource::<Ids>()
+            .map(|ids| {
+                ids.segments
+                    .iter()
+                    .filter_map(|(id, e)| {
+                        let sg = world.get::<RoadSegment>(e)?;
+                        let mid = sg.geom.point_at(0.5 * sg.geom.length());
+                        (mid.distance(center) < 0.8 * radius_m).then_some(id)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for id in ids {
+            remove_segment(world, id)?;
+        }
+        Ok(Money::ZERO)
+    };
+    let arcs = roundabout_arcs(center, radius_m);
+    for step in 0..=arcs.len() {
+        let r = match arcs.get(step) {
+            Some(cmd) => build_road(world, cmd, tick),
+            None => inner(world),
+        };
+        match r {
+            Ok(c) => total = total.saturating_add(c),
+            Err(e) => {
+                let (back, _) =
+                    crate::save::snapshot::diff(&before, &crate::save::snapshot::capture(world));
+                crate::save::snapshot::apply(world, &back);
+                if let Some(mut d) = world.get_resource_mut::<crate::zoning::DirtyPlots>() {
+                    d.0.clear();
+                }
+                if let Some(t) = treasury {
+                    world.insert_resource(t);
+                }
+                return Err(e);
+            }
+        }
+    }
+    Ok(total)
+}
+
+/// The four quarter arcs of a roundabout (cubic approximation of a circle).
+#[must_use]
+pub fn roundabout_arcs(center: Vec2, r: f32) -> [BuildRoad; 4] {
+    let k = 0.552_284_8 * r;
+    let dirs = [Vec2::X, Vec2::Y, -Vec2::X, -Vec2::Y];
+    std::array::from_fn(|q| {
+        let (a, b) = (dirs[q], dirs[(q + 1) % 4]);
+        let (p0, p3) = (center + a * r, center + b * r);
+        BuildRoad {
+            kind: RoadKind::OneWayStreet,
+            curve: CubicBezier2::new(p0, p0 + b * k, p3 + a * k, p3),
+            start: Endpoint::Free,
+            end: Endpoint::Free,
+        }
+    })
 }
 
 /// `SetApproachControl`: control mode of a junction, with per-approach classes for

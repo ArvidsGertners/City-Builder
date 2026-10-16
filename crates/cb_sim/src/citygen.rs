@@ -89,26 +89,12 @@ pub fn road(world: &mut World, kind: RoadKind, a: Vec2, b: Vec2) -> bool {
 /// `center`, counter-clockwise in (x, z), plus a street from each ring node outward by `arm`
 /// metres (none for `arm` ≤ 0). Returns whether every piece was built.
 pub fn roundabout(world: &mut World, center: Vec2, r: f32, arm: f32) -> bool {
-    let k = 0.552_284_8 * r;
-    let dirs = [Vec2::X, Vec2::Y, -Vec2::X, -Vec2::Y];
-    let ep = |w: &World, p: Vec2| node_at(w, p).map_or(Endpoint::Free, Endpoint::Node);
     let tick = world
         .get_resource::<crate::SimClock>()
         .map_or(0, |c| c.tick().0);
-    let mut ok = true;
-    for q in 0..4 {
-        let (a, b) = (dirs[q], dirs[(q + 1) % 4]);
-        let (p0, p3) = (center + a * r, center + b * r);
-        let cmd = BuildRoad {
-            kind: RoadKind::OneWayStreet,
-            curve: CubicBezier2::new(p0, p0 + b * k, p3 + a * k, p3),
-            start: ep(world, p0),
-            end: ep(world, p3),
-        };
-        ok &= roads::build_road(world, &cmd, tick).is_ok();
-    }
+    let mut ok = roads::build_roundabout(world, center, r, tick).is_ok();
     if arm > 0.0 {
-        for d in dirs {
+        for d in [Vec2::X, Vec2::Y, -Vec2::X, -Vec2::Y] {
             ok &= road(
                 world,
                 RoadKind::Street,
