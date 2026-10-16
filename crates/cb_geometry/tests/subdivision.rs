@@ -400,4 +400,4 @@ fn subdivision_golden_hash_six_families() {
     assert_eq!(h, GOLDEN_SUBDIVISION);
 }
 
-const GOLDEN_SUBDIVISION: u64 = 0x4f1d_ee65_63b7_dec7;
+const GOLDEN_SUBDIVISION: u64 = 0x7d03_ecff_01a7_642e;

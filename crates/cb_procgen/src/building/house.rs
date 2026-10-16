@@ -14,6 +14,8 @@ use crate::surface::{MAX_ID, Surface};
 
 /// Residential floor height (m).
 pub const FLOOR_H_M: f32 = 3.0;
+/// LOD0 triangle budget of a house (ART_DIRECTION §2: houses 300–1 200).
+pub const TRI_BUDGET: usize = 1200;
 /// Window bay (m): walls get `⌊len / bay⌋` windows per floor.
 const BAY_M: f32 = 2.9;
 /// Walls shorter than this stay blank (m).

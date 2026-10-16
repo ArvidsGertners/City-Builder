@@ -123,6 +123,22 @@ pub const R_ROOFS: [Rgb; 4] = [hex(0xB6654A), hex(0x9E5543), hex(0x7D5A44), hex(
 pub const R_ACCENTS: [Rgb; 3] = [hex(0x5F7F8E), hex(0x8E5B4A), hex(0x6E7F5A)];
 /// Window frames.
 pub const WINDOW_FRAME: Rgb = hex(0xF4EFE6);
+/// Commercial walls (light grey-blue, slate, white).
+pub const C_WALLS: [Rgb; 3] = [hex(0xC9D3DA), hex(0x8E9EAD), hex(0xE9ECEC)];
+/// Commercial flat roofs.
+pub const C_ROOF: Rgb = hex(0x7C8288);
+/// Commercial glass (shop windows, office bands).
+pub const C_GLASS: Rgb = hex(0x7FA6B5);
+/// Commercial signs and awnings (coral, mustard, teal).
+pub const C_SIGNS: [Rgb; 3] = [hex(0xD98B6E), hex(0xD9B45A), hex(0x5FA3A0)];
+/// Industrial walls (concrete, olive grey, rust).
+pub const I_WALLS: [Rgb; 3] = [hex(0xA9A69C), hex(0x8C8C78), hex(0x9B6B4D)];
+/// Industrial roofs (flat, corrugated).
+pub const I_ROOFS: [Rgb; 2] = [hex(0x6F716C), hex(0x8A8C86)];
+/// Industrial accents (faded mustard, steel).
+pub const I_ACCENTS: [Rgb; 2] = [hex(0xB9A266), hex(0x5D6266)];
+/// Hazard stripe pair.
+pub const HAZARD: [Rgb; 2] = [hex(0xD9B45A), hex(0x4A4E54)];
 /// Window glass by day (night emission comes from the surface flag).
 pub const GLASS: Rgb = hex(0x55707E);
 /// Plinths, steps, chimney caps.

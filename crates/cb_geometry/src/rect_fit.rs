@@ -12,6 +12,9 @@ use crate::subdivide::Lot;
 pub const RASTER_CELL_M: f64 = 0.5;
 /// Raster cells across the longer side at most (refinement recovers sub-cell precision).
 pub const RASTER_MAX_CELLS: f64 = 40.0;
+/// A lot edge with both ends on the frontage counts as front if its midpoint is this close to
+/// the frontage (chords of curved frontages after simplification).
+pub const FRONT_CHORD_TOL_M: f64 = 0.25;
 /// Setback reduction factors tried before a lot stays green.
 pub const SETBACK_FACTORS: [f64; 3] = [1.0, 0.75, 0.5];
 
@@ -35,6 +38,13 @@ impl RectSpec {
         min_area_m2: 50.0,
         max_w_m: 16.0,
         max_d_m: 16.0,
+    };
+    /// Industrial halls (I L1–L3; the generator shrinks the hall per level).
+    pub const HALL: Self = Self {
+        min_side_m: 8.0,
+        min_area_m2: 100.0,
+        max_w_m: 50.0,
+        max_d_m: 40.0,
     };
 }
 
@@ -83,7 +93,9 @@ fn classify(p: &[DVec2], f: &Frontage, idx: &FrontageIndex) -> Vec<EdgeKind> {
         .map(|i| {
             let (a, b) = (p[i], p[(i + 1) % n]);
             let m = (a + b) * 0.5;
-            if idx.on(f, m) && idx.on(f, a) && idx.on(f, b) {
+            // Both ends on the frontage; the midpoint may sit off a curved frontage by the
+            // chord's sagitta once the lot is simplified (10 m chord at r 200 m: 6 cm).
+            if idx.on(f, a) && idx.on(f, b) && f.project(m).1.abs() < FRONT_CHORD_TOL_M {
                 return EdgeKind::Front;
             }
             let (sm, dm) = f.project(m);
@@ -120,9 +132,11 @@ fn clip_half(p: &[DVec2], a: DVec2, d: DVec2) -> Poly {
     out
 }
 
-/// Lot shrunk by per-edge setbacks. Convex lots: exact half-plane clipping; others: lot minus
-/// inward edge strips plus wedges at reflex vertices.
-fn inset(p: &[DVec2], kinds: &[EdgeKind], sb: [f64; 3], k: f64) -> Option<Poly> {
+/// Lot shrunk by per-edge setbacks (`sb` = front, side, rear, scaled by `k`). Convex lots:
+/// exact half-plane clipping; others: lot minus inward edge strips plus wedges at reflex
+/// vertices. `None` when nothing (or less than 1 m²) is left.
+#[must_use]
+pub fn inset(p: &[DVec2], kinds: &[EdgeKind], sb: [f64; 3], k: f64) -> Option<Poly> {
     let n = p.len();
     let set = |i: usize| {
         k * match kinds[i] {
@@ -430,6 +444,12 @@ fn fit_one(lot: &Lot, f: &Frontage, idx: &FrontageIndex, p: &FitParams) -> Fit {
 #[must_use]
 pub fn lot_edge_kinds(lot: &Lot, f: &Frontage) -> Vec<EdgeKind> {
     classify(&lot.poly, f, &FrontageIndex::new(f))
+}
+
+/// Polygon shrunk by `d` on every edge (stepped upper floors, roof parapets).
+#[must_use]
+pub fn erode(p: &[DVec2], d: f64) -> Option<Poly> {
+    inset(p, &vec![EdgeKind::Side; p.len()], [d, d, d], 1.0)
 }
 
 /// Fits every lot of one plot.
