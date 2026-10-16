@@ -820,14 +820,14 @@ pub(crate) fn place_civic(
     let m = plan_massing(kind_b, 1, &site, seed).ok_or(crate::commands::ValidationError::new(
         "building-invalid-steep",
     ))?;
-    let g = terrain::ground(world);
-    let ground = |p: Vec2| cb_network::validation::Ground::height(&g, p);
-    let foundation = m
-        .plan_foundation(&ground)
-        .ok_or(crate::commands::ValidationError::new(
-            "building-invalid-steep",
-        ))?;
-    drop(g);
+    let foundation = {
+        let g = terrain::ground(world);
+        let ground = |p: Vec2| cb_network::validation::Ground::height(&g, p);
+        m.plan_foundation(&ground)
+            .ok_or(crate::commands::ValidationError::new(
+                "building-invalid-steep",
+            ))?
+    };
     let condition = constructing(world, 1);
     let mut b = Planned {
         kind: kind_b,

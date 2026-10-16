@@ -2,6 +2,9 @@
 //! level caps, construction that finishes after its time, and the debug commands that change a
 //! building's level and condition (TESTING §3).
 
+// Helpers outside `#[test]` fns assert by panicking, like the tests themselves.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use cb_geometry::CubicBezier2;
 use cb_network::RoadKind;
 use cb_sim::buildings::{Building, BuildingChanged, BuildingKind, Condition};
@@ -33,7 +36,6 @@ fn zoned_street(s: &mut Scenario, zones: [ZoneKind; 2]) {
     );
     let ids = s.world().resource::<Ids>();
     let sid = ids.segments.iter().next().map(|(id, _)| id).unwrap();
-    let _ = s.world().get::<RoadSegment>(ids.segments.get(sid).unwrap());
     for (zone, left) in [(zones[0], true), (zones[1], false)] {
         let depth_m = match zone {
             ZoneKind::Residential => 40.0,
@@ -436,7 +438,7 @@ fn town_hall_auto_placed_at_start() {
         .collect();
     assert_eq!(halls.len(), 1);
     assert_eq!(halls[0].condition(), Condition::Active, "built at start");
-    let spent_on_hall = cb_sim::catalog::Catalog::load()
+    let spent_on_hall = Catalog::load()
         .unwrap()
         .civic(CivicKind::TownHall)
         .cost_cents;

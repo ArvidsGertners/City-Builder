@@ -2,6 +2,9 @@
 //! frontage, rejects outlines without frontage, self-intersections, wrong sizes and overlaps,
 //! and vertex/edge drags keep lot IDs (TESTING §3).
 
+// Helpers outside `#[test]` fns assert by panicking, like the tests themselves.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use cb_geometry::CubicBezier2;
 use cb_network::RoadKind;
 use cb_sim::catalog::ZoneKind;
