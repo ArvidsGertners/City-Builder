@@ -40,7 +40,7 @@ pub struct FocusFog {
 /// World material extension.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 pub struct WorldExt {
-    /// Per-object parameters (rgb tint).
+    /// Per-object parameters ([`ObjectSlots`]).
     #[storage(100, read_only, visibility(vertex, fragment))]
     pub slots: Handle<ShaderBuffer>,
     /// Fog.
@@ -142,6 +142,112 @@ pub struct WorldMaterials {
     pub terrain: Handle<TerrainMaterial>,
     /// Water.
     pub water: Handle<WaterMaterial>,
+    /// Per-object parameter buffer of the world material.
+    pub slots: Handle<ShaderBuffer>,
+}
+
+/// Condition codes in the per-object parameters (world shader, `slots[2k].w`).
+pub mod condition_code {
+    /// In use.
+    pub const ACTIVE: f32 = 0.0;
+    /// Run down.
+    pub const DECLINING: f32 = 1.0;
+    /// Boarded up.
+    pub const ABANDONED: f32 = 2.0;
+    /// Ruin.
+    pub const RUINED: f32 = 3.0;
+}
+
+/// Reveal height meaning "nothing clipped".
+pub const NO_REVEAL_Y: f32 = 1.0e9;
+
+/// Per-object shader parameters (ADR-0049): slot `k` is `slots[2k]` = (tint rgb, condition code)
+/// and `slots[2k + 1]` = (reveal height, -, -, -). The vertex shader clamps world height to the
+/// reveal height (construction), so a condition or progress change never rebuilds a mesh.
+/// Slot 0 is neutral and shared by objects without parameters.
+#[derive(Resource, Debug)]
+pub struct ObjectSlots {
+    data: Vec<[f32; 4]>,
+    free: Vec<u16>,
+    dirty: bool,
+    /// Parameter writes since start (tests count these against mesh builds).
+    pub writes: u64,
+}
+
+impl Default for ObjectSlots {
+    fn default() -> Self {
+        Self {
+            data: vec![
+                [1.0, 1.0, 1.0, condition_code::ACTIVE],
+                [NO_REVEAL_Y, 0.0, 0.0, 0.0],
+            ],
+            free: Vec::new(),
+            dirty: true,
+            writes: 0,
+        }
+    }
+}
+
+impl ObjectSlots {
+    /// A fresh neutral slot (0 when the 16-bit space is exhausted).
+    pub fn alloc(&mut self) -> u16 {
+        let k = match self.free.pop() {
+            Some(k) => k,
+            None => {
+                let n = self.data.len() / 2;
+                let Ok(k) = u16::try_from(n) else { return 0 };
+                self.data.extend([[0.0; 4]; 2]);
+                k
+            }
+        };
+        self.set(k, condition_code::ACTIVE, NO_REVEAL_Y);
+        k
+    }
+
+    /// Returns a slot to the pool.
+    pub fn release(&mut self, k: u16) {
+        if k != 0 && !self.free.contains(&k) {
+            self.free.push(k);
+        }
+    }
+
+    /// Sets a slot's condition code and reveal height.
+    pub fn set(&mut self, k: u16, condition: f32, reveal_y: f32) {
+        if k == 0 {
+            return;
+        }
+        let i = usize::from(k) * 2;
+        let (a, b) = ([1.0, 1.0, 1.0, condition], [reveal_y, 0.0, 0.0, 0.0]);
+        if self.data[i] != a || self.data[i + 1] != b {
+            self.data[i] = a;
+            self.data[i + 1] = b;
+            self.dirty = true;
+            self.writes += 1;
+        }
+    }
+
+    /// Current parameters of a slot.
+    #[must_use]
+    pub fn get(&self, k: u16) -> ([f32; 4], [f32; 4]) {
+        let i = usize::from(k) * 2;
+        (self.data[i], self.data[i + 1])
+    }
+}
+
+/// Uploads the parameter buffer when it changed.
+fn upload_slots(
+    mut slots: ResMut<ObjectSlots>,
+    handles: Option<Res<WorldMaterials>>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
+) {
+    let Some(h) = handles else { return };
+    if !slots.dirty {
+        return;
+    }
+    if let Some(mut b) = buffers.get_mut(&h.slots) {
+        *b = ShaderBuffer::from(slots.data.clone());
+        slots.dirty = false;
+    }
 }
 
 /// Current fog parameters (written by lighting and the camera, copied into the materials).
@@ -216,8 +322,9 @@ impl Plugin for WorldRenderPlugin {
             MaterialPlugin::<WaterMaterial>::default(),
         ))
         .init_resource::<FogState>()
+        .init_resource::<ObjectSlots>()
         .add_systems(Startup, create_materials)
-        .add_systems(PostUpdate, sync_fog)
+        .add_systems(PostUpdate, (sync_fog, upload_slots))
         .add_plugins(lighting::LightingPlugin);
     }
 }
@@ -234,8 +341,8 @@ fn create_materials(
     mut water: ResMut<Assets<WaterMaterial>>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
 ) {
-    // Slot 0 = neutral; per-object slots (selection, condition) arrive with the slot allocator.
-    let slots = buffers.add(ShaderBuffer::from(vec![[1.0f32, 1.0, 1.0, 1.0]; 1]));
+    // Slot 0 = neutral; `ObjectSlots` fills the rest.
+    let slots = buffers.add(ShaderBuffer::from(ObjectSlots::default().data));
     let fog = FocusFog::default();
     let base = |rough: f32| StandardMaterial {
         base_color: Color::WHITE,
@@ -244,7 +351,10 @@ fn create_materials(
     };
     let w = world.add(WorldMaterial {
         base: base(0.9),
-        extension: WorldExt { slots, fog },
+        extension: WorldExt {
+            slots: slots.clone(),
+            fog,
+        },
     });
     let t = terrain.add(TerrainMaterial {
         base: base(0.95),
@@ -271,6 +381,7 @@ fn create_materials(
         world: w,
         terrain: t,
         water: wa,
+        slots,
     });
 }
 

@@ -19,11 +19,18 @@ struct WorldVertex {
     @location(8) packed: u32,
 };
 
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<storage, read> slots: array<vec4<f32>>;
+
 @vertex
 fn vertex(v: WorldVertex) -> VertexOutput {
     var out: VertexOutput;
     let world_from_local = mesh_functions::get_world_from_local(v.instance_index);
-    out.world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4(v.position, 1.0));
+    let n_slots = arrayLength(&slots) / 2u;
+    let slot = min(v.packed & 0xffffu, n_slots - 1u);
+    var wp = mesh_functions::mesh_position_local_to_world(world_from_local, vec4(v.position, 1.0));
+    // Same construction clamp as the main pass, so depth and shadows match.
+    wp.y = min(wp.y, slots[slot * 2u + 1u].x);
+    out.world_position = wp;
     out.position = position_world_to_clip(out.world_position.xyz);
 @if(UNCLIPPED_DEPTH_ORTHO_EMULATION) {
     out.unclipped_depth = out.position.z;

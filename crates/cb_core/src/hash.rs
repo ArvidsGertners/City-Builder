@@ -38,6 +38,7 @@ pub enum Domain {
     Immigration = 16,
     Lifecycle = 17,
     OutsideConnection = 18,
+    Prop = 19,
     Test = 0xFFFF,
 }
 

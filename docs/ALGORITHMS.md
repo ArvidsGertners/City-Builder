@@ -384,6 +384,34 @@ Performance (S-P, container CPU): subdivision + fit p50 0.30 ms, p99 1.63 ms per
 12. **Determinism**: bit-identical output for the same input and seed on all platforms
     (portable math, ADR-0043), golden-hash tests.
 
+**Zoned typologies (M4)** — `building::zoned::layout(zone, level, LotShape, seed)`: R L1–L3
+houses on the fitted rectangle; R L4–L5 and C L1–L3 blocks on the setback inset cut to a depth
+band, intersected with the lot and tidied inward to ≤ 12 vertices, tiers stepping back on upper
+floors, party walls (no windows) where the gap to the lot line is < 0.3 m, protrusions (awnings,
+balconies, canopies) only where they stay inside the lot; I L1–L3 halls on the `RectSpec::HALL`
+rectangle (gable workshop, sawtooth factory, flat plant with tanks, silos, stacks). Budgets: house
+1 200, block 3 000, industrial 3 200 LOD0 triangles.
+
+**Civic set A (M4)** — `building::civic::layout(kind, frame, seed)` on fixed parcels
+(`CivicKind::parcel_m`; front edge on the road edge, mirrored along the road by the seed):
+police (slim 4-storey block, garage wing, radio mast), fire (low flat apparatus bay with three
+doors, office wing, 21 m hose tower), clinic (pavilion, 3-storey ward block, canopy, cross sign),
+elementary school (hipped L with cupola, low gym, sports field), town hall (U plan, clock tower
+with spire, plaza), diesel generator (stacks, lying tank, fence), coal plant (boiler house,
+turbine hall, tapered chimney, two cooling towers, coal heap, conveyor), water pump (pump house,
+tank, intake pipe), sewage outlet (hut, basin, outfall), landfill (terraced mound, weighbridge).
+Volumes are `Mass`es; LOD1 is the masses alone. The whole parcel is levelled (pad, or a terrace on
+a plinth up to `max(2.5 m, 4 % × parcel length)`). Silhouettes are tested: LOD1 masks seen from
+4 yaws at 30° pitch, 128², mean IoU ≤ 0.6 between kinds and against every zoned typology
+generated on the same parcel. Budgets 3 500 (school, town hall, coal plant: 6 000).
+
+**Condition (M4)** — per-object shader parameters (`ObjectSlots`, ADR-0049): condition code
+(declining desaturates and darkens, abandoned more so with boarded windows) and a reveal height:
+the vertex shader clamps world height to it in every pass, so construction rises without a remesh
+and shadows match. A scaffold mesh (`building::condition::scaffold`) stands around the outlines
+while constructing; `Ruined` swaps the mesh for `building::condition::ruin` (jagged wall stubs,
+rubble heaps).
+
 Vehicles: parametric profiles (hatchback, sedan, van, pickup, SUV, truck variants, fire truck,
 ambulance, police, garbage truck, bus 12 m, tram 3 sections), 8-sided wheels, emissive light
 faces, color index via `MeshTag`.

@@ -57,6 +57,17 @@ pub struct PadStamp {
 /// from ground heights `h`. `None` if the slope is too steep or stilts are not allowed.
 #[must_use]
 pub fn plan(outline: &[Vec2], samples: &[f32], allow_stilts: bool) -> Option<Foundation> {
+    plan_with(outline, samples, allow_stilts, PLINTH_MAX_DH_M)
+}
+
+/// Like [`plan`] with a custom plinth limit (large civic parcels level a terrace).
+#[must_use]
+pub fn plan_with(
+    outline: &[Vec2],
+    samples: &[f32],
+    allow_stilts: bool,
+    plinth_max_dh_m: f32,
+) -> Option<Foundation> {
     if samples.is_empty() {
         return None;
     }
@@ -79,7 +90,7 @@ pub fn plan(outline: &[Vec2], samples: &[f32], allow_stilts: bool) -> Option<Fou
             ground_min: lo,
             pad: Some(pad(t, 3.0)),
         })
-    } else if dh < PLINTH_MAX_DH_M {
+    } else if dh < plinth_max_dh_m {
         let t = cm(mean);
         Some(Foundation {
             kind: FoundationKind::Plinth,

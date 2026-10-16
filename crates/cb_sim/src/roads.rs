@@ -1793,23 +1793,16 @@ fn plan_set_type(
             let Some(b) = world.get::<crate::buildings::Building>(e) else {
                 continue;
             };
-            let f = b.footprint();
-            let c = (f[0] + f[1] + f[2] + f[3]) * 0.25;
-            let probes = [
-                f[0],
-                f[1],
-                f[2],
-                f[3],
-                (f[0] + f[1]) * 0.5,
-                (f[1] + f[2]) * 0.5,
-                (f[2] + f[3]) * 0.5,
-                (f[3] + f[0]) * 0.5,
-                c,
-            ];
-            if probes
-                .iter()
-                .any(|q| cb_geometry::polygon::contains(&geom.corridor, *q))
-            {
+            // Corners, edge midpoints and centres of every ground volume.
+            let hit = b.outlines().iter().any(|o| {
+                let n = o.len();
+                let c = o.iter().copied().sum::<Vec2>() / n.max(1) as f32;
+                (0..n)
+                    .flat_map(|k| [o[k], (o[k] + o[(k + 1) % n]) * 0.5])
+                    .chain([c])
+                    .any(|q| cb_geometry::polygon::contains(&geom.corridor, q))
+            });
+            if hit {
                 demolished.push(bid);
             }
         }

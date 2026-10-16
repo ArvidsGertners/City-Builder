@@ -16,6 +16,7 @@ pub mod hash;
 pub mod history;
 pub mod ids;
 pub mod lanes;
+pub mod props;
 pub mod roads;
 pub mod save;
 pub mod schedule;
@@ -98,6 +99,7 @@ impl Plugin for WorldStatePlugin {
             .add_message::<terrain::TerrainChanged>()
             .add_message::<zoning::ZoningChanged>()
             .add_message::<buildings::BuildingChanged>()
+            .add_message::<props::PropChanged>()
             .add_systems(SimEdit, commands::apply_commands.in_set(EditSet::Commands))
             .add_systems(SimEdit, lanes::patch_lanes.in_set(EditSet::Lanes))
             .add_systems(SimEdit, zoning::update_dirty_plots.in_set(EditSet::Zoning))

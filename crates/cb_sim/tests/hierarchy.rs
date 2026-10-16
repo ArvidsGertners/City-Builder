@@ -216,7 +216,7 @@ fn upgrade_clips_plots_and_prices_demolition() {
     // No remaining building pokes into the corridor.
     for (_, e) in ids.buildings.iter() {
         let b = s.world().get::<Building>(e).unwrap();
-        assert!(b.footprint().iter().all(|c| c.y > 11.0 - 0.05));
+        assert!(b.outlines().iter().flatten().all(|c| c.y > 11.0 - 0.05));
     }
     eprintln!(
         "houses {houses_before} → {}, demolished {}",

@@ -33,6 +33,11 @@ use crate::camera::{PointerOverUi, ToolOwnsDrag};
 use crate::l10n::Localization;
 use crate::picking::GroundPick;
 
+pub mod place;
+pub mod plot_poly;
+
+pub use place::{DecorTool, PlaceTool};
+
 /// Node snapping radius (m).
 pub const SNAP_NODE_M: f32 = 10.0;
 /// Freehand stroke sampling (m).
@@ -114,6 +119,22 @@ pub enum PlotDrag {
     },
     /// Dragging the depth handle.
     Depth(f32),
+    /// Dragging outline vertex `k` to `to`.
+    Vertex {
+        /// Vertex index in the outline.
+        k: usize,
+        /// Current position.
+        to: Vec2,
+    },
+    /// Dragging outline edge `k` (vertex k → k+1) by `to − grab`.
+    Edge {
+        /// Edge index.
+        k: usize,
+        /// Where the drag started.
+        grab: Vec2,
+        /// Current position.
+        to: Vec2,
+    },
 }
 
 /// Plot tool state.
@@ -129,6 +150,12 @@ pub struct PlotTool {
     pub selected: Option<PlotId>,
     /// Ghost of the plot being drawn or edited.
     pub preview: Option<Result<Vec<Vec2>, ValidationError>>,
+    /// Polygon mode (click vertices) instead of frontage drag.
+    pub polygon: bool,
+    /// Polygon mode: vertices placed so far.
+    pub vertices: Vec<Vec2>,
+    /// Cursor on the ground (polygon preview).
+    pub cursor: Option<Vec2>,
 }
 
 impl Default for PlotTool {
@@ -139,6 +166,9 @@ impl Default for PlotTool {
             drag: None,
             selected: None,
             preview: None,
+            polygon: false,
+            vertices: Vec::new(),
+            cursor: None,
         }
     }
 }
@@ -219,6 +249,10 @@ pub enum ActiveTool {
     RoadEdit(Box<RoadEditTool>),
     /// Plot tool.
     Plot(PlotTool),
+    /// Civic building placement.
+    Place(Box<PlaceTool>),
+    /// Decorations.
+    Decorate(DecorTool),
     /// Bulldozer.
     Bulldoze,
 }
@@ -321,10 +355,13 @@ fn tool_keys(
                 e.pending = None;
                 e.preview = None;
             }
-            ActiveTool::Plot(p) if p.drag.is_some() || p.selected.is_some() => {
+            ActiveTool::Plot(p)
+                if p.drag.is_some() || p.selected.is_some() || !p.vertices.is_empty() =>
+            {
                 p.drag = None;
                 p.selected = None;
                 p.preview = None;
+                p.vertices.clear();
             }
             _ => *tool = ActiveTool::None,
         }
@@ -368,6 +405,12 @@ fn tool_keys(
                 r.ring_preview = None;
                 r.preview = None;
             }
+            ActiveTool::Plot(p) => {
+                p.polygon = !p.polygon;
+                p.vertices.clear();
+                p.drag = None;
+                p.preview = None;
+            }
             ActiveTool::RoadEdit(e) => {
                 e.mode = match e.mode {
                     EditMode::Upgrade => EditMode::Style,
@@ -388,6 +431,10 @@ fn tool_keys(
         *tool = ActiveTool::RoadEdit(Box::default());
     } else if ch("z") {
         *tool = ActiveTool::Plot(PlotTool::default());
+    } else if ch("p") {
+        *tool = ActiveTool::Place(Box::default());
+    } else if ch("o") {
+        *tool = ActiveTool::Decorate(DecorTool::default());
     } else if ch("b") {
         *tool = ActiveTool::Bulldoze;
     } else if ch("v") {
@@ -670,17 +717,66 @@ fn tool_input(
                 .selected
                 .and_then(|id| ids.as_ref().and_then(|i| i.plots.get(id)))
                 .and_then(|e| plots.get(e).ok());
+            pt.cursor = Some(p);
+            let enter =
+                keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter);
+            if buttons.just_pressed(MouseButton::Right) && !pt.vertices.is_empty() {
+                pt.vertices.clear();
+                pt.preview = None;
+                return;
+            }
+            // Polygon mode: clicks add vertices; clicking the first vertex (or Enter) closes.
+            if pt.polygon && pt.drag.is_none() && (!pt.vertices.is_empty() || sel_plot.is_none()) {
+                let close = pt.vertices.len() >= 3
+                    && (enter
+                        || (buttons.just_pressed(MouseButton::Left)
+                            && pt.vertices[0].distance(p) < HANDLE_PICK_M));
+                if close {
+                    if matches!(pt.preview, Some(Ok(_))) {
+                        queue.push(PlayerCommand::CreatePlotPolygon {
+                            zone: pt.zone,
+                            vertices: std::mem::take(&mut pt.vertices),
+                            dn: 0,
+                        });
+                        pt.preview = None;
+                    }
+                    return;
+                }
+                if buttons.just_pressed(MouseButton::Left) && !alt {
+                    let inside = ids.as_ref().and_then(|i| {
+                        i.plots.iter().find_map(|(id, e)| {
+                            plots
+                                .get(e)
+                                .ok()
+                                .filter(|pl| cb_geometry::polygon::contains(pl.polygon(), p))
+                                .map(|_| id)
+                        })
+                    });
+                    if pt.vertices.is_empty() && inside.is_some() {
+                        pt.selected = inside;
+                    } else {
+                        pt.vertices.push(p);
+                    }
+                    return;
+                }
+            }
             if buttons.just_pressed(MouseButton::Left) && !alt {
-                // 1. Handles of the selected plot.
-                if let Some(plot) = sel_plot
-                    && let Some(h) = handles(plot)
-                {
-                    if h.start.distance(p) < HANDLE_PICK_M {
-                        pt.drag = Some(PlotDrag::End { end: 0, s: 0.0 });
-                    } else if h.end.distance(p) < HANDLE_PICK_M {
-                        pt.drag = Some(PlotDrag::End { end: 1, s: 0.0 });
-                    } else if h.depth.distance(p) < HANDLE_PICK_M {
-                        pt.drag = Some(PlotDrag::Depth(plot.depth_m()));
+                // 1. Handles of the selected plot: frontage ends and depth (frontage plots),
+                //    then outline vertices and edges (any plot).
+                if let Some(plot) = sel_plot {
+                    if plot.outline().is_empty()
+                        && let Some(h) = handles(plot)
+                    {
+                        if h.start.distance(p) < HANDLE_PICK_M {
+                            pt.drag = Some(PlotDrag::End { end: 0, s: 0.0 });
+                        } else if h.end.distance(p) < HANDLE_PICK_M {
+                            pt.drag = Some(PlotDrag::End { end: 1, s: 0.0 });
+                        } else if h.depth.distance(p) < HANDLE_PICK_M {
+                            pt.drag = Some(PlotDrag::Depth(plot.depth_m()));
+                        }
+                    }
+                    if pt.drag.is_none() {
+                        pt.drag = plot_poly::pick(&plot_poly::outline_of(plot), p);
                     }
                 }
                 if pt.drag.is_none() {
@@ -736,6 +832,7 @@ fn tool_input(
                         *dep = (plot.depth_m() + (p - h.depth).dot(h.normal)).clamp(10.0, 80.0);
                     }
                 }
+                Some(PlotDrag::Vertex { to, .. } | PlotDrag::Edge { to, .. }) => *to = p,
                 None => {}
             }
             if buttons.just_released(MouseButton::Left) {
@@ -748,6 +845,14 @@ fn tool_input(
                             depth_m: pt.depth_m,
                             dn: 0,
                         }));
+                    }
+                    Some(drag @ (PlotDrag::Vertex { .. } | PlotDrag::Edge { .. })) if ok => {
+                        if let (Some(id), Some(plot)) = (pt.selected, sel_plot) {
+                            queue.push(PlayerCommand::EditPlotPolygon {
+                                plot: id,
+                                vertices: plot_poly::apply(&plot_poly::outline_of(plot), drag),
+                            });
+                        }
                     }
                     Some(drag @ (PlotDrag::End { .. } | PlotDrag::Depth(_))) if ok => {
                         if let (Some(id), Some(plot)) = (pt.selected, sel_plot) {
@@ -763,6 +868,31 @@ fn tool_input(
                 }
                 pt.preview = None;
             }
+        }
+        ActiveTool::Place(t) => {
+            place::place_input(
+                t,
+                p,
+                buttons.just_pressed(MouseButton::Left) && !alt,
+                &mut queue,
+            );
+        }
+        ActiveTool::Decorate(t) => {
+            let step = std::f32::consts::FRAC_PI_8;
+            let turn = if keys.just_pressed(KeyCode::BracketLeft) {
+                -step
+            } else if keys.just_pressed(KeyCode::BracketRight) {
+                step
+            } else {
+                0.0
+            };
+            place::decor_input(
+                t,
+                p,
+                buttons.just_pressed(MouseButton::Left) && !alt,
+                turn,
+                &mut queue,
+            );
         }
         ActiveTool::Bulldoze => {
             if buttons.just_pressed(MouseButton::Left) && !alt && dialog.segment.is_none() {
@@ -871,7 +1001,7 @@ fn edited(plot: &Plot, drag: PlotDrag) -> (Vec<FrontageSpan>, f32) {
             }
         }
         PlotDrag::Depth(d) => depth = d,
-        PlotDrag::New(_) => {}
+        PlotDrag::New(_) | PlotDrag::Vertex { .. } | PlotDrag::Edge { .. } => {}
     }
     (spans, depth)
 }
@@ -925,12 +1055,49 @@ fn tool_preview(world: &mut World) {
                         let (spans, depth) = edited(&plot, drag);
                         cb_sim::zoning::preview_edit_plot(world, id, &spans, depth)
                     }),
+                Some(drag @ (PlotDrag::Vertex { .. } | PlotDrag::Edge { .. })) => pt
+                    .selected
+                    .and_then(|id| {
+                        let e = world.get_resource::<Ids>().and_then(|i| i.plots.get(id))?;
+                        world.get::<Plot>(e).cloned().map(|p| (id, p))
+                    })
+                    .map(|(id, plot)| {
+                        let v = plot_poly::apply(&plot_poly::outline_of(&plot), drag);
+                        cb_sim::zoning::preview_plot_polygon(world, &v, Some(id))
+                    }),
+                None if pt.polygon && !pt.vertices.is_empty() => {
+                    let mut v = pt.vertices.clone();
+                    // The cursor is the next vertex unless it is closing on the first one.
+                    if let Some(c) = pt.cursor
+                        && v[0].distance(c) >= HANDLE_PICK_M
+                    {
+                        v.push(c);
+                    }
+                    (v.len() >= 3).then(|| cb_sim::zoning::preview_plot_polygon(world, &v, None))
+                }
                 _ => None,
             };
             if let Some(mut t) = world.get_resource_mut::<ActiveTool>()
                 && let ActiveTool::Plot(p) = &mut *t
             {
                 p.preview = preview;
+            }
+        }
+        ActiveTool::Place(t) => {
+            let (preview, ghost) = place::place_preview(world, &t);
+            if let Some(mut tt) = world.get_resource_mut::<ActiveTool>()
+                && let ActiveTool::Place(x) = &mut *tt
+            {
+                x.preview = preview;
+                x.ghost = ghost;
+            }
+        }
+        ActiveTool::Decorate(t) => {
+            let preview = place::decor_preview(world, &t);
+            if let Some(mut tt) = world.get_resource_mut::<ActiveTool>()
+                && let ActiveTool::Decorate(x) = &mut *tt
+            {
+                x.preview = preview;
             }
         }
         ActiveTool::None | ActiveTool::Bulldoze => {}
@@ -1091,6 +1258,11 @@ fn draw_gizmos(
 ) {
     let ground = |q: Vec2| terrain.as_ref().map_or(0.0, |t| t.terrain().height_at(q)) + 0.4;
     let p3 = |q: Vec2| Vec3::new(q.x, ground(q), q.y);
+    match &*tool {
+        ActiveTool::Place(t) => place::place_gizmos(&mut gizmos, t, &ground),
+        ActiveTool::Decorate(t) => place::decor_gizmos(&mut gizmos, t, &ground),
+        _ => {}
+    }
     // Bulldoze dialog: highlight the plots that would go with the road.
     for pid in &dialog.plots {
         if let Some(plot) = ids
@@ -1210,10 +1382,13 @@ fn draw_gizmos(
                     gizmos.linestrip(pts, c);
                 }
             }
-            if let Some(plot) = pt
+            let sel = pt
                 .selected
                 .and_then(|id| ids.as_ref().and_then(|i| i.plots.get(id)))
-                .and_then(|e| plots.get(e).ok())
+                .and_then(|e| plots.get(e).ok());
+            let outline = sel.map(plot_poly::outline_of).unwrap_or_default();
+            plot_poly::gizmos(&mut gizmos, &outline, &pt.vertices, pt.cursor, &p3);
+            if let Some(plot) = sel.filter(|pl| pl.outline().is_empty())
                 && let Some(h) = handles(plot)
             {
                 for q in [h.start, h.end, h.depth] {
@@ -1230,7 +1405,10 @@ fn draw_gizmos(
                 gizmos.linestrip(pts, teal);
             }
         }
-        ActiveTool::None | ActiveTool::Bulldoze => {}
+        ActiveTool::None
+        | ActiveTool::Bulldoze
+        | ActiveTool::Place(_)
+        | ActiveTool::Decorate(_) => {}
     }
 }
 
@@ -1268,6 +1446,8 @@ fn toolbar_contents(
         let is_road = matches!(*tool, ActiveTool::Road(_));
         let is_edit = matches!(*tool, ActiveTool::RoadEdit(_));
         let is_plot = matches!(*tool, ActiveTool::Plot(_));
+        let is_place = matches!(*tool, ActiveTool::Place(_));
+        let is_decor = matches!(*tool, ActiveTool::Decorate(_));
         let is_bull = matches!(*tool, ActiveTool::Bulldoze);
         if ui
             .selectable_label(is_road, l.tr(keys::TOOLBAR_ROAD))
@@ -1300,6 +1480,28 @@ fn toolbar_contents(
                 ActiveTool::None
             } else {
                 ActiveTool::Plot(PlotTool::default())
+            };
+        }
+        if ui
+            .selectable_label(is_place, l.tr(keys::TOOLBAR_PLACE))
+            .on_hover_text(l.tr(keys::TOOLTIP_PLACE))
+            .clicked()
+        {
+            *tool = if is_place {
+                ActiveTool::None
+            } else {
+                ActiveTool::Place(Box::default())
+            };
+        }
+        if ui
+            .selectable_label(is_decor, l.tr(keys::TOOLBAR_DECORATE))
+            .on_hover_text(l.tr(keys::TOOLTIP_DECORATE))
+            .clicked()
+        {
+            *tool = if is_decor {
+                ActiveTool::None
+            } else {
+                ActiveTool::Decorate(DecorTool::default())
             };
         }
         if ui
@@ -1364,6 +1566,18 @@ fn toolbar_contents(
         ActiveTool::RoadEdit(e) => edit_toolbar(ui, e, l, loc),
         ActiveTool::Plot(pt) => {
             ui.horizontal(|ui| {
+                for (poly, key) in [
+                    (false, keys::PLOT_MODE_FRONTAGE),
+                    (true, keys::PLOT_MODE_POLYGON),
+                ] {
+                    if ui.selectable_label(pt.polygon == poly, l.tr(key)).clicked() {
+                        pt.polygon = poly;
+                        pt.vertices.clear();
+                        pt.drag = None;
+                        pt.preview = None;
+                    }
+                }
+                ui.separator();
                 for (z, key) in [
                     (ZoneKind::Residential, keys::ZONE_RESIDENTIAL),
                     (ZoneKind::Commercial, keys::ZONE_COMMERCIAL),
@@ -1376,6 +1590,8 @@ fn toolbar_contents(
                 }
             });
         }
+        ActiveTool::Place(t) => place::place_toolbar(ui, t, l),
+        ActiveTool::Decorate(t) => place::decor_toolbar(ui, t, l),
         ActiveTool::None | ActiveTool::Bulldoze => {}
     }
 }
@@ -1692,6 +1908,8 @@ fn toolbar_ui(
         let (radius, preview) = match &*tool {
             ActiveTool::Road(r) => (r.ring.map(|(_, rad)| rad), r.ring_preview.as_ref()),
             ActiveTool::RoadEdit(e) => (None, e.preview.as_ref()),
+            ActiveTool::Place(t) => (None, t.preview.as_ref()),
+            ActiveTool::Decorate(t) => (None, t.preview.as_ref()),
             _ => (None, None),
         };
         if radius.is_some() || preview.is_some() {

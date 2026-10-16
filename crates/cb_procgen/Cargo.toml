@@ -13,6 +13,7 @@ cb_core.workspace = true
 cb_geometry.workspace = true
 cb_network.workspace = true
 glam.workspace = true
+serde.workspace = true
 
 [lints]
 workspace = true

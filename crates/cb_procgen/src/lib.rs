@@ -8,6 +8,7 @@
 
 pub mod bridge_mesh;
 pub mod building;
+pub mod decor;
 pub mod junction_mesh;
 pub mod markings_mesh;
 pub mod paint;

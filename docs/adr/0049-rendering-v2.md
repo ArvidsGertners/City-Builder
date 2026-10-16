@@ -55,3 +55,10 @@ crossfade bands double draw cost.
   ground — drives night windows, snow on roofs, season tint, wetness), bits 20–31 a per-kind id
   (window id for the night lighting pattern). Procgen meshes carry sRGB colour bytes; the game
   linearizes them with a 256-entry table when building GPU meshes.
+- 2026-10-16 (M4 condition): the per-object parameter buffer holds two `vec4`s per slot:
+  `(tint rgb, condition code)` and `(reveal height, -, -, -)`. Slots are allocated per building
+  view (`ObjectSlots`, 16-bit, slot 0 neutral) and the buffer is re-uploaded only when a value
+  changes. The vertex stage applies the condition look (declining/abandoned/ruined desaturate
+  and darken, abandoned windows boarded) and clamps world `y` to the reveal height in the main
+  pass and the prepass/shadow pass alike, so construction progress, condition and their shadows
+  change without rebuilding a mesh; only `Ruined` swaps the mesh (ruin generator).

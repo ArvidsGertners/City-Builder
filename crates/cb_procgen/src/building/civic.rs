@@ -20,7 +20,9 @@ use crate::palette::{self, Rgb, hex};
 use crate::surface::Surface;
 
 /// Civic building kinds of generator set A (set B lands with its systems, M6/M10).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum CivicKind {
     /// Police station.
     PoliceStation,
@@ -244,6 +246,23 @@ const COAL: Rgb = hex(0x2F3236);
 const GRAVEL: Rgb = hex(0xA39C8E);
 const CONCRETE: Rgb = hex(0xB8B3A8);
 
+const POLICE_MAIN: [f32; 4] = [4.0, 6.0, 13.0, 16.0];
+const POLICE_WING: [f32; 4] = [13.0, 6.0, 23.0, 13.0];
+const FIRE_BAY: [f32; 4] = [2.0, 9.0, 20.0, 22.0];
+const FIRE_OFFICE: [f32; 4] = [20.0, 9.0, 28.0, 16.0];
+const FIRE_TOWER: [f32; 4] = [22.5, 17.0, 27.5, 22.0];
+const CLINIC_PAVILION: [f32; 4] = [4.0, 10.0, 20.0, 16.0];
+const CLINIC_PAVILION_H: f32 = 3.8;
+const CLINIC_WARDS: [f32; 4] = [9.0, 11.0, 15.0, 20.0];
+const SCHOOL_MAIN: [f32; 4] = [12.0, 6.0, 38.0, 15.0];
+const SCHOOL_WING: [f32; 4] = [29.0, 15.0, 38.0, 24.0];
+const SCHOOL_GYM: [f32; 4] = [4.0, 24.0, 18.0, 36.0];
+const HALL_MAIN: [f32; 4] = [3.0, 12.0, 29.0, 19.0];
+const HALL_WING_L: [f32; 4] = [3.0, 7.0, 8.0, 12.0];
+const HALL_WING_R: [f32; 4] = [24.0, 7.0, 29.0, 12.0];
+const HALL_TOWER: [f32; 4] = [13.0, 6.0, 19.0, 12.0];
+const PUMP_HOUSE: [f32; 4] = [2.5, 4.0, 9.5, 9.5];
+
 fn block(r: [f32; 4], h: f32, wall: Rgb, top: Top, roof: Rgb) -> Mass {
     Mass::Block {
         r,
@@ -286,63 +305,30 @@ pub fn layout(kind: CivicKind, frame: Frame, seed: u64) -> CivicLayout {
     let body = body.building_variant(&mut rng);
     let masses = match kind {
         CivicKind::PoliceStation => vec![
-            // Three-storey office block, low garage wing, radio mast.
-            block([3.0, 5.0, 16.0, 17.0], 10.6, body, FLAT, FLAT_ROOF),
-            block(
-                [16.0, 6.0, 24.0, 15.0],
-                4.4,
-                body.scale(0.95),
-                FLAT,
-                FLAT_ROOF,
-            ),
+            // Slim four-storey office block, low garage wing, tall radio mast.
+            block(POLICE_MAIN, 14.0, body, FLAT, FLAT_ROOF),
+            block(POLICE_WING, 3.8, body.scale(0.95), FLAT, FLAT_ROOF),
             Mass::Mast {
-                c: Vec2::new(13.5, 14.5),
-                y0: 10.6,
-                h: 13.0,
+                c: Vec2::new(11.0, 13.5),
+                y0: 14.0,
+                h: 16.0,
                 w: 0.45,
                 col: hex(0x8A9099),
             },
         ],
         CivicKind::FireStation => vec![
-            // Apparatus hall with the gable to the street, office wing, hose tower.
-            block(
-                [2.0, 6.0, 19.0, 22.0],
-                6.2,
-                body,
-                Top::Gable {
-                    ridge_u: false,
-                    slope: 0.45,
-                },
-                hex(0x5E6670),
-            ),
-            block(
-                [19.0, 6.0, 28.0, 17.0],
-                7.0,
-                body.scale(0.93),
-                FLAT,
-                FLAT_ROOF,
-            ),
-            block(
-                [23.5, 17.0, 28.0, 21.5],
-                17.0,
-                body,
-                Top::Hip(1.1),
-                hex(0x5E6670),
-            ),
+            // Low flat apparatus bay behind a deep apron, office wing, tall hose tower.
+            block(FIRE_BAY, 5.6, body, FLAT, FLAT_ROOF),
+            block(FIRE_OFFICE, 7.0, body.scale(0.93), FLAT, FLAT_ROOF),
+            block(FIRE_TOWER, 21.0, body, Top::Hip(1.3), hex(0x5E6670)),
         ],
         CivicKind::Clinic => vec![
-            // T plan: two-storey front wing, single-storey rear wing; the canopy and the cross
-            // sign are part of the silhouette.
-            block([2.0, 7.0, 22.0, 13.0], 7.4, body, FLAT, FLAT_ROOF),
-            block(
-                [8.0, 13.0, 16.0, 20.0],
-                4.0,
-                body.scale(0.97),
-                FLAT,
-                FLAT_ROOF,
-            ),
+            // Single-storey pavilion with a slim three-storey ward block rising from it; the
+            // cantilevered canopy and the cross sign are part of the silhouette.
+            block(CLINIC_PAVILION, CLINIC_PAVILION_H, body, FLAT, FLAT_ROOF),
+            block(CLINIC_WARDS, 14.2, body.scale(0.97), FLAT, FLAT_ROOF),
             Mass::Block {
-                r: [7.0, 1.5, 17.0, 7.0],
+                r: [7.5, 4.5, 16.5, 10.0],
                 y0: 3.2,
                 h: 0.35,
                 wall: body,
@@ -351,12 +337,12 @@ pub fn layout(kind: CivicKind, frame: Frame, seed: u64) -> CivicLayout {
             },
         ],
         CivicKind::ElementarySchool => vec![
-            // L of hipped two-storey wings, gym hall behind, cupola on the main wing.
-            block([4.0, 6.0, 40.0, 16.0], 7.2, body, Top::Hip(0.55), accent),
-            block([4.0, 16.0, 14.0, 32.0], 7.2, body, Top::Hip(0.55), accent),
+            // L of hipped wings (three-storey main, two-storey side), low gym hall behind, cupola.
+            block(SCHOOL_MAIN, 10.8, body, Top::Hip(0.75), accent),
+            block(SCHOOL_WING, 7.2, body, Top::Hip(0.75), accent),
             block(
-                [19.0, 22.0, 35.0, 36.0],
-                7.6,
+                SCHOOL_GYM,
+                6.4,
                 body.scale(0.94),
                 Top::Gable {
                     ridge_u: true,
@@ -365,8 +351,8 @@ pub fn layout(kind: CivicKind, frame: Frame, seed: u64) -> CivicLayout {
                 hex(0x6F716C),
             ),
             Mass::Block {
-                r: [21.0, 10.0, 23.0, 12.0],
-                y0: 7.2 + 5.0 * 0.55,
+                r: [24.0, 9.5, 26.0, 11.5],
+                y0: 10.8 + 4.5 * 0.75,
                 h: 2.2,
                 wall: palette::WINDOW_FRAME,
                 top: Top::Hip(1.4),
@@ -374,9 +360,12 @@ pub fn layout(kind: CivicKind, frame: Frame, seed: u64) -> CivicLayout {
             },
         ],
         CivicKind::TownHall => vec![
-            // Hipped copper roof over two tall storeys; clock tower with a spire on the axis.
-            block([3.0, 8.0, 29.0, 22.0], 9.0, body, Top::Hip(0.7), accent),
-            block([13.0, 4.5, 19.0, 10.5], 19.0, body, Top::Hip(2.2), accent),
+            // U plan under hipped copper roofs: a shallow main range and two short forward
+            // wings framing the plaza; a tall clock tower with a spire on the axis.
+            block(HALL_MAIN, 8.4, body, Top::Hip(0.8), accent),
+            block(HALL_WING_L, 6.6, body, Top::Hip(0.8), accent),
+            block(HALL_WING_R, 6.6, body, Top::Hip(0.8), accent),
+            block(HALL_TOWER, 27.0, body, Top::Hip(2.6), accent),
         ],
         CivicKind::DieselGenerator => vec![
             block(
@@ -472,23 +461,23 @@ pub fn layout(kind: CivicKind, frame: Frame, seed: u64) -> CivicLayout {
         ],
         CivicKind::WaterPump => vec![
             block(
-                [2.5, 4.0, 10.0, 10.0],
-                4.0,
+                PUMP_HOUSE,
+                3.2,
                 body,
                 Top::Gable {
                     ridge_u: true,
-                    slope: 0.65,
+                    slope: 0.45,
                 },
                 hex(0x5E6670),
             ),
             Mass::Round {
-                c: Vec2::new(12.8, 9.5),
-                r0: 2.4,
-                r1: 2.4,
+                c: Vec2::new(12.6, 9.0),
+                r0: 2.2,
+                r1: 2.2,
                 y0: 0.0,
-                h: 7.5,
+                h: 11.0,
                 col: accent,
-                cap: Cap::Cone(1.0),
+                cap: Cap::Cone(1.2),
             },
         ],
         CivicKind::SewageOutlet => vec![
@@ -644,7 +633,9 @@ impl CivicLayout {
             }
         }
         let samples: Vec<f32> = pts.iter().map(|p| ground(*p)).collect();
-        foundation::plan(&self.parcel(), &samples, false)
+        // Large parcels level a terrace: the plinth limit grows with the parcel (4 % grade).
+        let max_dh = (0.04 * w.max(d)).max(foundation::PLINTH_MAX_DH_M);
+        foundation::plan_with(&self.parcel(), &samples, false, max_dh)
     }
 }
 
@@ -976,9 +967,7 @@ fn draw_mass(p: &mut Painter, fr: &Frame, fy: f32, m: &Mass, detailed: bool) {
             match top {
                 Top::Flat { parapet } => {
                     p.prism(&q, a, b, wall, Some(roof), detailed);
-                    if detailed && y0 < 0.5 {
-                        // Canopy slabs above ground get no underside otherwise.
-                    }
+                    // Canopy slabs above the ground need an underside.
                     if y0 > 0.5 {
                         let pts: Vec<Vec3> = q.iter().map(|v| Vec3::new(v.x, a, v.y)).collect();
                         p.face_ao(
@@ -1118,19 +1107,7 @@ fn draw_mass(p: &mut Painter, fr: &Frame, fy: f32, m: &Mass, detailed: bool) {
                         Vec3::new(mid.x, 0.8 * mid.length(), mid.y),
                     );
                 }
-                let next = if s + 1 < steps {
-                    [
-                        r[0] + i0 + shrink,
-                        r[1] + i0 + shrink,
-                        r[2] - i0 - shrink,
-                        r[3] - i0 - shrink,
-                    ]
-                } else {
-                    hi
-                };
-                // Terrace ring (flat) from `hi` to `next`, drawn as the full top then covered by
-                // the next step's walls.
-                let _ = next;
+                // Terrace top; the next step's walls stand on it.
                 let pts: Vec<Vec3> = qh.iter().map(|q| Vec3::new(q.x, y1, q.y)).collect();
                 p.face_ao(
                     &pts,
@@ -1220,36 +1197,36 @@ pub fn mesh(l: &CivicLayout, f: &Foundation, slot: u16) -> (MeshData, MeshData) 
 }
 
 fn police(c: &mut Ctx, l: &CivicLayout, id: &mut u32) {
-    let main = [3.0, 5.0, 16.0, 17.0];
-    c.flat([0.0, 0.0, 26.0, 5.0], 0.04, palette::PAVING, Surface::Paved);
+    let (main, wing) = (POLICE_MAIN, POLICE_WING);
+    c.flat([0.0, 0.0, 26.0, 6.0], 0.04, palette::PAVING, Surface::Paved);
     c.flat(
-        [3.0, 17.5, 25.0, 23.5],
+        [3.0, 17.0, 25.0, 23.5],
         0.04,
         palette::ASPHALT,
         Surface::Paved,
     );
     c.flat(
-        [16.0, 15.0, 24.0, 17.5],
+        [13.0, 13.0, 25.0, 17.0],
         0.04,
         palette::ASPHALT,
         Surface::Paved,
     );
-    c.windows(main, 3, 3.5, 2.6, (1.3, 1.5), 1.0, &[], id);
-    // Signature: blue band between the ground and first floor, and a blue entrance canopy.
+    c.windows(main, 4, 3.5, 2.6, (1.3, 1.5), 1.0, &[], id);
+    // Signature: blue bands above the ground floor and on the wing, blue entrance canopy.
     c.band(main, 3.15, 3.75, l.accent);
-    c.band([16.0, 6.0, 24.0, 15.0], 3.6, 4.4, l.accent);
-    c.door(5.0, 7.5, 2.0, 2.4, l.accent.scale(0.8));
-    c.bx([5.5, 3.2, 9.5, 5.0], 2.9, 3.15, l.accent);
-    for u in [5.7, 9.3] {
+    c.band(wing, 3.0, 3.8, l.accent);
+    c.door(6.0, 7.0, 2.0, 2.4, l.accent.scale(0.8));
+    c.bx([5.0, 4.2, 9.0, 6.0], 2.9, 3.15, l.accent);
+    for u in [5.2, 8.8] {
         c.bx(
-            [u - 0.1, 3.3, u + 0.1, 3.5],
+            [u - 0.1, 4.3, u + 0.1, 4.5],
             -FLOOR_ABOVE_PAD_M,
             2.9,
             palette::LAMP_METAL,
         );
     }
     // Garage doors of the wing.
-    for u in [18.0, 22.0] {
+    for u in [16.0, 20.0] {
         c.panel_v(
             6.0,
             -1.0,
@@ -1261,7 +1238,7 @@ fn police(c: &mut Ctx, l: &CivicLayout, id: &mut u32) {
         );
     }
     // Parking with stall lines and patrol cars.
-    for k in 0..7 {
+    for k in 0..8 {
         let u = 4.0 + 3.0 * k as f32;
         c.flat(
             [u - 0.06, 18.0, u + 0.06, 22.5],
@@ -1278,32 +1255,34 @@ fn police(c: &mut Ctx, l: &CivicLayout, id: &mut u32) {
 }
 
 fn fire(c: &mut Ctx, l: &CivicLayout, id: &mut u32) {
-    c.flat([0.0, 0.0, 30.0, 6.0], 0.04, CONCRETE, Surface::Paved);
-    c.flat([19.0, 17.0, 23.5, 27.0], 0.04, CONCRETE, Surface::Paved);
-    // Three tall apparatus doors with panel lines.
+    let (bay, office, tower) = (FIRE_BAY, FIRE_OFFICE, FIRE_TOWER);
+    c.flat([0.0, 0.0, 30.0, 9.0], 0.04, CONCRETE, Surface::Paved);
+    c.flat([20.0, 16.0, 30.0, 27.0], 0.04, CONCRETE, Surface::Paved);
+    // Three tall apparatus doors with panel lines and a glazed top row.
     for k in 0..3 {
-        let u = 2.0 + 17.0 * (k as f32 + 0.5) / 3.0;
+        let u = bay[0] + (bay[2] - bay[0]) * (k as f32 + 0.5) / 3.0;
+        let v = bay[1];
         c.panel_v(
-            6.0,
+            v,
             -1.0,
             [u - 2.45, u + 2.45],
-            [0.0, 4.95],
+            [0.0, 4.65],
             palette::WINDOW_FRAME,
             Surface::Solid,
             0,
         );
         c.panel_v(
-            5.98,
+            v - 0.02,
             -1.0,
             [u - 2.3, u + 2.3],
-            [0.0, 4.8],
+            [0.0, 4.5],
             l.accent,
             Surface::Solid,
             0,
         );
-        for y in [1.2, 2.4, 3.6] {
+        for y in [1.1, 2.2, 3.3] {
             c.panel_v(
-                5.96,
+                v - 0.04,
                 -1.0,
                 [u - 2.3, u + 2.3],
                 [y, y + 0.08],
@@ -1314,44 +1293,36 @@ fn fire(c: &mut Ctx, l: &CivicLayout, id: &mut u32) {
         }
         *id += 1;
         c.panel_v(
-            5.96,
+            v - 0.04,
             -1.0,
             [u - 1.9, u + 1.9],
-            [3.9, 4.5],
+            [3.6, 4.2],
             palette::GLASS,
             Surface::Window,
             *id,
         );
     }
-    c.windows(
-        [19.0, 6.0, 28.0, 17.0],
-        2,
-        3.5,
-        2.8,
-        (1.2, 1.4),
-        1.0,
-        &[3],
-        id,
-    );
-    c.door(6.0, 25.5, 1.4, 2.3, l.accent);
-    // Hose tower slit windows.
+    c.windows(office, 2, 3.5, 2.8, (1.2, 1.4), 1.0, &[3], id);
+    c.door(office[1], 26.0, 1.4, 2.3, l.accent);
+    c.band(bay, 4.9, 5.4, palette::WINDOW_FRAME);
+    // Hose tower: slit windows up the front, a white band under the cap.
     for y in [6.0, 10.0, 14.0] {
         *id += 1;
         c.panel_v(
-            17.0,
+            tower[1],
             -1.0,
-            [25.3, 26.2],
-            [y, y + 1.6],
+            [24.5, 25.5],
+            [y, y + 1.8],
             palette::GLASS,
             Surface::Window,
             *id,
         );
     }
-    // White band under the hall's gable and a parked engine on the apron.
-    c.band([2.0, 6.0, 19.0, 22.0], 5.4, 5.9, palette::WINDOW_FRAME);
+    c.band(tower, 19.6, 20.3, palette::WINDOW_FRAME);
+    // A parked engine on the apron.
     c.vehicle(
-        7.7,
-        3.0,
+        8.0,
+        4.4,
         7.5,
         2.4,
         2.9,
@@ -1359,273 +1330,234 @@ fn fire(c: &mut Ctx, l: &CivicLayout, id: &mut u32) {
         hex(0xC0453A).scale(1.1),
         false,
     );
-    c.flagpole(29.0, 1.0, hex(0xC0453A));
+    c.flagpole(28.0, 1.0, hex(0xC0453A));
 }
 
 fn clinic(c: &mut Ctx, l: &CivicLayout, id: &mut u32) {
-    c.flat([0.0, 0.0, 24.0, 7.0], 0.04, palette::PAVING, Surface::Paved);
+    let (pav, wards) = (CLINIC_PAVILION, CLINIC_WARDS);
     c.flat(
-        [16.0, 13.0, 23.0, 21.0],
+        [0.0, 0.0, 24.0, 10.0],
+        0.04,
+        palette::PAVING,
+        Surface::Paved,
+    );
+    c.flat(
+        [20.3, 14.5, 23.5, 21.5],
         0.04,
         palette::ASPHALT,
         Surface::Paved,
     );
-    // Wide window bands (glass ribbon per floor) on the front wing.
-    let front = [2.0, 7.0, 22.0, 13.0];
-    for f in 0..2 {
-        let y = 0.9 + 3.6 * f as f32;
+    // Glass ribbons on the pavilion, punched windows on the ward block.
+    for (a, b) in [(4.6, 8.4), (15.6, 19.4)] {
         *id += 1;
         c.panel_v(
-            7.0,
+            pav[1],
             -1.0,
-            [2.6, 6.6],
-            [y, y + 1.6],
+            [a, b],
+            [0.8, 2.6],
             palette::GLASS,
             Surface::Window,
             *id,
         );
         *id += 1;
         c.panel_v(
-            7.0,
-            -1.0,
-            [17.4, 21.4],
-            [y, y + 1.6],
-            palette::GLASS,
-            Surface::Window,
-            *id,
-        );
-        *id += 1;
-        c.panel_v(
-            13.0,
+            pav[3],
             1.0,
-            [2.6, 21.4],
-            [y, y + 1.6],
+            [a, b],
+            [0.8, 2.6],
             palette::GLASS,
             Surface::Window,
             *id,
         );
     }
+    for f in 0..3 {
+        let y = CLINIC_PAVILION_H + 0.9 + 3.4 * f as f32;
+        *id += 1;
+        c.panel_v(
+            wards[1],
+            -1.0,
+            [9.6, 14.4],
+            [y, y + 1.6],
+            palette::GLASS,
+            Surface::Window,
+            *id,
+        );
+        *id += 1;
+        c.panel_v(
+            wards[3],
+            1.0,
+            [9.6, 14.4],
+            [y, y + 1.6],
+            palette::GLASS,
+            Surface::Window,
+            *id,
+        );
+        for (u, out) in [(wards[0], -1.0f32), (wards[2], 1.0)] {
+            *id += 1;
+            c.panel_u(
+                u,
+                out,
+                [12.0, 19.0],
+                [y, y + 1.6],
+                palette::GLASS,
+                Surface::Window,
+                *id,
+            );
+        }
+    }
+    // Glass entrance under the canopy, canopy posts.
     *id += 1;
     c.panel_v(
-        7.0,
+        pav[1],
         -1.0,
-        [8.0, 16.0],
-        [3.9, 6.6],
-        palette::GLASS,
-        Surface::Window,
-        *id,
-    );
-    c.windows(
-        [8.0, 13.0, 16.0, 20.0],
-        1,
-        3.6,
-        2.6,
-        (1.2, 1.4),
-        1.0,
-        &[0],
-        id,
-    );
-    // Glass entrance under the canopy.
-    *id += 1;
-    c.panel_v(
-        7.0,
-        -1.0,
-        [9.5, 14.5],
+        [9.8, 14.2],
         [0.0, 2.8],
         palette::GLASS,
         Surface::Window,
         *id,
     );
-    for u in [7.4, 16.6] {
+    for u in [7.9, 16.1] {
         c.bx(
-            [u - 0.12, 1.8, u + 0.12, 2.04],
+            [u - 0.12, 4.8, u + 0.12, 5.04],
             -FLOOR_ABOVE_PAD_M,
             3.2,
             palette::WINDOW_FRAME,
         );
     }
-    // Signature: green cross on a white panel above the roof line.
-    c.bx([10.4, 7.2, 13.6, 7.5], 7.4, 10.6, palette::WINDOW_FRAME);
+    // Signature: green cross on a white panel on top of the ward block's front.
+    c.bx([10.4, 11.2, 13.6, 11.5], 14.2, 17.4, palette::WINDOW_FRAME);
     c.panel_v(
-        7.2,
+        11.2,
         -1.0,
         [11.5, 12.5],
-        [7.7, 10.3],
+        [14.5, 17.1],
         l.accent,
         Surface::Solid,
         0,
     );
     c.panel_v(
-        7.2,
+        11.2,
         -1.0,
         [10.7, 13.3],
-        [8.5, 9.5],
+        [15.3, 16.3],
         l.accent,
         Surface::Solid,
         0,
     );
-    c.band(front, 7.0, 7.4, l.accent);
-    // Rooftop units and an ambulance.
-    c.bx([4.0, 9.0, 6.0, 11.0], 7.4, 8.4, hex(0xB8BEC6));
-    c.bx([18.0, 9.0, 20.0, 11.0], 7.4, 8.4, hex(0xB8BEC6));
-    c.vehicle(19.5, 16.5, 5.6, 2.1, 2.4, hex(0xF2F0EB), l.accent, false);
+    c.band(pav, 3.4, 3.8, l.accent);
+    // Rooftop units on the pavilion and an ambulance.
+    c.bx([5.0, 12.0, 7.0, 14.0], 3.8, 4.7, hex(0xB8BEC6));
+    c.bx([17.0, 12.0, 19.0, 14.0], 3.8, 4.7, hex(0xB8BEC6));
+    c.vehicle(21.9, 18.0, 5.6, 2.1, 2.4, hex(0xF2F0EB), l.accent, false);
 }
 
 fn school(c: &mut Ctx, l: &CivicLayout, id: &mut u32) {
+    let (main, wing, gym) = (SCHOOL_MAIN, SCHOOL_WING, SCHOOL_GYM);
     c.flat([0.0, 0.0, 48.0, 6.0], 0.04, palette::PAVING, Surface::Paved);
     c.flat(
-        [14.0, 16.0, 37.0, 39.0],
+        [4.0, 15.0, 29.0, 39.0],
         0.04,
         palette::PAVING,
         Surface::Paved,
     );
     // Sports field with white lines.
-    let field = [38.0, 18.0, 47.0, 39.0];
+    let field = [39.0, 18.0, 47.0, 39.0];
     c.flat(field, 0.05, palette::GRASS[2], Surface::Foliage);
-    let t = 0.08;
+    let (t, m) = (0.08, 0.5);
+    let [f0, f1, f2, f3] = field;
     for r in [
-        [
-            field[0] + 0.5,
-            field[1] + 0.5,
-            field[2] - 0.5,
-            field[1] + 0.5 + t,
-        ],
-        [
-            field[0] + 0.5,
-            field[3] - 0.5 - t,
-            field[2] - 0.5,
-            field[3] - 0.5,
-        ],
-        [
-            field[0] + 0.5,
-            field[1] + 0.5,
-            field[0] + 0.5 + t,
-            field[3] - 0.5,
-        ],
-        [
-            field[2] - 0.5 - t,
-            field[1] + 0.5,
-            field[2] - 0.5,
-            field[3] - 0.5,
-        ],
-        [
-            field[0] + 0.5,
-            28.5 - 0.5 * t,
-            field[2] - 0.5,
-            28.5 + 0.5 * t,
-        ],
+        [f0 + m, f1 + m, f2 - m, f1 + m + t],
+        [f0 + m, f3 - m - t, f2 - m, f3 - m],
+        [f0 + m, f1 + m, f0 + m + t, f3 - m],
+        [f2 - m - t, f1 + m, f2 - m, f3 - m],
+        [f0 + m, 28.5 - 0.5 * t, f2 - m, 28.5 + 0.5 * t],
     ] {
         c.flat(r, 0.07, palette::MARKING, Surface::Marking);
     }
-    c.windows(
-        [4.0, 6.0, 40.0, 16.0],
-        2,
-        3.6,
-        3.0,
-        (1.6, 1.7),
-        0.9,
-        &[],
-        id,
-    );
-    c.windows(
-        [4.0, 16.0, 14.0, 32.0],
-        2,
-        3.6,
-        3.0,
-        (1.6, 1.7),
-        0.9,
-        &[0, 1],
-        id,
-    );
-    c.windows(
-        [19.0, 22.0, 35.0, 36.0],
-        1,
-        7.6,
-        3.2,
-        (2.2, 1.4),
-        5.4,
-        &[],
-        id,
-    );
-    // Entrance: steps and a framed double door on the axis.
+    c.windows(main, 3, 3.6, 3.0, (1.6, 1.7), 0.9, &[], id);
+    c.windows(wing, 2, 3.6, 3.0, (1.6, 1.7), 0.9, &[0, 3], id);
+    c.windows(gym, 1, 6.4, 3.2, (2.2, 1.2), 4.6, &[], id);
+    // Entrance: steps and a framed double door on the axis, a name band above it.
     c.bx(
-        [19.5, 4.4, 24.5, 6.0],
+        [22.5, 4.4, 27.5, 6.0],
         -FLOOR_ABOVE_PAD_M,
         0.0,
         palette::STONE,
     );
-    c.door(6.0, 22.0, 2.4, 2.6, hex(0x5F7F8E));
+    c.door(main[1], 25.0, 2.4, 2.6, hex(0x5F7F8E));
     c.panel_v(
-        6.0,
+        main[1],
         -1.0,
-        [20.4, 23.6],
+        [23.4, 26.6],
         [2.8, 3.2],
         palette::WINDOW_FRAME,
         Surface::Solid,
         0,
     );
-    c.flagpole(26.0, 2.5, palette::C_SIGNS[1]);
-    // Trees along the front.
-    let _ = l;
+    c.band(main, 0.0, 0.5, l.body.scale(0.85));
+    c.flagpole(8.0, 2.5, palette::C_SIGNS[1]);
 }
 
 fn town_hall(c: &mut Ctx, l: &CivicLayout, id: &mut u32) {
-    // Plaza with cobbles in front, flower beds and two flagpoles.
+    // Plaza with cobbles between the wings, flower beds and two flagpoles.
     c.flat(
-        [0.0, 0.0, 32.0, 8.0],
+        [0.0, 0.0, 32.0, 12.0],
         0.04,
         palette::COBBLESTONE,
         Surface::Paved,
     );
     c.flat(
-        [3.0, 22.0, 29.0, 30.0],
+        [3.0, 20.0, 29.0, 29.0],
         0.04,
         palette::PAVING,
         Surface::Paved,
     );
-    for u in [4.0, 24.0] {
+    for u in [9.0, 19.5] {
         c.bx(
-            [u, 1.5, u + 4.0, 3.5],
+            [u, 1.5, u + 3.5, 3.5],
             -FLOOR_ABOVE_PAD_M,
             0.3,
             palette::STONE,
         );
         c.flat(
-            [u + 0.2, 1.7, u + 3.8, 3.3],
+            [u + 0.2, 1.7, u + 3.3, 3.3],
             0.32,
             palette::FLOWERS[1],
             Surface::Foliage,
         );
     }
-    c.flagpole(10.0, 3.0, hex(0x5872A3));
-    c.flagpole(22.0, 3.0, hex(0xD9B45A));
-    let main = [3.0, 8.0, 29.0, 22.0];
-    c.windows(main, 2, 4.5, 3.2, (1.3, 2.4), 1.0, &[], id);
-    // Cornice band and a plinth band.
-    c.band(main, 8.4, 9.0, l.body.scale(0.9));
-    c.band(main, 0.0, 0.6, l.body.scale(0.85));
-    let tower = [13.0, 4.5, 19.0, 10.5];
-    c.band(tower, 8.4, 9.0, l.body.scale(0.9));
+    c.flagpole(10.0, 6.5, hex(0x5872A3));
+    c.flagpole(22.0, 6.5, hex(0xD9B45A));
+    c.windows(HALL_MAIN, 2, 4.0, 3.2, (1.3, 2.2), 0.9, &[], id);
+    for w in [HALL_WING_L, HALL_WING_R] {
+        c.windows(w, 2, 3.3, 2.6, (1.2, 1.8), 0.8, &[2], id);
+        c.band(w, 0.0, 0.6, l.body.scale(0.85));
+    }
+    // Cornice and plinth bands.
+    c.band(HALL_MAIN, 7.9, 8.4, l.body.scale(0.9));
+    c.band(HALL_MAIN, 0.0, 0.6, l.body.scale(0.85));
+    let tower = HALL_TOWER;
+    c.band(tower, 7.9, 8.4, l.body.scale(0.9));
     // Portico: columns and steps in front of the tower; tall door.
     c.bx(
-        [12.0, 2.6, 20.0, 4.5],
+        [12.0, 4.1, 20.0, 6.0],
         -FLOOR_ABOVE_PAD_M,
         0.0,
         palette::STONE,
     );
     for k in 0..4 {
         let u = 13.4 + 1.73 * k as f32;
-        c.bx([u - 0.25, 3.6, u + 0.25, 4.1], 0.0, 4.5, l.body.scale(1.04));
+        c.bx([u - 0.25, 5.1, u + 0.25, 5.6], 0.0, 4.5, l.body.scale(1.04));
     }
-    c.bx([12.8, 3.4, 19.2, 4.5], 4.5, 5.1, l.body);
-    c.door(4.5, 16.0, 2.2, 3.4, hex(0x6E4A35));
+    c.bx([12.8, 4.9, 19.2, 6.0], 4.5, 5.1, l.body);
+    c.door(tower[1], 16.0, 2.2, 3.4, hex(0x6E4A35));
     // Clock faces near the top of the tower on all four sides.
-    for (wall, out) in [(4.5, -1.0f32), (10.5, 1.0)] {
+    for (wall, out) in [(tower[1], -1.0f32), (tower[3], 1.0)] {
         c.panel_v(
             wall,
             out,
             [14.6, 17.4],
-            [15.0, 17.8],
+            [23.5, 26.3],
             palette::WINDOW_FRAME,
             Surface::Solid,
             0,
@@ -1634,31 +1566,31 @@ fn town_hall(c: &mut Ctx, l: &CivicLayout, id: &mut u32) {
             wall + 0.02 * out,
             out,
             [15.9, 16.1],
-            [16.4, 17.5],
+            [24.9, 26.0],
             palette::LAMP_METAL,
             Surface::Solid,
             0,
         );
     }
-    for (wall, out) in [(13.0, -1.0f32), (19.0, 1.0)] {
+    for (wall, out) in [(tower[0], -1.0f32), (tower[2], 1.0)] {
         c.panel_u(
             wall,
             out,
-            [6.1, 8.9],
-            [15.0, 17.8],
+            [7.6, 10.4],
+            [23.5, 26.3],
             palette::WINDOW_FRAME,
             Surface::Solid,
             0,
         );
     }
-    for f in 0..3 {
+    for f in 0..5 {
         *id += 1;
-        let y = 10.0 + 1.6 * f as f32;
+        let y = 9.5 + 2.2 * f as f32;
         c.panel_v(
-            4.5,
+            tower[1],
             -1.0,
             [15.4, 16.6],
-            [y, y + 1.0],
+            [y, y + 1.3],
             palette::GLASS,
             Surface::Window,
             *id,
@@ -1877,28 +1809,24 @@ fn beam(c: &mut Ctx, a: Vec3, b: Vec3, w: f32, col: Rgb) {
 }
 
 fn pump(c: &mut Ctx, l: &CivicLayout, id: &mut u32) {
-    c.flat([5.0, 0.0, 8.0, 4.0], 0.04, palette::PAVING, Surface::Paved);
-    c.windows(
-        [2.5, 4.0, 10.0, 10.0],
-        1,
-        4.0,
-        2.4,
-        (1.0, 1.2),
-        1.4,
-        &[0],
-        id,
-    );
-    c.door(4.0, 6.25, 1.6, 2.4, hex(0x3E6E8E));
-    c.band([2.5, 4.0, 10.0, 10.0], 0.0, 0.5, palette::STONE);
+    let house = PUMP_HOUSE;
+    c.flat([4.5, 0.0, 7.5, 4.0], 0.04, palette::PAVING, Surface::Paved);
+    c.windows(house, 1, 3.2, 2.3, (0.9, 1.0), 1.3, &[0], id);
+    c.door(house[1], 6.0, 1.5, 2.3, hex(0x3E6E8E));
+    c.band(house, 0.0, 0.5, palette::STONE);
     // Intake pipe out past the back of the parcel into the water, with an intake head.
     let reach = l.kind.pipe_reach_m();
     let (_, d) = l.kind.parcel_m();
-    c.bx([5.9, 10.0, 6.7, d + reach], 0.1, 0.9, hex(0x5D6266));
-    c.bx([5.3, d + reach - 1.2, 7.3, d + reach], -3.0, 1.4, CONCRETE);
-    c.band([10.4, 7.1, 15.2, 11.9], 6.6, 7.0, WATER_BODY);
+    c.bx([5.6, house[3], 6.4, d + reach], 0.1, 0.9, hex(0x5D6266));
+    c.bx([5.0, d + reach - 1.2, 7.0, d + reach], -3.0, 1.4, CONCRETE);
+    // Tank: ladder and a blue band near the top.
+    let fy = c.fy;
+    let poly = ring(c.fr.at(12.6, 9.0), 2.25, ROUND_SIDES);
+    c.p.prism(&poly, fy + 9.6, fy + 10.2, WATER_BODY, None, false);
+    c.bx([12.4, 6.6, 12.8, 6.8], 0.0, 11.0, palette::LAMP_METAL);
     c.fence(
         &[
-            Vec2::new(11.0, 0.5),
+            Vec2::new(10.0, 0.5),
             Vec2::new(15.5, 0.5),
             Vec2::new(15.5, 13.5),
             Vec2::new(0.5, 13.5),

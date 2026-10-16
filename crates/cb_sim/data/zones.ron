@@ -1,8 +1,11 @@
 // Zone parameters (GAME_DESIGN §4, ADR-0064). Lengths in metres, areas in m².
+// `level_min_area_m2[k]`: smallest lot that may hold level k + 1 (entries past `max_level` unused).
 (
     zones: {
-        Residential: (w_min: 10.0, w_target: 13.0, w_max: 18.0, d_max: 45.0, a_min: 120.0, setback: (3.0, 1.5, 4.0), default_depth_m: 30.0),
-        Commercial: (w_min: 14.0, w_target: 20.0, w_max: 30.0, d_max: 50.0, a_min: 200.0, setback: (1.0, 0.0, 2.0), default_depth_m: 35.0),
-        Industrial: (w_min: 24.0, w_target: 36.0, w_max: 60.0, d_max: 80.0, a_min: 600.0, setback: (4.0, 2.0, 4.0), default_depth_m: 50.0),
+        Residential: (w_min: 10.0, w_target: 13.0, w_max: 18.0, d_max: 45.0, a_min: 120.0, setback: (3.0, 1.5, 4.0), default_depth_m: 30.0, max_level: 5, level_min_area_m2: (0.0, 0.0, 0.0, 400.0, 700.0)),
+        Commercial: (w_min: 14.0, w_target: 20.0, w_max: 30.0, d_max: 50.0, a_min: 200.0, setback: (1.0, 0.0, 2.0), default_depth_m: 35.0, max_level: 3, level_min_area_m2: (0.0, 0.0, 600.0, 0.0, 0.0)),
+        Industrial: (w_min: 24.0, w_target: 36.0, w_max: 60.0, d_max: 80.0, a_min: 600.0, setback: (4.0, 2.0, 4.0), default_depth_m: 50.0, max_level: 3, level_min_area_m2: (0.0, 0.0, 2000.0, 0.0, 0.0)),
     },
+    // Construction time (game hours): base + per level above 1.
+    construction: (base_game_h: 3.0, per_level_game_h: 2.0),
 )

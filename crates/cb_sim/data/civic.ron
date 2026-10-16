@@ -1,0 +1,13 @@
+// Civic buildings, generator set A (GAME_DESIGN §5–6). Money in cents; upkeep per game day.
+(
+    police_station: (cost_cents: 900000, upkeep_cents_per_day: 60000),
+    fire_station: (cost_cents: 1000000, upkeep_cents_per_day: 65000),
+    clinic: (cost_cents: 800000, upkeep_cents_per_day: 55000),
+    elementary_school: (cost_cents: 1000000, upkeep_cents_per_day: 50000),
+    town_hall: (cost_cents: 0, upkeep_cents_per_day: 20000),
+    diesel_generator: (cost_cents: 400000, upkeep_cents_per_day: 30000),
+    coal_plant: (cost_cents: 3000000, upkeep_cents_per_day: 160000),
+    water_pump: (cost_cents: 350000, upkeep_cents_per_day: 20000),
+    sewage_outlet: (cost_cents: 250000, upkeep_cents_per_day: 12000),
+    landfill: (cost_cents: 600000, upkeep_cents_per_day: 35000),
+)

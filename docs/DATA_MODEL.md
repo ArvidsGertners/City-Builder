@@ -210,11 +210,14 @@ struct ConflictZone { node: NodeId, connectors: SmallVec<[ConnectorId; 4]>, cent
     level: u8, seed: u64,                  // zoned: derive_seed(world, Building, lot_id, level, regrowth); others: building_id
     placement: Placement { origin: Vec3, yaw: f32 },     // free placement for non-zoned; lot frame for zoned
     footprint: Footprint,                  // massing modules (OBBs) or polygon; from cb_procgen::massing
+                                           // M4: `site: Site` (Zoned{lot polygon, inset, front, footprint,
+                                           // edges} | Civic(parcel frame)) + cached ground `outlines`
     height_m: f32,
     built_tick: u64,
 }
-#[derive(Component)] enum Condition { Constructing{progress: f32}, Active, Declining{since: GameTime},
-                                      Abandoned{since: GameTime}, Burning{intensity: f32, since: GameTime}, Ruined }
+// M4: condition lives on `Building` (snapshot/undo carry it; changes send BuildingChanged::Condition,
+// which updates shader parameters without a remesh). `since`/Burning arrive with M5/M10.
+enum Condition { Constructing{start_tick: u64, duration_ticks: u64}, Active, Declining, Abandoned, Ruined }
 #[derive(Component)] struct Residential { capacity_households: u16, households: SmallVec<[HouseholdId; 8]> }
 #[derive(Component)] struct Workplace   { jobs: [u16; 3] /* by edu level */, filled: [u16; 3], sector: Sector }
 #[derive(Component)] struct Commercial  { goods_stock: f32, goods_capacity: f32, daily_customers: u32,

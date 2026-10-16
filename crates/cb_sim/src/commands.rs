@@ -7,7 +7,7 @@ use bevy::ecs::message::Message;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use cb_core::Money;
-use cb_core::ids::{NodeId, PlotId, SegmentId};
+use cb_core::ids::{BuildingId, NodeId, PlotId, SegmentId};
 use cb_geometry::CubicBezier2;
 use cb_network::RoadKind;
 use glam::Vec2;
@@ -88,6 +88,26 @@ pub struct CreatePlot {
     pub dn: i8,
 }
 
+/// Debug tooling commands (ADR-0031): go through the queue and the command log like player
+/// commands so sim invariants hold and replays stay deterministic; not undoable.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum DebugCommand {
+    /// Rebuild a zoned building at another level (clamped to the lot's cap).
+    SetBuildingLevel {
+        /// The building.
+        building: BuildingId,
+        /// Target level.
+        level: u8,
+    },
+    /// Set a building's condition.
+    SetCondition {
+        /// The building.
+        building: BuildingId,
+        /// New condition.
+        condition: crate::buildings::Condition,
+    },
+}
+
 /// All player commands.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PlayerCommand {
@@ -136,8 +156,46 @@ pub enum PlayerCommand {
         /// (segment, node is its start, class) for custom control.
         custom: Vec<(SegmentId, bool, cb_network::control::ApproachControl)>,
     },
+    /// Place a civic building with its front on the road edge nearest to `pos` (≤ 2 m).
+    PlaceBuilding {
+        /// What to build.
+        kind: cb_procgen::building::civic::CivicKind,
+        /// Front-centre position (snapped to the road edge).
+        pos: Vec2,
+    },
+    /// Place a free decoration.
+    PlaceProp {
+        /// What.
+        kind: crate::props::DecorKind,
+        /// Where (plan position).
+        pos: Vec2,
+        /// Rotation about Y (radians).
+        yaw: f32,
+    },
+    /// Remove a placed decoration.
+    RemoveProp {
+        /// The decoration.
+        prop: cb_core::ids::PropId,
+    },
     /// Draw a plot.
     CreatePlot(CreatePlot),
+    /// Draw a plot by its outline (polygon mode): vertices within 1.5 m of a road edge snap onto
+    /// it and the road-edge edges become frontage.
+    CreatePlotPolygon {
+        /// Zone.
+        zone: ZoneKind,
+        /// Outline vertices (either winding).
+        vertices: Vec<Vec2>,
+        /// Lot count offset from automatic.
+        dn: i8,
+    },
+    /// Replace a plot's outline (vertex or edge drag); lots keep their IDs where possible.
+    EditPlotPolygon {
+        /// The plot.
+        plot: PlotId,
+        /// New outline vertices.
+        vertices: Vec<Vec2>,
+    },
     /// Change a plot's frontage and depth.
     EditPlot {
         /// The plot.
@@ -161,6 +219,8 @@ pub enum PlayerCommand {
     },
     /// Replace the simulation options (not undoable).
     SetSimConfig(SimConfig),
+    /// Debug tooling (not undoable).
+    Debug(DebugCommand),
     /// Undo the most recent undoable action (ADR-0055).
     Undo,
     /// Redo the most recently undone action.
@@ -180,11 +240,15 @@ impl PlayerCommand {
             Self::EditRoadGeometry(_) => "undo-edit-road",
             Self::SetSegmentStyle { .. } => "undo-set-segment-style",
             Self::SetApproachControl { .. } => "undo-set-control",
-            Self::CreatePlot(_) => "undo-create-plot",
+            Self::PlaceBuilding { .. } => "undo-place-building",
+            Self::PlaceProp { .. } => "undo-place-prop",
+            Self::RemoveProp { .. } => "undo-remove-prop",
+            Self::CreatePlot(_) | Self::CreatePlotPolygon { .. } => "undo-create-plot",
+            Self::EditPlotPolygon { .. } => "undo-edit-plot",
             Self::EditPlot { .. } => "undo-edit-plot",
             Self::DeletePlot { .. } => "undo-delete-plot",
             Self::SetSubdivision { .. } => "undo-set-subdivision",
-            Self::SetSimConfig(_) | Self::Undo | Self::Redo => return None,
+            Self::SetSimConfig(_) | Self::Debug(_) | Self::Undo | Self::Redo => return None,
         })
     }
 }
@@ -316,7 +380,20 @@ fn apply(world: &mut World, cmd: &PlayerCommand, tick: u64) -> Result<Money, Val
         PlayerCommand::SetApproachControl { node, mode, custom } => {
             crate::roads::set_node_control(world, *node, *mode, custom).map(|()| Money::ZERO)
         }
+        PlayerCommand::PlaceBuilding { kind, pos } => {
+            crate::buildings::place_civic(world, *kind, *pos)
+        }
+        PlayerCommand::PlaceProp { kind, pos, yaw } => {
+            crate::props::place_prop(world, *kind, *pos, *yaw)
+        }
+        PlayerCommand::RemoveProp { prop } => crate::props::remove_prop(world, *prop),
         PlayerCommand::CreatePlot(c) => crate::zoning::create_plot(world, c).map(|_| Money::ZERO),
+        PlayerCommand::CreatePlotPolygon { zone, vertices, dn } => {
+            crate::zoning::create_plot_polygon(world, *zone, vertices, *dn).map(|_| Money::ZERO)
+        }
+        PlayerCommand::EditPlotPolygon { plot, vertices } => {
+            crate::zoning::edit_plot_polygon(world, *plot, vertices).map(|()| Money::ZERO)
+        }
         PlayerCommand::EditPlot {
             plot,
             frontage,
@@ -331,6 +408,22 @@ fn apply(world: &mut World, cmd: &PlayerCommand, tick: u64) -> Result<Money, Val
         PlayerCommand::SetSimConfig(c) => {
             world.insert_resource(c.clone());
             Ok(Money::ZERO)
+        }
+        PlayerCommand::Debug(d) => {
+            let ok = match d {
+                DebugCommand::SetBuildingLevel { building, level } => {
+                    crate::buildings::set_level(world, *building, *level)
+                }
+                DebugCommand::SetCondition {
+                    building,
+                    condition,
+                } => crate::buildings::set_condition(world, *building, *condition),
+            };
+            if ok {
+                Ok(Money::ZERO)
+            } else {
+                Err(ValidationError::new("building-invalid-missing"))
+            }
         }
         PlayerCommand::Undo => crate::history::undo(world, tick),
         PlayerCommand::Redo => crate::history::redo(world, tick),
@@ -371,6 +464,12 @@ pub(crate) fn apply_commands(world: &mut World) {
 
 /// Every localization key a command can return (checked against all locales by a test).
 pub const ALL_KEYS: &[&str] = &[
+    "building-invalid-missing",
+    "building-invalid-no-road",
+    "building-invalid-overlap",
+    "building-invalid-shore",
+    "building-invalid-steep",
+    "building-invalid-water",
     "internal-id-space",
     "internal-no-catalog",
     "internal-no-result",
@@ -378,8 +477,13 @@ pub const ALL_KEYS: &[&str] = &[
     "plot-invalid-corner",
     "plot-invalid-frontage",
     "plot-invalid-missing",
+    "plot-invalid-no-frontage",
     "plot-invalid-overlap",
+    "plot-invalid-self-intersection",
     "plot-invalid-size",
+    "prop-invalid-blocked",
+    "prop-invalid-missing",
+    "prop-invalid-water",
     "redo-empty",
     "road-invalid-bridge-pier-conflict",
     "road-invalid-bridge-too-high",
@@ -404,6 +508,9 @@ pub const ALL_KEYS: &[&str] = &[
     "undo-edit-road",
     "undo-empty",
     "undo-expired",
+    "undo-place-building",
+    "undo-place-prop",
+    "undo-remove-prop",
     "undo-remove-segment",
     "undo-set-control",
     "undo-set-road-type",

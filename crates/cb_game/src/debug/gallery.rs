@@ -9,6 +9,7 @@ use cb_geometry::d2;
 use cb_geometry::frontage::{Frontage, Prim};
 use cb_geometry::rect_fit::{self, FitParams, RectSpec};
 use cb_geometry::subdivide::{ZoneParams, subdivide};
+use cb_procgen::building::civic::{self, CivicKind};
 use cb_procgen::building::zoned::{self, LotShape, Massing, Zone};
 use cb_procgen::paint::Painter;
 use cb_procgen::yard::{self, YardLot};
@@ -17,6 +18,9 @@ use cb_sim::terrain::TerrainRes;
 use crate::camera::CameraRig;
 use crate::render::{WorldMaterials, world_mesh};
 use crate::scene::{FeatureAnchor, NoDemoTown, SceneAnchor, SceneFeatures};
+
+/// Depth of the civic lineup row including its street and gap (m).
+const CIVIC_ROW_DEPTH_M: f64 = 110.0;
 
 /// Gallery plugin (replaces the demo town).
 pub struct GalleryPlugin;
@@ -117,15 +121,82 @@ fn build_gallery(world: &mut World) {
     let Some(mats) = world.get_resource::<WorldMaterials>().cloned() else {
         return;
     };
-    let site = crate::scene::find_site(&terrain, 700.0);
+    let site = crate::scene::find_site(&terrain, 900.0);
     let ground = |p: Vec2| terrain.height_at(p);
     let rows = rows();
     let mut gallery = Gallery::default();
     let mut meshes: Vec<cb_geometry::MeshData> = Vec::new();
     let mut features = SceneFeatures::default();
     let mut exclusion = crate::view::ScatterExclusion::default();
-    let total_depth: f64 = rows.iter().map(|r| r.depth + 30.0).sum();
+    let total_depth: f64 = rows.iter().map(|r| r.depth + 30.0).sum::<f64>() + CIVIC_ROW_DEPTH_M;
     let mut z = -0.5 * total_depth;
+    // Civic lineup (generator set A) along one straight street.
+    {
+        let gap = 8.0;
+        let total: f32 = CivicKind::ALL
+            .iter()
+            .map(|k| k.parcel_m().0 + gap)
+            .sum::<f32>()
+            - gap;
+        let front_z = site.y + z as f32 + 6.0;
+        let mut u = site.x - 0.5 * total;
+        let line = [
+            Vec2::new(u - 10.0, front_z - 6.0),
+            Vec2::new(u + total + 10.0, front_z - 6.0),
+        ];
+        let mut road = Painter::new(0, 2);
+        road.ground_strip(
+            &line,
+            10.0,
+            0.05,
+            cb_procgen::palette::ASPHALT,
+            cb_procgen::surface::Surface::Paved,
+            &ground,
+        );
+        meshes.push(road.finish());
+        let mut hull = vec![line[0] - Vec2::Y * 6.0, line[1] - Vec2::Y * 6.0];
+        for (i, kind) in CivicKind::ALL.into_iter().enumerate() {
+            let (w, d) = kind.parcel_m();
+            let fr = civic::frame_at(kind, Vec2::new(u + 0.5 * w, front_z), Vec2::X);
+            let l = civic::layout(kind, fr, 1 + i as u64);
+            let parcel = l.parcel();
+            hull.extend(parcel.iter().copied());
+            gallery.lots.push(
+                parcel
+                    .iter()
+                    .map(|p| Vec3::new(p.x, ground(*p) + 0.2, p.y))
+                    .collect(),
+            );
+            if let Some(f) = l.plan_foundation(&ground) {
+                meshes.push(civic::mesh(&l, &f, 0).0);
+                gallery.buildings += 1;
+            } else {
+                tracing::warn!("gallery: {kind:?} parcel too steep");
+            }
+            let c = fr.at(0.5 * w, 0.5 * d);
+            features.0.insert(
+                format!("civic_{i}"),
+                FeatureAnchor {
+                    pos: Vec3::new(c.x, ground(c), c.y),
+                    yaw_deg: 0.0,
+                    dir: Vec2::X,
+                },
+            );
+            u += w + gap;
+        }
+        exclusion.0.push(cb_geometry::polygon::convex_hull(&hull));
+        let c = Vec2::new(site.x, front_z + 30.0);
+        features.0.insert(
+            "gallery_civic".to_owned(),
+            FeatureAnchor {
+                pos: Vec3::new(c.x, ground(c), c.y),
+                yaw_deg: 0.0,
+                dir: Vec2::X,
+            },
+        );
+        gallery.rows.push("Civic set A".to_owned());
+    }
+    z += CIVIC_ROW_DEPTH_M;
     for (ri, row) in rows.iter().enumerate() {
         let prims = if row.curved {
             vec![Prim::Arc(320.0, row.length / 320.0)]

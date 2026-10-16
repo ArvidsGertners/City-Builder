@@ -30,6 +30,8 @@ pub struct GridSpec {
     pub plot_depth_m: f32,
     /// Grow a house on every lot immediately.
     pub grow: bool,
+    /// Auto-place the town hall before the plots are drawn (GAME_DESIGN §5).
+    pub town_hall: bool,
 }
 
 impl Default for GridSpec {
@@ -41,6 +43,7 @@ impl Default for GridSpec {
             kind: RoadKind::Street,
             plot_depth_m: 30.0,
             grow: true,
+            town_hall: true,
         }
     }
 }
@@ -58,6 +61,8 @@ pub struct CityGenReport {
     pub plots_rejected: usize,
     /// Houses grown.
     pub buildings: usize,
+    /// Civic buildings placed (the town hall).
+    pub civic: usize,
 }
 
 /// Node at a position (within 0.5 m).
@@ -169,6 +174,9 @@ pub fn grid(world: &mut World, spec: &GridSpec) -> CityGenReport {
     }
     // Updates from road building (plot dirtying) settle before plots are drawn.
     crate::zoning::update_dirty_plots(world);
+    if spec.town_hall && crate::buildings::place_town_hall(world).is_some() {
+        report.civic += 1;
+    }
     if spec.plot_depth_m > 0.0 {
         plots_along_all(world, ZoneKind::Residential, spec.plot_depth_m, &mut report);
     }
@@ -178,7 +186,7 @@ pub fn grid(world: &mut World, spec: &GridSpec) -> CityGenReport {
             .map(|i| i.lots.iter().map(|(id, _)| id).collect())
             .unwrap_or_default();
         for l in lots {
-            if crate::buildings::grow_lot(world, l).is_some() {
+            if crate::buildings::grow_lot_with(world, l, true).is_some() {
                 report.buildings += 1;
             }
         }
@@ -667,7 +675,7 @@ pub fn m2_features(world: &mut World, town: Vec2, town_half: Vec2) -> M2Features
         })
         .unwrap_or_default();
     for l in lots {
-        if crate::buildings::grow_lot(world, l).is_some() {
+        if crate::buildings::grow_lot_with(world, l, true).is_some() {
             out.report.buildings += 1;
         }
     }

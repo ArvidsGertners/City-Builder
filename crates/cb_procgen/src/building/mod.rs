@@ -4,6 +4,7 @@
 
 pub mod block;
 pub mod civic;
+pub mod condition;
 pub mod foundation;
 pub mod house;
 pub mod industrial;

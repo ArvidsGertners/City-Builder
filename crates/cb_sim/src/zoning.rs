@@ -47,6 +47,8 @@ pub struct Plot {
     pub(crate) lots: Vec<LotId>,
     pub(crate) seed: u64,
     pub(crate) spans: Vec<FrontageSpan>,
+    /// Free outline of a polygon-mode plot (empty for frontage-drag plots).
+    pub(crate) outline: Vec<Vec2>,
 }
 
 impl Plot {
@@ -95,6 +97,11 @@ impl Plot {
     pub fn segments(&self) -> &[SegmentId] {
         &self.segments
     }
+    /// The player's outline vertices (polygon mode; empty for frontage-drag plots).
+    #[must_use]
+    pub fn outline(&self) -> &[Vec2] {
+        &self.outline
+    }
 }
 
 /// A lot.
@@ -109,6 +116,7 @@ pub struct Lot {
     pub(crate) corner: bool,
     pub(crate) edges: Vec<EdgeKind>,
     pub(crate) footprint: Option<[Vec2; 4]>,
+    pub(crate) inset: Vec<Vec2>,
     pub(crate) building: Option<cb_core::ids::BuildingId>,
     pub(crate) created_tick: u64,
 }
@@ -154,10 +162,15 @@ impl Lot {
     pub fn edges(&self) -> &[EdgeKind] {
         &self.edges
     }
-    /// Fitted house footprint (residential), if one fits.
+    /// Fitted rectangle (residential houses, industrial halls), if one fits.
     #[must_use]
     pub fn footprint(&self) -> Option<[Vec2; 4]> {
         self.footprint
+    }
+    /// The lot shrunk by the zone's setbacks (empty when nothing is left).
+    #[must_use]
+    pub fn inset(&self) -> &[Vec2] {
+        &self.inset
     }
     /// Building on the lot.
     #[must_use]
@@ -279,6 +292,16 @@ fn obstacles(world: &World, lo: Vec2, hi: Vec2, except: Option<PlotId>) -> Vec<P
             out.push(to64(&p.polygon));
         }
     }
+    // Civic parcels (placed buildings own their ground).
+    for (_, e) in ids.buildings.iter() {
+        if let Some(q) = world
+            .get::<crate::buildings::Building>(e)
+            .and_then(crate::buildings::Building::parcel)
+            && near(&q)
+        {
+            out.push(to64(&q));
+        }
+    }
     out
 }
 
@@ -310,7 +333,11 @@ fn fit_params(cat: &Catalog, zone: ZoneKind) -> FitParams {
     let z = cat.zone(zone).params();
     FitParams {
         setback: z.setback,
-        rect: (zone == ZoneKind::Residential).then_some(RectSpec::HOUSE),
+        rect: match zone {
+            ZoneKind::Residential => Some(RectSpec::HOUSE),
+            ZoneKind::Commercial => None,
+            ZoneKind::Industrial => Some(RectSpec::HALL),
+        },
     }
 }
 
@@ -364,6 +391,10 @@ fn resubdivide(world: &mut World, plot_id: PlotId, hint: Option<Hint>) {
     for (k, l) in out.lots.iter().enumerate() {
         let poly = d2::to_f32(&l.poly);
         let footprint = fits[k].footprint.map(|q| q.map(DVec2::as_vec2));
+        let inset: Vec<Vec2> = fits[k]
+            .inset
+            .as_ref()
+            .map_or_else(Vec::new, |p| d2::to_f32(p));
         let mk = |id: LotId, building: Option<cb_core::ids::BuildingId>, created_tick: u64| Lot {
             id,
             plot: plot_id,
@@ -374,6 +405,7 @@ fn resubdivide(world: &mut World, plot_id: PlotId, hint: Option<Hint>) {
             corner: l.corner,
             edges: rect_fit::lot_edge_kinds(l, &f),
             footprint,
+            inset: inset.clone(),
             building,
             created_tick,
         };
@@ -608,6 +640,7 @@ pub(crate) fn create_plot(world: &mut World, c: &CreatePlot) -> Result<PlotId, V
         lots: Vec::new(),
         seed,
         spans: c.frontage.clone(),
+        outline: Vec::new(),
     };
     let e = world.spawn(plot).id();
     world.resource_mut::<Ids>().plots.insert(id, e);
@@ -735,7 +768,13 @@ pub(crate) fn update_dirty_plots(world: &mut World) {
         let Some(f) = Frontage::new(&[Part::Points(to64(&frontage))], depth) else {
             continue;
         };
-        let clipped = clip_polygon(world, &f, depth, Some(id));
+        let clipped = if p.outline.is_empty() {
+            clip_polygon(world, &f, depth, Some(id))
+        } else {
+            polygon_outline(world, &p.outline)
+                .ok()
+                .and_then(|o| clip_outline(world, &o.dense, &frontage, Some(id)))
+        };
         let Some(poly) = clipped.filter(|q| d2::area(q) as f32 >= PLOT_AREA_M2.0) else {
             // Nothing usable left: the plot goes away with its lots.
             let _ = delete_plot(world, id);
@@ -752,4 +791,308 @@ pub(crate) fn update_dirty_plots(world: &mut World) {
         }
         resubdivide(world, id, hint_of(&p, p.intervals));
     }
+}
+
+/// Polygon mode: vertices within this distance of a road edge snap onto it (m).
+pub const PLOT_SNAP_M: f32 = 1.5;
+
+/// A vertex snapped onto a road edge: segment, side, centreline arc length.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct EdgeHit {
+    seg: SegmentId,
+    left: bool,
+    s: f32,
+}
+
+/// The road edge within [`PLOT_SNAP_M`] of `p` (nearest), with the snapped point.
+fn nearest_road_edge(world: &World, p: Vec2) -> Option<(EdgeHit, Vec2)> {
+    let ids = world.get_resource::<Ids>()?;
+    let mut best: Option<(f32, EdgeHit, Vec2)> = None;
+    for (sid, e) in ids.segments.iter() {
+        let Some(seg) = world.get::<RoadSegment>(e) else {
+            continue;
+        };
+        let g = seg.geom();
+        let (s, d) = g.centerline.project(p);
+        let off = (d.abs() - g.half_width_m).abs();
+        if off > PLOT_SNAP_M || best.as_ref().is_some_and(|b| b.0 <= off) {
+            continue;
+        }
+        let len = g.length();
+        let (c0, c1) = seg.cuts();
+        let s = s.clamp(c0, (len - c1).max(c0));
+        let left = d > 0.0;
+        let q = roads::edge_polyline(seg, left, s, s)[0];
+        if q.distance(p) > PLOT_SNAP_M + 0.05 {
+            continue;
+        }
+        best = Some((off, EdgeHit { seg: sid, left, s }, q));
+    }
+    best.map(|b| (b.1, b.2))
+}
+
+/// A snapped polygon-mode outline.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlotOutline {
+    /// The player's vertices after snapping (counter-clockwise).
+    pub vertices: Vec<Vec2>,
+    /// Dense outline: road-following edges expanded along the road edge.
+    pub dense: Vec<Vec2>,
+    /// Frontage: the longest run of road-edge outline edges, plot on its left.
+    pub frontage: Vec<Vec2>,
+    /// Segments along the frontage.
+    pub segments: SmallVec<[SegmentId; 2]>,
+}
+
+/// Snaps polygon-mode vertices: a vertex within [`PLOT_SNAP_M`] of a road edge moves onto it;
+/// an edge between two vertices on the same road edge follows the road and becomes frontage.
+///
+/// # Errors
+/// `plot-invalid-size` (fewer than 3 vertices), `plot-invalid-self-intersection`,
+/// `plot-invalid-no-frontage`.
+pub fn polygon_outline(world: &World, vertices: &[Vec2]) -> Result<PlotOutline, ValidationError> {
+    if vertices.len() < 3 {
+        return Err(ValidationError::new("plot-invalid-size"));
+    }
+    let mut v = vertices.to_vec();
+    if cb_geometry::polygon::signed_area(&v) < 0.0 {
+        v.reverse();
+    }
+    let hits: Vec<Option<(EdgeHit, Vec2)>> =
+        v.iter().map(|p| nearest_road_edge(world, *p)).collect();
+    for (p, h) in v.iter_mut().zip(&hits) {
+        if let Some((_, q)) = h {
+            *p = *q;
+        }
+    }
+    let n = v.len();
+    // Dense outline with a road flag per dense edge (edge k = dense[k] → dense[k + 1]).
+    let mut dense: Vec<Vec2> = Vec::new();
+    let mut on_road: Vec<Option<SegmentId>> = Vec::new();
+    for i in 0..n {
+        let j = (i + 1) % n;
+        dense.push(v[i]);
+        match (&hits[i], &hits[j]) {
+            (Some((a, _)), Some((b, _)))
+                if a.seg == b.seg && a.left == b.left && (a.s - b.s).abs() > 0.1 =>
+            {
+                let seg = roads::segment(world, a.seg)
+                    .ok_or(ValidationError::new("plot-invalid-frontage"))?;
+                let pts = roads::edge_polyline(seg, a.left, a.s, b.s);
+                for q in pts.iter().skip(1).take(pts.len().saturating_sub(2)) {
+                    on_road.push(Some(a.seg));
+                    dense.push(*q);
+                }
+                on_road.push(Some(a.seg));
+            }
+            _ => on_road.push(None),
+        }
+    }
+    // Drop repeated points (snapping can merge neighbours).
+    let mut keep_d: Vec<Vec2> = Vec::with_capacity(dense.len());
+    let mut keep_r: Vec<Option<SegmentId>> = Vec::with_capacity(dense.len());
+    for (k, p) in dense.iter().enumerate() {
+        if keep_d.last().is_some_and(|l: &Vec2| l.distance(*p) < 0.01) {
+            if let Some(r) = keep_r.last_mut() {
+                *r = on_road[k];
+            }
+            continue;
+        }
+        keep_d.push(*p);
+        keep_r.push(on_road[k]);
+    }
+    if keep_d.len() > 3 && keep_d[0].distance(keep_d[keep_d.len() - 1]) < 0.01 {
+        keep_d.pop();
+        keep_r.pop();
+    }
+    let (dense, on_road) = (keep_d, keep_r);
+    if dense.len() < 3 || !cb_geometry::polygon::is_simple(&dense) {
+        return Err(ValidationError::new("plot-invalid-self-intersection"));
+    }
+    // Longest run of consecutive road edges.
+    let m = dense.len();
+    let Some(k0) = (0..m).find(|k| on_road[*k].is_none()) else {
+        return Err(ValidationError::new("plot-invalid-self-intersection"));
+    };
+    let mut best: (f32, Vec<Vec2>, SmallVec<[SegmentId; 2]>) = (0.0, Vec::new(), SmallVec::new());
+    let mut cur: (f32, Vec<Vec2>, SmallVec<[SegmentId; 2]>) = (0.0, Vec::new(), SmallVec::new());
+    for t in 1..=m {
+        let k = (k0 + t) % m;
+        match on_road[k] {
+            Some(seg) => {
+                let (a, b) = (dense[k], dense[(k + 1) % m]);
+                if cur.1.is_empty() {
+                    cur.1.push(a);
+                }
+                cur.1.push(b);
+                cur.0 += a.distance(b);
+                if !cur.2.contains(&seg) {
+                    cur.2.push(seg);
+                }
+            }
+            None => {
+                if cur.0 > best.0 {
+                    best = std::mem::take(&mut cur);
+                }
+                cur = (0.0, Vec::new(), SmallVec::new());
+            }
+        }
+    }
+    if cur.0 > best.0 {
+        best = cur;
+    }
+    if best.0 < MIN_FRONTAGE_M {
+        return Err(ValidationError::new("plot-invalid-no-frontage"));
+    }
+    Ok(PlotOutline {
+        vertices: v,
+        dense,
+        frontage: best.1,
+        segments: best.2,
+    })
+}
+
+/// Auto-clip of a polygon outline: minus roads, junctions, other plots and civic parcels; the
+/// component that holds the frontage midpoint.
+fn clip_outline(
+    world: &World,
+    dense: &[Vec2],
+    frontage: &[Vec2],
+    except: Option<PlotId>,
+) -> Option<Poly> {
+    let (lo, hi) = cb_geometry::polygon::bounds(dense);
+    let obs = obstacles(world, lo - Vec2::splat(1.0), hi + Vec2::splat(1.0), except);
+    let poly = to64(dense);
+    let pieces = if obs.is_empty() {
+        vec![poly]
+    } else {
+        f64ops::difference(&poly, &obs)
+    };
+    // Probe just inside the frontage midpoint (plot on the left of the frontage).
+    let len: f32 = frontage.windows(2).map(|w| w[0].distance(w[1])).sum();
+    let mut acc = 0.0;
+    let mut probe = None;
+    for w in frontage.windows(2) {
+        let l = w[0].distance(w[1]);
+        if acc + l >= 0.5 * len && l > 1e-4 {
+            let t = (0.5 * len - acc) / l;
+            let d = (w[1] - w[0]) / l;
+            probe = Some(w[0].lerp(w[1], t) + d.perp() * 0.1);
+            break;
+        }
+        acc += l;
+    }
+    let probe = probe?.as_dvec2();
+    pieces
+        .into_iter()
+        .find(|p| d2::point_in_poly(probe, p))
+        .map(|p| d2::simplify(&p, 0.002))
+}
+
+/// Validated polygon-mode geometry.
+fn polygon_geometry(
+    world: &World,
+    vertices: &[Vec2],
+    except: Option<PlotId>,
+) -> Result<(PlotOutline, Poly, f32), ValidationError> {
+    let o = polygon_outline(world, vertices)?;
+    let poly = clip_outline(world, &o.dense, &o.frontage, except)
+        .ok_or(ValidationError::new("plot-invalid-overlap"))?;
+    let area = d2::area(&poly) as f32;
+    if !(PLOT_AREA_M2.0..=PLOT_AREA_M2.1).contains(&area) {
+        return Err(ValidationError::new("plot-invalid-size"));
+    }
+    let f = cb_geometry::polyline::Polyline2::new(o.frontage.iter().copied());
+    let depth = d2::to_f32(&poly)
+        .iter()
+        .map(|q| f.project(*q).1.abs())
+        .fold(10.0f32, f32::max);
+    Ok((o, poly, depth))
+}
+
+/// Read-only preview of a polygon-mode plot (or edit, with `except`): its clipped polygon.
+///
+/// # Errors
+/// The `CreatePlotPolygon` reasons.
+pub fn preview_plot_polygon(
+    world: &World,
+    vertices: &[Vec2],
+    except: Option<PlotId>,
+) -> Result<Vec<Vec2>, ValidationError> {
+    polygon_geometry(world, vertices, except).map(|g| d2::to_f32(&g.1))
+}
+
+/// `CreatePlotPolygon`.
+///
+/// # Errors
+/// `plot-invalid-size`, `-self-intersection`, `-no-frontage`, `-overlap`.
+pub(crate) fn create_plot_polygon(
+    world: &mut World,
+    zone: ZoneKind,
+    vertices: &[Vec2],
+    dn: i8,
+) -> Result<PlotId, ValidationError> {
+    let (o, poly, depth) = polygon_geometry(world, vertices, None)?;
+    let id = world
+        .resource_mut::<Ids>()
+        .plots
+        .allocate()
+        .map_err(|_| ValidationError::new("internal-id-space"))?;
+    let seed = derive_seed(
+        world.get_resource::<WorldSeed>().map_or(0, |s| s.0),
+        Domain::Plot,
+        u64::from(id.get()),
+        0,
+    );
+    let plot = Plot {
+        id,
+        zone,
+        frontage: o.frontage,
+        depth_m: depth,
+        polygon: d2::to_f32(&poly),
+        dn,
+        segments: o.segments,
+        splits: Vec::new(),
+        merged: Vec::new(),
+        intervals: 0,
+        lots: Vec::new(),
+        seed,
+        spans: Vec::new(),
+        outline: o.vertices,
+    };
+    let e = world.spawn(plot).id();
+    world.resource_mut::<Ids>().plots.insert(id, e);
+    resubdivide(world, id, None);
+    Ok(id)
+}
+
+/// `EditPlotPolygon`: a new outline (vertex or edge drag); lots keep their IDs where their
+/// frontage intervals overlap the old ones. Frontage-drag plots become polygon plots.
+///
+/// # Errors
+/// `plot-invalid-missing` or the `CreatePlotPolygon` reasons.
+pub(crate) fn edit_plot_polygon(
+    world: &mut World,
+    id: PlotId,
+    vertices: &[Vec2],
+) -> Result<(), ValidationError> {
+    let e = world
+        .get_resource::<Ids>()
+        .and_then(|i| i.plots.get(id))
+        .ok_or(ValidationError::new("plot-invalid-missing"))?;
+    let old = world
+        .get::<Plot>(e)
+        .cloned()
+        .ok_or(ValidationError::new("plot-invalid-missing"))?;
+    let (o, poly, depth) = polygon_geometry(world, vertices, Some(id))?;
+    if let Some(mut p) = world.get_mut::<Plot>(e) {
+        p.frontage = o.frontage;
+        p.segments = o.segments;
+        p.polygon = d2::to_f32(&poly);
+        p.depth_m = depth;
+        p.spans = Vec::new();
+        p.outline = o.vertices;
+    }
+    resubdivide(world, id, hint_of(&old, old.intervals));
+    Ok(())
 }

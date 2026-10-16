@@ -20,7 +20,6 @@ use cb_core::ids::{BuildingId, NodeId, SegmentId};
 use cb_core::rng::Pcg32;
 use cb_geometry::MeshData;
 use cb_network::control::ControlMode;
-use cb_procgen::building::house;
 use cb_procgen::junction_mesh::junction_mesh;
 use cb_procgen::markings_mesh::{self, Lamp};
 use cb_procgen::paint::Painter;
@@ -31,7 +30,7 @@ use cb_sim::buildings::{Building, BuildingChanged};
 use cb_sim::ids::Ids;
 use cb_sim::roads::{NetworkChanged, RoadNode, RoadSegment};
 use cb_sim::terrain::{TerrainChanged, TerrainRes};
-use cb_sim::zoning::{Lot, Plot, ZoningChanged};
+use cb_sim::zoning::{Plot, ZoningChanged};
 use cb_terrain::chunk_mesh::{self, CHUNK_CELLS};
 use cb_terrain::scatter::{self, PropKind};
 
@@ -101,7 +100,8 @@ pub struct ViewState {
     per_side: usize,
     segments: BTreeMap<SegmentId, Entity>,
     nodes: BTreeMap<NodeId, Entity>,
-    buildings: BTreeMap<BuildingId, Entity>,
+    buildings: BTreeMap<BuildingId, BuildingVisual>,
+    props: BTreeMap<cb_core::ids::PropId, Entity>,
     scatter_dirty: bool,
     terrain_jobs: BTreeMap<usize, Task<TerrainJob>>,
     supers: Vec<SuperSlot>,
@@ -110,7 +110,36 @@ pub struct ViewState {
     plot_shapes: Option<PlotShapes>,
 }
 
+/// One building's visual: mesh entity, parameter slot, scaffold while under construction.
+#[derive(Debug, Clone, Copy)]
+struct BuildingVisual {
+    mesh: Entity,
+    slot: u16,
+    scaffold: Option<Entity>,
+    /// Owns a civic parcel (excluded from natural scatter).
+    civic: bool,
+}
+
+/// View counters (tests and the benchmark report).
+#[derive(Resource, Default, Debug, Clone, Copy)]
+pub struct ViewStats {
+    /// Building meshes generated since start.
+    pub building_meshes: u64,
+}
+
 impl ViewState {
+    /// Parameter slot of a building's visual.
+    #[must_use]
+    pub fn building_slot(&self, id: BuildingId) -> Option<u16> {
+        self.buildings.get(&id).map(|v| v.slot)
+    }
+    /// Whether a building currently shows a scaffold.
+    #[must_use]
+    pub fn has_scaffold(&self, id: BuildingId) -> bool {
+        self.buildings
+            .get(&id)
+            .is_some_and(|v| v.scaffold.is_some())
+    }
     /// Live building visuals.
     #[must_use]
     pub fn building_count(&self) -> usize {
@@ -150,6 +179,7 @@ pub enum ViewStep {
 impl Plugin for ViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ViewState>()
+            .init_resource::<ViewStats>()
             .init_resource::<ViewBacklog>()
             .configure_sets(
                 Update,
@@ -167,7 +197,9 @@ impl Plugin for ViewPlugin {
                 Update,
                 (
                     sync_network.in_set(ViewStep::Network),
-                    sync_buildings.in_set(ViewStep::Buildings),
+                    (sync_buildings, sync_props)
+                        .chain()
+                        .in_set(ViewStep::Buildings),
                     sync_zoning.in_set(ViewStep::Zoning),
                     sync_terrain.in_set(ViewStep::Terrain),
                     sync_scatter.in_set(ViewStep::Scatter),
@@ -776,27 +808,72 @@ fn update_signal_lamps(
 
 // ---------- buildings ----------
 
-/// LOD0 house + yard mesh of a building.
+/// LOD0 mesh of a building (houses with their yard) using parameter `slot`.
 #[must_use]
-pub fn building_mesh(b: &Building, lot: &Lot, ground: &dyn Fn(Vec2) -> f32) -> MeshData {
-    let layout = b.layout();
-    let (mut m, _lod1) = house::mesh(&layout, b.foundation(), ground, 0);
-    let yl = YardLot {
-        polygon: lot.polygon(),
-        edges: lot.edges(),
-        front_start: lot.front().0,
-        front_end: lot.front().1,
+pub fn building_mesh(b: &Building, ground: &dyn Fn(Vec2) -> f32, slot: u16) -> MeshData {
+    use cb_procgen::building::{civic, zoned};
+    use cb_sim::buildings::{Massing, Site};
+    let Some(m) = b.massing() else {
+        return MeshData::default();
     };
-    let y = yard::yard(
-        &layout,
-        &yl,
-        b.foundation().floor_y,
-        ground,
-        0,
-        b.seed() ^ 0xA5D,
-    );
-    m.append(&y);
-    m
+    match &m {
+        Massing::Zoned(zm) => {
+            let (mut lod0, _) = zm.mesh(b.foundation(), ground, slot);
+            if let (zoned::Massing::House(h), Site::Zoned(s)) = (zm, b.site()) {
+                let yl = YardLot {
+                    polygon: &s.polygon,
+                    edges: &s.edges,
+                    front_start: s.front.0,
+                    front_end: s.front.1,
+                };
+                let y = yard::yard(
+                    h,
+                    &yl,
+                    b.foundation().floor_y,
+                    ground,
+                    slot,
+                    b.seed() ^ 0xA5D,
+                );
+                lod0.append(&y);
+            }
+            lod0
+        }
+        Massing::Civic(c) => civic::mesh(c, b.foundation(), slot).0,
+    }
+}
+
+/// Condition code and reveal height of a building at `tick`.
+fn building_params(b: &Building, tick: u64) -> (f32, f32) {
+    use crate::render::{NO_REVEAL_Y, condition_code};
+    use cb_sim::buildings::Condition;
+    match b.condition() {
+        Condition::Constructing { .. } => {
+            let t = b.condition().progress(tick);
+            // Foundations first, then the walls rise; quantized to 5 cm so the buffer is
+            // rewritten only when the visible height changes.
+            let y = b.foundation().floor_y - 0.05 + t * (b.height_m() + 1.5);
+            (condition_code::ACTIVE, (y * 20.0).floor() / 20.0)
+        }
+        Condition::Active => (condition_code::ACTIVE, NO_REVEAL_Y),
+        Condition::Declining => (condition_code::DECLINING, NO_REVEAL_Y),
+        Condition::Abandoned => (condition_code::ABANDONED, NO_REVEAL_Y),
+        Condition::Ruined => (condition_code::RUINED, NO_REVEAL_Y),
+    }
+}
+
+/// Mesh of a building in its condition (ruins swap to the ruin generator).
+fn condition_mesh(b: &Building, ground: &dyn Fn(Vec2) -> f32, slot: u16) -> MeshData {
+    if b.condition() == cb_sim::buildings::Condition::Ruined {
+        return cb_procgen::building::condition::ruin(
+            b.outlines(),
+            b.foundation().floor_y,
+            b.height_m(),
+            cb_procgen::palette::STONE,
+            b.seed(),
+            slot,
+        );
+    }
+    building_mesh(b, ground, slot)
 }
 
 #[allow(clippy::too_many_arguments, reason = "Bevy system parameters")]
@@ -805,8 +882,121 @@ fn sync_buildings(
     mut msgs: MessageReader<BuildingChanged>,
     ids: Option<Res<Ids>>,
     buildings: Query<&Building>,
-    lots: Query<&Lot>,
     terrain: Option<Res<TerrainRes>>,
+    clock: Option<Res<cb_sim::SimClock>>,
+    mats: Option<Res<WorldMaterials>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut slots: ResMut<crate::render::ObjectSlots>,
+    mut stats: ResMut<ViewStats>,
+    mut state: ResMut<ViewState>,
+) {
+    let (Some(ids), Some(mats)) = (ids, mats) else {
+        return;
+    };
+    let tick = clock.map_or(0, |c| c.tick().0);
+    let ground = |p: Vec2| terrain.as_ref().map_or(0.0, |t| t.terrain().height_at(p));
+    let spawn_mesh = |commands: &mut Commands, meshes: &mut Assets<Mesh>, md: &MeshData| {
+        commands
+            .spawn((
+                Mesh3d(meshes.add(world_mesh(md))),
+                MeshMaterial3d(mats.world.clone()),
+                Transform::default(),
+            ))
+            .id()
+    };
+    for m in msgs.read() {
+        let id = match *m {
+            BuildingChanged::Built(id)
+            | BuildingChanged::Removed(id)
+            | BuildingChanged::Condition(id) => id,
+        };
+        let b = ids.buildings.get(id).and_then(|e| buildings.get(e).ok());
+        if let (BuildingChanged::Condition(_), Some(b), Some(v)) = (m, b, state.buildings.get(&id))
+        {
+            // Shader parameters only; the scaffold goes when construction ends.
+            let mut v = *v;
+            let (code, reveal) = building_params(b, tick);
+            slots.set(v.slot, code, reveal);
+            let constructing = matches!(
+                b.condition(),
+                cb_sim::buildings::Condition::Constructing { .. }
+            );
+            if !constructing && let Some(sc) = v.scaffold.take() {
+                commands.entity(sc).despawn();
+            }
+            state.buildings.insert(id, v);
+            continue;
+        }
+        let slot = match state.buildings.remove(&id) {
+            Some(v) => {
+                commands.entity(v.mesh).despawn();
+                if let Some(sc) = v.scaffold {
+                    commands.entity(sc).despawn();
+                }
+                if v.civic {
+                    state.scatter_dirty = true;
+                }
+                if b.is_none() {
+                    slots.release(v.slot);
+                    continue;
+                }
+                v.slot
+            }
+            None if b.is_some() => slots.alloc(),
+            None => continue,
+        };
+        let Some(b) = b else { continue };
+        let md = condition_mesh(b, &ground, slot);
+        stats.building_meshes += 1;
+        let mesh = spawn_mesh(&mut commands, &mut meshes, &md);
+        let scaffold = matches!(
+            b.condition(),
+            cb_sim::buildings::Condition::Constructing { .. }
+        )
+        .then(|| {
+            let fy = b.foundation().floor_y;
+            let sc = cb_procgen::building::condition::scaffold(
+                b.outlines(),
+                fy,
+                fy + b.height_m() + 1.0,
+                slot,
+            );
+            spawn_mesh(&mut commands, &mut meshes, &sc)
+        });
+        let (code, reveal) = building_params(b, tick);
+        slots.set(slot, code, reveal);
+        let civic = b.parcel().is_some();
+        if civic {
+            state.scatter_dirty = true;
+        }
+        state.buildings.insert(
+            id,
+            BuildingVisual {
+                mesh,
+                slot,
+                scaffold,
+                civic,
+            },
+        );
+    }
+    // Construction progress: raise the reveal height of buildings with a scaffold.
+    for (id, v) in &state.buildings {
+        if v.scaffold.is_none() {
+            continue;
+        }
+        if let Some(b) = ids.buildings.get(*id).and_then(|e| buildings.get(e).ok()) {
+            let (code, reveal) = building_params(b, tick);
+            slots.set(v.slot, code, reveal);
+        }
+    }
+}
+
+/// Placed decorations: one mesh entity each.
+fn sync_props(
+    mut commands: Commands,
+    mut msgs: MessageReader<cb_sim::props::PropChanged>,
+    ids: Option<Res<Ids>>,
+    props: Query<&cb_sim::props::PlacedProp>,
     mats: Option<Res<WorldMaterials>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut state: ResMut<ViewState>,
@@ -814,19 +1004,17 @@ fn sync_buildings(
     let (Some(ids), Some(mats)) = (ids, mats) else {
         return;
     };
-    let ground = |p: Vec2| terrain.as_ref().map_or(0.0, |t| t.terrain().height_at(p));
     for m in msgs.read() {
-        let (BuildingChanged::Built(id) | BuildingChanged::Removed(id)) = *m;
-        if let Some(e) = state.buildings.remove(&id) {
+        let id = match *m {
+            cb_sim::props::PropChanged::Placed(id) | cb_sim::props::PropChanged::Removed(id) => id,
+        };
+        if let Some(e) = state.props.remove(&id) {
             commands.entity(e).despawn();
         }
-        let Some(b) = ids.buildings.get(id).and_then(|e| buildings.get(e).ok()) else {
+        let Some(p) = ids.props.get(id).and_then(|e| props.get(e).ok()) else {
             continue;
         };
-        let Some(lot) = ids.lots.get(b.lot()).and_then(|e| lots.get(e).ok()) else {
-            continue;
-        };
-        let md = building_mesh(b, lot, &ground);
+        let md = cb_procgen::decor::mesh(p.kind(), p.pos(), p.yaw(), p.seed(), 0);
         let e = commands
             .spawn((
                 Mesh3d(meshes.add(world_mesh(&md))),
@@ -834,7 +1022,7 @@ fn sync_buildings(
                 Transform::default(),
             ))
             .id();
-        state.buildings.insert(id, e);
+        state.props.insert(id, e);
     }
 }
 
@@ -978,6 +1166,7 @@ fn sync_scatter(
     seed: Option<Res<cb_sim::WorldSeed>>,
     ids: Option<Res<Ids>>,
     plots_q: Query<&Plot>,
+    buildings_q: Query<&Building>,
     exclusion: Option<Res<ScatterExclusion>>,
     rig: Res<CameraRig>,
     mats: Option<Res<WorldMaterials>>,
@@ -1071,11 +1260,16 @@ fn sync_scatter(
                 ids.plots
                     .iter()
                     .filter_map(|(_, e)| plots_q.get(e).ok())
-                    .map(Plot::polygon)
-                    .chain(exclusion.iter().flat_map(|x| x.0.iter().map(Vec::as_slice)))
+                    .map(|p| p.polygon().to_vec())
+                    .chain(exclusion.iter().flat_map(|x| x.0.iter().cloned()))
+                    .chain(
+                        ids.buildings
+                            .iter()
+                            .filter_map(|(_, e)| buildings_q.get(e).ok()?.parcel()),
+                    )
                     .map(|poly| {
-                        let (l, h) = cb_geometry::polygon::bounds(poly);
-                        (l, h, poly.to_vec())
+                        let (l, h) = cb_geometry::polygon::bounds(&poly);
+                        (l, h, poly)
                     })
                     .collect(),
             )
@@ -1096,5 +1290,167 @@ fn sync_scatter(
             }
         });
         state.scatter_jobs.insert(k, task);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cb_geometry::CubicBezier2;
+    use cb_network::RoadKind;
+    use cb_sim::buildings::Condition;
+    use cb_sim::catalog::ZoneKind;
+    use cb_sim::commands::{
+        BuildRoad, CreatePlot, DebugCommand, Endpoint, FrontageSpan, PlayerCommand,
+    };
+    use cb_sim::testing::Scenario;
+
+    fn ok(s: &mut Scenario, cmd: PlayerCommand) {
+        let r = s.command(cmd);
+        assert!(r.outcome.is_ok(), "{:?}", r.outcome);
+    }
+
+    /// A sim scenario with the building view system (no renderer: meshes are plain assets).
+    fn scenario() -> Scenario {
+        let mut s = Scenario::new(11);
+        s.app
+            .init_resource::<Assets<Mesh>>()
+            .init_resource::<crate::render::ObjectSlots>()
+            .init_resource::<ViewState>()
+            .init_resource::<ViewStats>()
+            .insert_resource(WorldMaterials {
+                world: Handle::default(),
+                terrain: Handle::default(),
+                water: Handle::default(),
+                slots: Handle::default(),
+            })
+            .add_systems(Update, sync_buildings);
+        ok(
+            &mut s,
+            PlayerCommand::BuildRoad(BuildRoad {
+                kind: RoadKind::Street,
+                curve: CubicBezier2::straight(Vec2::new(-100.0, 0.0), Vec2::new(100.0, 0.0)),
+                start: Endpoint::Free,
+                end: Endpoint::Free,
+            }),
+        );
+        let sid = s
+            .world()
+            .resource::<Ids>()
+            .segments
+            .iter()
+            .next()
+            .map(|(id, _)| id)
+            .unwrap();
+        ok(
+            &mut s,
+            PlayerCommand::CreatePlot(CreatePlot {
+                zone: ZoneKind::Residential,
+                frontage: vec![FrontageSpan {
+                    segment: sid,
+                    left: true,
+                    s0: 10.0,
+                    s1: 190.0,
+                }],
+                depth_m: 30.0,
+                dn: 0,
+            }),
+        );
+        s.run_ticks(800);
+        s.app.update();
+        s
+    }
+
+    #[test]
+    fn condition_change_does_not_remesh() {
+        let mut s = scenario();
+        let state = s.world().resource::<ViewState>();
+        assert!(state.building_count() >= 5, "{}", state.building_count());
+        let (id, slot) = {
+            let (id, v) = state.buildings.iter().next().unwrap();
+            (*id, v.slot)
+        };
+        assert!(slot != 0, "each building owns a parameter slot");
+        assert!(
+            state.has_scaffold(id),
+            "fresh buildings are under construction"
+        );
+        let meshes_before = s.world().resource::<ViewStats>().building_meshes;
+        let writes_before = s.world().resource::<crate::render::ObjectSlots>().writes;
+        for (cond, code) in [
+            (Condition::Active, crate::render::condition_code::ACTIVE),
+            (
+                Condition::Declining,
+                crate::render::condition_code::DECLINING,
+            ),
+            (
+                Condition::Abandoned,
+                crate::render::condition_code::ABANDONED,
+            ),
+        ] {
+            ok(
+                &mut s,
+                PlayerCommand::Debug(DebugCommand::SetCondition {
+                    building: id,
+                    condition: cond,
+                }),
+            );
+            s.app.update();
+            let slots = s.world().resource::<crate::render::ObjectSlots>();
+            let (params, reveal) = slots.get(slot);
+            assert!((params[3] - code).abs() < 1e-6, "{cond:?}");
+            assert!(
+                reveal[0] >= crate::render::NO_REVEAL_Y,
+                "{cond:?}: nothing clipped"
+            );
+        }
+        let stats = s.world().resource::<ViewStats>();
+        assert_eq!(
+            stats.building_meshes, meshes_before,
+            "condition changes never remesh"
+        );
+        assert!(s.world().resource::<crate::render::ObjectSlots>().writes > writes_before);
+        assert!(!s.world().resource::<ViewState>().has_scaffold(id));
+        // A ruin is a different mesh.
+        ok(
+            &mut s,
+            PlayerCommand::Debug(DebugCommand::SetCondition {
+                building: id,
+                condition: Condition::Ruined,
+            }),
+        );
+        s.app.update();
+        assert_eq!(
+            s.world().resource::<ViewStats>().building_meshes,
+            meshes_before + 1
+        );
+    }
+
+    #[test]
+    fn construction_reveal_rises_with_progress() {
+        let mut s = scenario();
+        let (id, slot) = {
+            let st = s.world().resource::<ViewState>();
+            let (id, v) = st.buildings.iter().next().unwrap();
+            (*id, v.slot)
+        };
+        let floor = {
+            let e = s.world().resource::<Ids>().buildings.get(id).unwrap();
+            s.world().get::<Building>(e).unwrap().foundation().floor_y
+        };
+        let r0 = s
+            .world()
+            .resource::<crate::render::ObjectSlots>()
+            .get(slot)
+            .1[0];
+        s.run_ticks(1200);
+        s.app.update();
+        let r1 = s
+            .world()
+            .resource::<crate::render::ObjectSlots>()
+            .get(slot)
+            .1[0];
+        assert!(r0 < floor + 2.0, "starts near the floor: {r0} vs {floor}");
+        assert!(r1 > r0, "rises: {r0} → {r1}");
     }
 }

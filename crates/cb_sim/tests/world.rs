@@ -423,8 +423,11 @@ fn debug_growth_builds_houses_inside_lots() {
     assert!(ids.buildings.len() >= 10, "{}", ids.buildings.len());
     for (_, e) in ids.buildings.iter() {
         let b = s.world().get::<Building>(e).unwrap();
-        let lot = lots(&s).into_iter().find(|l| l.id() == b.lot()).unwrap();
-        for c in b.layout().outlines().into_iter().flatten() {
+        let lot = lots(&s)
+            .into_iter()
+            .find(|l| Some(l.id()) == b.lot())
+            .unwrap();
+        for c in b.outlines().iter().flatten().copied() {
             assert!(
                 cb_geometry::polygon::contains(lot.polygon(), c)
                     || cb_geometry::polygon::boundary_distance(lot.polygon(), c) < 0.01

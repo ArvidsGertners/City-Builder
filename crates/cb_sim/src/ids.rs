@@ -77,6 +77,8 @@ pub struct Ids {
     pub lots: Registry<LotId>,
     /// Buildings.
     pub buildings: Registry<BuildingId>,
+    /// Placed decorations.
+    pub props: Registry<cb_core::ids::PropId>,
     /// Next terrain stamp id (stamps are owned by roads and buildings).
     pub(crate) next_stamp: u32,
 }

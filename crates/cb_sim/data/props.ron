@@ -1,0 +1,10 @@
+// Free decorations (GAME_DESIGN §3, decoration tool `PlaceProp`). Money in cents; land value bonus
+// at the prop, falling off linearly to 0 at `radius_m`.
+(
+    tree: (cost_cents: 4000, lv_bonus: 0.01, radius_m: 30.0, footprint_r_m: 1.5),
+    tree_cluster: (cost_cents: 15000, lv_bonus: 0.02, radius_m: 40.0, footprint_r_m: 4.0),
+    bench: (cost_cents: 3000, lv_bonus: 0.005, radius_m: 30.0, footprint_r_m: 1.0),
+    planter: (cost_cents: 5000, lv_bonus: 0.008, radius_m: 30.0, footprint_r_m: 0.8),
+    fountain: (cost_cents: 200000, lv_bonus: 0.05, radius_m: 60.0, footprint_r_m: 3.0),
+    flower_bed: (cost_cents: 8000, lv_bonus: 0.012, radius_m: 35.0, footprint_r_m: 1.5),
+)

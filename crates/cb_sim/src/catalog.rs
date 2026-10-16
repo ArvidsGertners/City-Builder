@@ -57,6 +57,38 @@ pub struct ZoneSpec {
     pub setback: (f32, f32, f32),
     /// Default plot depth of the plot tool (m).
     pub default_depth_m: f32,
+    /// Highest building level of the zone.
+    pub max_level: u8,
+    /// Smallest lot area (m²) for each level (index = level − 1).
+    pub level_min_area_m2: [f32; 5],
+}
+
+impl ZoneSpec {
+    /// Highest level a lot of `area_m2` may hold.
+    #[must_use]
+    pub fn level_cap(&self, area_m2: f32) -> u8 {
+        (1..=self.max_level.clamp(1, 5))
+            .rev()
+            .find(|l| area_m2 >= self.level_min_area_m2[usize::from(*l) - 1])
+            .unwrap_or(1)
+    }
+}
+
+/// Construction time (GAME_DESIGN §4).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ConstructionSpec {
+    /// Time for a level-1 building (game hours).
+    pub base_game_h: f32,
+    /// Extra time per level above 1 (game hours).
+    pub per_level_game_h: f32,
+}
+
+impl ConstructionSpec {
+    /// Construction duration of a level (game hours).
+    #[must_use]
+    pub fn duration_game_h(&self, level: u8) -> f32 {
+        self.base_game_h + self.per_level_game_h * f32::from(level.saturating_sub(1))
+    }
 }
 
 impl ZoneSpec {
@@ -138,6 +170,7 @@ pub struct VariantCosts {
 #[derive(Deserialize)]
 struct ZonesFile {
     zones: BTreeMap<ZoneKind, ZoneSpec>,
+    construction: ConstructionSpec,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
@@ -145,6 +178,30 @@ struct StartMoney {
     relaxed: i64,
     normal: i64,
     hard: i64,
+}
+
+/// Price and running cost of a civic building (GAME_DESIGN §5–6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CivicSpec {
+    /// Construction cost (cents).
+    pub cost_cents: i64,
+    /// Upkeep per game day (cents).
+    pub upkeep_cents_per_day: i64,
+}
+
+/// Civic building specs by kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+struct CivicFile {
+    police_station: CivicSpec,
+    fire_station: CivicSpec,
+    clinic: CivicSpec,
+    elementary_school: CivicSpec,
+    town_hall: CivicSpec,
+    diesel_generator: CivicSpec,
+    coal_plant: CivicSpec,
+    water_pump: CivicSpec,
+    sewage_outlet: CivicSpec,
+    landfill: CivicSpec,
 }
 
 #[derive(Deserialize)]
@@ -161,6 +218,8 @@ pub struct Catalog {
     bridge: BridgeCosts,
     decor: DecorCosts,
     zones: BTreeMap<ZoneKind, ZoneSpec>,
+    construction: ConstructionSpec,
+    civic: CivicFile,
     start_money: StartMoney,
     growth_debug_delay_ticks: u64,
 }
@@ -189,6 +248,7 @@ pub enum CatalogError {
 const ROADS_RON: &str = include_str!("../data/roads.ron");
 const ZONES_RON: &str = include_str!("../data/zones.ron");
 const ECONOMY_RON: &str = include_str!("../data/economy.ron");
+const CIVIC_RON: &str = include_str!("../data/civic.ron");
 
 impl Catalog {
     /// Parses the embedded data.
@@ -209,6 +269,10 @@ impl Catalog {
                 file: "economy.ron",
                 source,
             })?;
+        let civic: CivicFile = ron::from_str(CIVIC_RON).map_err(|source| CatalogError::Parse {
+            file: "civic.ron",
+            source,
+        })?;
         for k in RoadKind::ALL {
             if !roads.roads.contains_key(&k) {
                 return Err(CatalogError::Missing {
@@ -235,6 +299,8 @@ impl Catalog {
             bridge: roads.bridge,
             decor: roads.decor,
             zones: zones.zones,
+            construction: zones.construction,
+            civic,
             start_money: eco.start_money_cents,
             growth_debug_delay_ticks: eco.growth_debug_delay_ticks,
         })
@@ -287,6 +353,31 @@ impl Catalog {
         })
     }
 
+    /// Price and upkeep of a civic building.
+    #[must_use]
+    pub fn civic(&self, k: cb_procgen::building::civic::CivicKind) -> CivicSpec {
+        use cb_procgen::building::civic::CivicKind as K;
+        let c = &self.civic;
+        match k {
+            K::PoliceStation => c.police_station,
+            K::FireStation => c.fire_station,
+            K::Clinic => c.clinic,
+            K::ElementarySchool => c.elementary_school,
+            K::TownHall => c.town_hall,
+            K::DieselGenerator => c.diesel_generator,
+            K::CoalPlant => c.coal_plant,
+            K::WaterPump => c.water_pump,
+            K::SewageOutlet => c.sewage_outlet,
+            K::Landfill => c.landfill,
+        }
+    }
+
+    /// Construction times.
+    #[must_use]
+    pub fn construction(&self) -> ConstructionSpec {
+        self.construction
+    }
+
     /// Ticks after which an empty lot grows in `GrowthMode::Debug`.
     #[must_use]
     pub fn growth_debug_delay_ticks(&self) -> u64 {
@@ -304,5 +395,18 @@ mod tests {
         assert_eq!(c.road(RoadKind::Street).cost_cents_per_m, 2200);
         assert_eq!(c.zone(ZoneKind::Residential).w_target, 13.0);
         assert_eq!(c.start_money(Difficulty::Normal), Money::units(60_000));
+        // Level caps by lot area (GAME_DESIGN §4).
+        let r = c.zone(ZoneKind::Residential);
+        assert_eq!(
+            (r.level_cap(399.0), r.level_cap(400.0), r.level_cap(700.0)),
+            (3, 4, 5)
+        );
+        let com = c.zone(ZoneKind::Commercial);
+        assert_eq!((com.level_cap(599.0), com.level_cap(600.0)), (2, 3));
+        let i = c.zone(ZoneKind::Industrial);
+        assert_eq!((i.level_cap(1999.0), i.level_cap(2000.0)), (2, 3));
+        use cb_procgen::building::civic::CivicKind;
+        assert_eq!(c.civic(CivicKind::PoliceStation).cost_cents, 900_000);
+        assert_eq!(c.civic(CivicKind::TownHall).cost_cents, 0);
     }
 }

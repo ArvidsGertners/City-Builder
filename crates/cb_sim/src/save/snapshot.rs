@@ -6,10 +6,11 @@
 use std::collections::BTreeMap;
 
 use bevy::ecs::world::World;
-use cb_core::ids::{BuildingId, LotId, NodeId, PlotId, SegmentId, StableId};
+use cb_core::ids::{BuildingId, LotId, NodeId, PlotId, PropId, SegmentId, StableId};
 
 use crate::buildings::Building;
 use crate::ids::{Ids, Registry};
+use crate::props::PlacedProp;
 use crate::roads::{RoadNode, RoadSegment};
 use crate::zoning::{Lot, Plot};
 
@@ -26,6 +27,8 @@ pub struct ObjectSet {
     pub lots: BTreeMap<LotId, Lot>,
     /// Buildings.
     pub buildings: BTreeMap<BuildingId, Building>,
+    /// Placed decorations.
+    pub props: BTreeMap<PropId, PlacedProp>,
 }
 
 /// Target state per id: `Some(value)` puts the object, `None` removes it.
@@ -41,6 +44,8 @@ pub struct Delta {
     pub lots: BTreeMap<LotId, Option<Lot>>,
     /// Buildings.
     pub buildings: BTreeMap<BuildingId, Option<Building>>,
+    /// Placed decorations.
+    pub props: BTreeMap<PropId, Option<PlacedProp>>,
 }
 
 impl Delta {
@@ -52,6 +57,7 @@ impl Delta {
             && self.plots.is_empty()
             && self.lots.is_empty()
             && self.buildings.is_empty()
+            && self.props.is_empty()
     }
 }
 
@@ -77,6 +83,7 @@ pub fn capture(world: &World) -> ObjectSet {
         plots: collect(world, &ids.plots),
         lots: collect(world, &ids.lots),
         buildings: collect(world, &ids.buildings),
+        props: collect(world, &ids.props),
     }
 }
 
@@ -122,6 +129,7 @@ pub fn diff(a: &ObjectSet, b: &ObjectSet) -> (Delta, Delta) {
         &mut to_a.buildings,
         &mut to_b.buildings,
     );
+    diff_map(&a.props, &b.props, &mut to_a.props, &mut to_b.props);
     (to_a, to_b)
 }
 
@@ -129,6 +137,12 @@ pub fn diff(a: &ObjectSet, b: &ObjectSet) -> (Delta, Delta) {
 /// segments → plots → lots → buildings) with original ids, then rebuilds the touched junctions;
 /// lots without their plot and buildings without their lot (sim-grown since) are removed.
 pub fn apply(world: &mut World, d: &Delta) {
+    for (id, v) in &d.props {
+        match v {
+            Some(p) => crate::props::restore_put_prop(world, p.clone()),
+            None => crate::props::restore_remove_prop(world, *id),
+        }
+    }
     for (id, v) in &d.buildings {
         if v.is_none() {
             crate::buildings::remove_building(world, *id);
@@ -213,7 +227,7 @@ fn remove_orphans(world: &mut World) {
         .filter(|(_, e)| {
             world
                 .get::<Building>(*e)
-                .is_some_and(|b| ids.lots.get(b.lot()).is_none())
+                .is_some_and(|b| b.lot().is_some_and(|l| ids.lots.get(l).is_none()))
         })
         .map(|(id, _)| id)
         .collect();

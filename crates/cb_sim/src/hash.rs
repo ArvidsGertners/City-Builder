@@ -76,8 +76,15 @@ fn hash_objects(world: &World, h: &mut StableHasher) {
     for (id, e) in ids.buildings.iter() {
         id.hash(h);
         if let Some(b) = world.get::<Building>(e) {
-            (b.lot(), b.level(), b.seed()).hash(h);
+            (b.kind(), b.lot(), b.level(), b.seed(), b.condition()).hash(h);
             h.write_u32(b.foundation().floor_y.to_bits());
+        }
+    }
+    for (id, e) in ids.props.iter() {
+        id.hash(h);
+        if let Some(p) = world.get::<crate::props::PlacedProp>(e) {
+            (p.kind(), p.seed()).hash(h);
+            f32s(h, &[p.pos().x, p.pos().y, p.pos().z, p.yaw()]);
         }
     }
 }
