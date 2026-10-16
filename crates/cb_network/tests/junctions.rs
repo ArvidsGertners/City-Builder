@@ -477,3 +477,69 @@ fn junction_surface_continuous_8pct() {
     eprintln!("worst connector grade {worst:.3}");
     assert!(worst <= 0.08, "connector grade {worst}");
 }
+
+#[test]
+fn carriageway_triangles_tile_the_polygon() {
+    use cb_network::junction::{carriageway_triangles, mvc_height};
+    // Flat X (single fan) and a T on an 8 % slope (rings): triangles cover the carriageway
+    // exactly once and the surface heights are the boundary's mean-value interpolant.
+    let flat_x = vec![street(0.0), street(90.0), street(180.0), street(270.0)];
+    let sloped_t = vec![
+        arm(
+            RoadKind::Street,
+            Variant::default(),
+            0.0,
+            0.0,
+            140.0,
+            0.08,
+            26.0,
+            false,
+        ),
+        arm(
+            RoadKind::Avenue,
+            Variant::default(),
+            90.0,
+            0.0,
+            140.0,
+            0.0,
+            26.0,
+            false,
+        ),
+        arm(
+            RoadKind::Street,
+            Variant::default(),
+            180.0,
+            0.0,
+            140.0,
+            -0.08,
+            26.0,
+            false,
+        ),
+    ];
+    for (name, apps) in [("flat X", flat_x), ("sloped T", sloped_t)] {
+        let j = build(&apps).unwrap();
+        let tris = carriageway_triangles(&j.inner);
+        let poly = flat(&j.inner);
+        let area = cb_geometry::polygon::area(&poly);
+        let sum: f32 = tris
+            .iter()
+            .map(|t| {
+                let (a, b, c) = (
+                    Vec2::new(t[0].x, t[0].z),
+                    Vec2::new(t[1].x, t[1].z),
+                    Vec2::new(t[2].x, t[2].z),
+                );
+                0.5 * (b - a).perp_dot(c - a).abs()
+            })
+            .sum();
+        assert!((sum - area).abs() / area < 0.002, "{name}: {sum} vs {area}");
+        for t in &tris {
+            for v in t {
+                let p = Vec2::new(v.x, v.z);
+                assert!(inside_or_near(p, &poly), "{name}: vertex outside");
+                assert!((v.y - mvc_height(&j.inner, p)).abs() < 1e-3, "{name}");
+            }
+        }
+        eprintln!("{name}: {} triangles", tris.len());
+    }
+}

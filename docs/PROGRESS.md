@@ -45,11 +45,15 @@ patched in `EditSet::Lanes` (`cb_sim::lanes::patch_lanes`) + lane overlay (F5 in
 `lanes`). (4) `SetRoadType` upgrade/downgrade with bus/tram variants
 (`roads::set_road_type`, `preview_set_road_type`), (5) junction control (`ControlMode`,
 `SetApproachControl`, effective classes, phase plans, markings on `RoadNode`) and ring detection
-(`roads::update_rings`, `citygen::roundabout`). Next: (6) draw markings and signal heads in
-`cb_game` (`crates/cb_game/src/view.rs`: crosswalk/stop-line/arrow decals from
-`RoadNode::markings()`, signal heads on lit junctions with `control::stub_phase_at`) and junction
-mesh interior vertices in `cb_procgen::junction_mesh` (shading fan); then M3.5 bridges
-(`cb_network::bridge`), overpasses, decorations and surfaces.
+(`roads::update_rings`, `citygen::roundabout`). (6) markings and signal heads drawn (`cb_procgen::markings_mesh`, lamps toggled by
+`view::update_signal_lamps` from the stub clock) and the shared carriageway surface
+(`cb_network::junction::carriageway_triangles`: centre fan + zippered MVC rings, used by mesh
+and terrain stamp; fixes the shading fan and an ear-clipping hole). Next: M3.5 bridges —
+`crates/cb_network/src/bridge.rs` (span detection over water/valleys, pier placement outside
+corridors, abutments), `BuildRoad` accepting `CrossingKind::Overpass` and water spans, deck/pier
+meshes in `cb_procgen`; tests `bridge_cost_monotonic_in_length`, `bridge_piers_outside_corridors`,
+`bridge_abutment_step_le_2cm`, `overpass_does_not_modify_lower_corridor`,
+`bridge_classification_hysteresis`; then decorations and surfaces.
 
 ## Process conventions (ADR-0058)
 

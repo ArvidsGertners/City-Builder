@@ -646,10 +646,14 @@ fn corridor_stamp(id: u32, seg: &RoadSegment) -> Stamp {
 /// not, so without it terrain pokes through the junction.
 fn junction_stamp(id: u32, j: &Junction) -> Option<Stamp> {
     let plan: Vec<Vec2> = j.outer.iter().map(|v| Vec2::new(v.x, v.z)).collect();
-    let triangles: Vec<[Vec3; 3]> = cb_geometry::triangulate::triangulate(&plan)
-        .into_iter()
-        .map(|t| t.map(|i| j.outer[i as usize]))
-        .collect();
+    // The carriageway first, with exactly the triangles the junction mesh draws (lookups take
+    // the first triangle containing a sample); the outer polygon covers the sidewalk ring.
+    let mut triangles = junction::carriageway_triangles(&j.inner);
+    triangles.extend(
+        cb_geometry::triangulate::triangulate(&plan)
+            .into_iter()
+            .map(|t| t.map(|i| j.outer[i as usize])),
+    );
     (!triangles.is_empty()).then_some(Stamp {
         id,
         priority: priority::JUNCTION,

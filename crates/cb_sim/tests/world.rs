@@ -609,9 +609,8 @@ fn junction_terrain_poke(s: &Scenario) -> (f32, Vec2) {
     let mut worst = (f32::NEG_INFINITY, Vec2::ZERO);
     for n in nodes(s) {
         let Some(j) = n.junction() else { continue };
-        let plan: Vec<Vec2> = j.inner.iter().map(|v| Vec2::new(v.x, v.z)).collect();
-        for tri in cb_geometry::triangulate::triangulate(&plan) {
-            let v = tri.map(|i| j.inner[i as usize]);
+        // The surface the junction mesh draws.
+        for v in cb_network::junction::carriageway_triangles(&j.inner) {
             for a in 1..10 {
                 for b in 1..(10 - a) {
                     let (u, w) = (a as f32 / 10.0, b as f32 / 10.0);

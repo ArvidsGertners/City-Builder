@@ -19,8 +19,10 @@ use bevy::tasks::{AsyncComputeTaskPool, Task};
 use cb_core::ids::{BuildingId, NodeId, SegmentId};
 use cb_core::rng::Pcg32;
 use cb_geometry::MeshData;
+use cb_network::control::ControlMode;
 use cb_procgen::building::house;
 use cb_procgen::junction_mesh::junction_mesh;
+use cb_procgen::markings_mesh::{self, Lamp};
 use cb_procgen::paint::Painter;
 use cb_procgen::road_mesh::{RoadMeshParams, segment_mesh};
 use cb_procgen::vegetation::{self, TreeKind};
@@ -141,6 +143,10 @@ impl Plugin for ViewPlugin {
                 )
                     .chain()
                     .in_set(crate::app::GameSet::ViewSync),
+            )
+            .add_systems(
+                Update,
+                update_signal_lamps.in_set(crate::app::GameSet::Presentation),
             );
     }
 }
@@ -616,10 +622,21 @@ fn sync_network(
         if let Some(e) = state.nodes.remove(&nid) {
             commands.entity(e).despawn();
         }
-        let Some(j) = all_nodes.get(&nid).and_then(RoadNode::junction) else {
+        let Some(node) = all_nodes.get(&nid) else {
             continue;
         };
-        let md = junction_mesh(j, 0);
+        let Some(j) = node.junction() else {
+            continue;
+        };
+        let mut md = junction_mesh(j, 0);
+        let mut p = Painter::new(0, u64::from(nid.get()));
+        markings_mesh::paint_markings(&mut p, node.markings());
+        let slots = if node.control() == ControlMode::Lights {
+            markings_mesh::paint_signals(&mut p, &node.markings().stop_lines)
+        } else {
+            Vec::new()
+        };
+        md.append(&p.finish());
         let e = commands
             .spawn((
                 Mesh3d(meshes.add(world_mesh(&md))),
@@ -627,7 +644,78 @@ fn sync_network(
                 Transform::default(),
             ))
             .id();
+        for slot in &slots {
+            for lamp in Lamp::ALL {
+                let lm = markings_mesh::lit_lamp_mesh(slot, lamp);
+                commands.spawn((
+                    Mesh3d(meshes.add(world_mesh(&lm))),
+                    MeshMaterial3d(mats.world.clone()),
+                    Transform::default(),
+                    Visibility::Hidden,
+                    NotShadowCaster,
+                    SignalLamp {
+                        node: nid,
+                        approach: slot.approach,
+                        lamp,
+                    },
+                    ChildOf(e),
+                ));
+            }
+        }
         state.nodes.insert(nid, e);
+    }
+}
+
+/// A lit signal lamp, shown while its approach's signal shows that colour.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct SignalLamp {
+    node: NodeId,
+    approach: usize,
+    lamp: Lamp,
+}
+
+/// Shows the lit lamps of every signal head from the fixed-time stub clock
+/// (`cb_network::control::stub_phase_at`) until the traffic runtime drives the phases (M9).
+fn update_signal_lamps(
+    clock: Option<Res<cb_sim::SimClock>>,
+    ids: Option<Res<Ids>>,
+    nodes: Query<&RoadNode>,
+    mut lamps: Query<(&SignalLamp, &mut Visibility)>,
+) {
+    use cb_network::control::{SignalState, stub_phase_at};
+    let (Some(clock), Some(ids)) = (clock, ids) else {
+        return;
+    };
+    let t_sim_s = clock.tick().0 as f64 * f64::from(cb_core::time::TICK_DT_SIM_S);
+    for (lamp, mut vis) in &mut lamps {
+        let Some(node) = ids.nodes.get(lamp.node).and_then(|e| nodes.get(e).ok()) else {
+            continue;
+        };
+        let Some(j) = node.junction() else {
+            continue;
+        };
+        // Neighbouring junctions are offset so they do not switch in lock-step.
+        let offset = f64::from(lamp.node.get() % 17) * 3.7;
+        let showing = match stub_phase_at(node.phases().len(), t_sim_s, offset) {
+            Some((k, state)) => {
+                let green = node.phases()[k].connectors.iter().any(|c| {
+                    j.connectors
+                        .get(*c)
+                        .is_some_and(|c| c.from == lamp.approach)
+                });
+                match (green, state) {
+                    (true, SignalState::Green) => Lamp::Green,
+                    (true, SignalState::Yellow) => Lamp::Yellow,
+                    _ => Lamp::Red,
+                }
+            }
+            None => Lamp::Red,
+        };
+        vis.set_if_neq(if showing == lamp.lamp {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
     }
 }
 

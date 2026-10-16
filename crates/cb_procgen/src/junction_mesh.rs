@@ -35,15 +35,11 @@ fn resample(pts: &[Vec3], n: usize) -> Vec<Vec3> {
 #[must_use]
 pub fn junction_mesh(j: &Junction, slot: u16) -> MeshData {
     let mut p = Painter::new(slot, u64::from(slot) ^ 0x7C0D);
-    // Carriageway.
-    let plan: Vec<Vec2> = j.inner.iter().map(|v| Vec2::new(v.x, v.z)).collect();
-    let tris = cb_geometry::triangulate::triangulate(&plan);
-    for t in tris {
-        let pts = [
-            j.inner[t[0] as usize],
-            j.inner[t[1] as usize],
-            j.inner[t[2] as usize],
-        ];
+    // Carriageway: a fan from the centre with concentric rings ≤ RING_STEP_M apart, heights
+    // from mean value coordinates over the boundary (ALGORITHMS §5 step 4), so the surface is
+    // smooth instead of large tilted ear-clipped triangles (shading fan, slivers that left
+    // holes). Non-star polygons fall back to ear clipping.
+    for pts in cb_network::junction::carriageway_triangles(&j.inner) {
         p.face_ao(
             &pts,
             &[1.0; 3],
@@ -130,5 +126,52 @@ mod tests {
         assert!(lo.y >= 3.0 - SKIRT_M - 1e-4 && hi.y <= 3.0 + CURB_H_M + 1e-4);
         // Carriageway faces up.
         assert!(m.face_normal(0).y > 0.9);
+    }
+
+    #[test]
+    fn sloped_junction_surface_is_smooth() {
+        // A T whose arms climb at different grades: the carriageway is not planar, so it gets
+        // interior vertices with mean-value heights instead of a fan of tilted triangles.
+        let arms = [(Vec2::X, 0.06), (Vec2::Y, 0.0), (-Vec2::X, -0.06)];
+        let apps: Vec<Approach> = arms
+            .iter()
+            .map(|(d, g)| Approach {
+                centerline: Polyline2::new((0..=40).map(|k| *d * (k as f32 * 2.5))),
+                half_width_m: 6.0,
+                carriageway_half_m: 4.0,
+                corner_radius_m: 6.0,
+                profile: Profile::new(vec![0.0, 100.0], vec![3.0, 3.0 + g * 100.0]),
+                reversed: false,
+                lanes: Vec::new(),
+            })
+            .collect();
+        let j = build(&apps).unwrap();
+        assert!(cb_network::junction::planar_residual(&j.inner) > 0.002);
+        let tris = cb_network::junction::carriageway_triangles(&j.inner);
+        assert!(
+            tris.len() > j.inner.len() && tris.len() < 1500,
+            "{}",
+            tris.len()
+        );
+        // No edge is steeper than the arms (6 %) plus a margin: no spikes or folds.
+        for t in &tris {
+            for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                let run = Vec2::new(a.x - b.x, a.z - b.z).length();
+                if run > 0.05 {
+                    assert!((a.y - b.y).abs() / run < 0.1, "grade {}", (a.y - b.y) / run);
+                }
+            }
+        }
+        // Interior heights stay within the boundary's range (mean value coordinates are convex
+        // combinations).
+        let (lo, hi) = j
+            .inner
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(l, h), v| (l.min(v.y), h.max(v.y)));
+        for t in &tris {
+            for v in t {
+                assert!(v.y >= lo - 1e-3 && v.y <= hi + 1e-3);
+            }
+        }
     }
 }

@@ -516,6 +516,167 @@ pub fn build(apps: &[Approach]) -> Result<Junction, JunctionError> {
     Err(last_err)
 }
 
+/// Radial spacing of the carriageway rings (m).
+const RING_STEP_M: f32 = 4.0;
+/// Rings at most.
+const MAX_RINGS: usize = 4;
+/// Target vertex spacing along the inner rings (m).
+const RING_VERTEX_STEP_M: f32 = 3.0;
+/// Surfaces this close to a plane get a single fan without rings (m).
+pub const PLANAR_TOL_M: f32 = 0.002;
+
+/// Largest height deviation of the vertices from their least-squares plane `h = a x + b z + c`.
+#[must_use]
+pub fn planar_residual(pts: &[Vec3]) -> f32 {
+    let n = pts.len() as f32;
+    let m = pts.iter().fold(Vec3::ZERO, |a, p| a + *p) / n.max(1.0);
+    let (mut sxx, mut sxz, mut szz, mut sxh, mut szh) = (0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32);
+    for p in pts {
+        let (x, z, h) = (p.x - m.x, p.z - m.z, p.y - m.y);
+        sxx += x * x;
+        sxz += x * z;
+        szz += z * z;
+        sxh += x * h;
+        szh += z * h;
+    }
+    let det = sxx * szz - sxz * sxz;
+    if det.abs() < 1e-9 {
+        return f32::INFINITY;
+    }
+    let a = (sxh * szz - szh * sxz) / det;
+    let b = (szh * sxx - sxh * sxz) / det;
+    pts.iter()
+        .map(|p| (p.y - m.y - a * (p.x - m.x) - b * (p.z - m.z)).abs())
+        .fold(0.0f32, f32::max)
+}
+
+/// Height at `p` inside the polygon `poly` (heights at its vertices): linear along the edge it
+/// lies on, else mean value coordinates (Floater). `tan(α/2)` is computed without trigonometry.
+#[must_use]
+pub fn mvc_height(poly: &[Vec3], p: Vec2) -> f32 {
+    let n = poly.len();
+    if n == 0 {
+        return 0.0;
+    }
+    let v: Vec<Vec2> = poly.iter().map(|q| Vec2::new(q.x, q.z) - p).collect();
+    for k in 0..n {
+        let (a, b) = (v[k], v[(k + 1) % n]);
+        let ab = b - a;
+        let t = (-a).dot(ab) / ab.length_squared().max(1e-12);
+        if (0.0..=1.0).contains(&t) && (a + ab * t).length() < 1e-4 {
+            return poly[k].y + (poly[(k + 1) % n].y - poly[k].y) * t;
+        }
+    }
+    let tan_half = |a: Vec2, b: Vec2| {
+        let (la, lb) = (a.length(), b.length());
+        a.perp_dot(b).abs() / (la * lb + a.dot(b)).max(1e-12)
+    };
+    let (mut wsum, mut hsum) = (0.0f32, 0.0f32);
+    for k in 0..n {
+        let prev = v[(k + n - 1) % n];
+        let (cur, next) = (v[k], v[(k + 1) % n]);
+        let r = cur.length().max(1e-9);
+        let w = (tan_half(prev, cur) + tan_half(cur, next)) / r;
+        wsum += w;
+        hsum += w * poly[k].y;
+    }
+    if wsum > 0.0 { hsum / wsum } else { poly[0].y }
+}
+
+/// Triangles of the carriageway surface (ALGORITHMS §5 step 4), shared by the junction mesh and
+/// its terrain stamp: concentric rings around the centroid ≤ 4 m apart with ~3 m vertex spacing,
+/// zippered together, heights by mean value coordinates over the boundary. Planar surfaces get
+/// a single fan; polygons that are not star-shaped around the centroid are ear-clipped.
+#[must_use]
+pub fn carriageway_triangles(inner: &[Vec3]) -> Vec<[Vec3; 3]> {
+    let n = inner.len();
+    if n < 3 {
+        return Vec::new();
+    }
+    let plan: Vec<Vec2> = inner.iter().map(|v| Vec2::new(v.x, v.z)).collect();
+    let c = cb_geometry::polygon::centroid(&plan);
+    let star = (0..n).all(|k| (plan[k] - c).perp_dot(plan[(k + 1) % n] - c) > 1e-4);
+    if !star {
+        return cb_geometry::triangulate::triangulate(&plan)
+            .iter()
+            .map(|t| {
+                [
+                    inner[t[0] as usize],
+                    inner[t[1] as usize],
+                    inner[t[2] as usize],
+                ]
+            })
+            .collect();
+    }
+    let hub = Vec3::new(c.x, mvc_height(inner, c), c.y);
+    if planar_residual(inner) < PLANAR_TOL_M {
+        return (0..n)
+            .map(|k| [hub, inner[k], inner[(k + 1) % n]])
+            .collect();
+    }
+    let reach = plan.iter().map(|q| q.distance(c)).fold(0.0f32, f32::max);
+    let rings = ((reach / RING_STEP_M).ceil() as usize).clamp(1, MAX_RINGS);
+    // Boundary arc-length parameter u ∈ [0, 1) per vertex; inner rings sample the scaled
+    // boundary at evenly spaced u.
+    let mut cum = vec![0.0f32; n + 1];
+    for k in 0..n {
+        cum[k + 1] = cum[k] + plan[k].distance(plan[(k + 1) % n]);
+    }
+    let per = cum[n].max(1e-6);
+    let at_u = |u: f32, frac: f32| -> Vec3 {
+        let s = u.rem_euclid(1.0) * per;
+        let k = cum.partition_point(|x| *x <= s).clamp(1, n) - 1;
+        let t = ((s - cum[k]) / (cum[k + 1] - cum[k]).max(1e-9)).clamp(0.0, 1.0);
+        let b = plan[k].lerp(plan[(k + 1) % n], t);
+        let q = c + (b - c) * frac;
+        Vec3::new(q.x, mvc_height(inner, q), q.y)
+    };
+    // Ring r (1..=rings): (u, point); the outermost is the boundary itself.
+    let mut ring_pts: Vec<Vec<(f32, Vec3)>> = Vec::with_capacity(rings);
+    for r in 1..rings {
+        let frac = r as f32 / rings as f32;
+        let m = ((per * frac / RING_VERTEX_STEP_M).ceil() as usize).max(6);
+        ring_pts.push(
+            (0..m)
+                .map(|i| {
+                    let u = i as f32 / m as f32;
+                    (u, at_u(u, frac))
+                })
+                .collect(),
+        );
+    }
+    ring_pts.push((0..n).map(|k| (cum[k] / per, inner[k])).collect());
+    let mut out = Vec::new();
+    let first = &ring_pts[0];
+    for i in 0..first.len() {
+        out.push([hub, first[i].1, first[(i + 1) % first.len()].1]);
+    }
+    for w in ring_pts.windows(2) {
+        zipper(&w[0], &w[1], &mut out);
+    }
+    out
+}
+
+/// Triangulates the band between two closed rings ordered by `u` (inner `a`, outer `b`),
+/// always advancing the ring whose next vertex has the smaller `u`.
+fn zipper(a: &[(f32, Vec3)], b: &[(f32, Vec3)], out: &mut Vec<[Vec3; 3]>) {
+    let (na, nb) = (a.len(), b.len());
+    let (mut i, mut j) = (0usize, 0usize);
+    // Unwrapped parameter of the k-th vertex of a ring (k may exceed its length).
+    let ua = |k: usize| a[k % na].0 + (k / na) as f32;
+    let ub = |k: usize| b[k % nb].0 + (k / nb) as f32;
+    while i < na || j < nb {
+        let adv_a = j >= nb || (i < na && ua(i + 1) <= ub(j + 1));
+        if adv_a {
+            out.push([a[i % na].1, b[j % nb].1, a[(i + 1) % na].1]);
+            i += 1;
+        } else {
+            out.push([a[i % na].1, b[j % nb].1, b[(j + 1) % nb].1]);
+            j += 1;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

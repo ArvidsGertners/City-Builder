@@ -20,6 +20,8 @@ pub const STOP_LINE_WIDTH_M: f32 = 0.4;
 pub const ARROW_BEHIND_STOP_M: f32 = 6.0;
 /// Arrow length (m).
 pub const ARROW_LENGTH_M: f32 = 4.0;
+/// Signal poles stand this far behind the kerb line (m).
+pub const KERB_INSET_M: f32 = 0.6;
 /// Approaches need this much road beyond the arrow to carry markings (m).
 const MIN_TAIL_M: f32 = 4.0;
 
@@ -45,6 +47,8 @@ pub struct StopLine {
     pub ends: [Vec3; 2],
     /// Direction along the road, away from the node.
     pub along: Vec2,
+    /// On the sidewalk beside the line's kerb end (signal pole position).
+    pub kerb: Vec3,
 }
 
 /// Movements painted on one arriving lane.
@@ -132,10 +136,12 @@ pub fn markings(apps: &[Approach], j: &Junction) -> Markings {
             .map(|l| l.offset_m + 0.5 * l.width_m)
             .fold(f32::NEG_INFINITY, f32::max);
         let s_line = s_stop + 0.5 * STOP_LINE_WIDTH_M;
+        let side = if lo + hi >= 0.0 { 1.0 } else { -1.0 };
         m.stop_lines.push(StopLine {
             approach: i,
             ends: [at(a, s_line, lo), at(a, s_line, hi)],
             along,
+            kerb: at(a, s_line, side * (ch + KERB_INSET_M)),
         });
         let s_arrow = s_stop + ARROW_BEHIND_STOP_M;
         if s_arrow + 0.5 * ARROW_LENGTH_M + MIN_TAIL_M > len {
