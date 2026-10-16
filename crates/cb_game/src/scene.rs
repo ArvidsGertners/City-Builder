@@ -146,12 +146,20 @@ pub struct City10k;
 /// Builds the 10k city on the flattest large site and registers its anchors: `town` (centre,
 /// commercial core), `c10k_res` (residential), `c10k_ind` (industrial band), `map`.
 fn city10k(world: &mut World) {
-    let Some(site) = world
-        .get_resource::<TerrainRes>()
-        .map(|t| find_site(t.terrain(), 3000.0))
-    else {
+    let Some((site, map_half)) = world.get_resource::<TerrainRes>().map(|t| {
+        let h = t.terrain().height();
+        (
+            find_site(t.terrain(), 3000.0),
+            0.5 * (h.n() - 1) as f32 * h.spacing_m(),
+        )
+    }) else {
         return;
     };
+    // Keep the whole grid on the map (the site search does not know the grid size).
+    let probe = cb_sim::citygen::city10k_spec(Vec2::ZERO);
+    let grid_half = Vec2::new(probe.blocks.0 as f32, probe.blocks.1 as f32) * probe.block_m * 0.5;
+    let room = (Vec2::splat(map_half - 60.0) - grid_half).max(Vec2::ZERO);
+    let site = site.clamp(-room, room);
     let spec = cb_sim::citygen::city10k_spec(site);
     let rep = cb_sim::citygen::grid(world, &spec);
     tracing::info!("city10k at {site}: {rep:?}");

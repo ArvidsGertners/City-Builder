@@ -109,6 +109,8 @@ pub struct ViewState {
     nodes: BTreeMap<NodeId, Entity>,
     buildings: BTreeMap<BuildingId, BuildingVisual>,
     bchunks: BTreeMap<(i32, i32), BuildingChunk>,
+    /// Buildings showing a scaffold (their reveal height follows construction progress).
+    constructing: std::collections::BTreeSet<BuildingId>,
     bchunk_jobs: BTreeMap<(i32, i32), Task<BuildingChunkJob>>,
     props: BTreeMap<cb_core::ids::PropId, Entity>,
     scatter_dirty: bool,
@@ -976,6 +978,7 @@ fn sync_buildings(
             let constructing = matches!(b.condition(), Condition::Constructing { .. });
             if !constructing && let Some(sc) = v.scaffold.take() {
                 commands.entity(sc).despawn();
+                state.constructing.remove(&id);
             }
             state.buildings.insert(id, v);
             continue;
@@ -984,6 +987,7 @@ fn sync_buildings(
             Some(v) => {
                 if let Some(sc) = v.scaffold {
                     commands.entity(sc).despawn();
+                    state.constructing.remove(&id);
                 }
                 if v.civic {
                     state.scatter_dirty = true;
@@ -1028,6 +1032,9 @@ fn sync_buildings(
         if civic {
             state.scatter_dirty = true;
         }
+        if scaffold.is_some() {
+            state.constructing.insert(id);
+        }
         state.buildings.insert(
             id,
             BuildingVisual {
@@ -1039,11 +1046,11 @@ fn sync_buildings(
         );
     }
     // Construction progress: raise the reveal height of buildings with a scaffold.
-    for (id, v) in &state.buildings {
-        if v.scaffold.is_none() {
-            continue;
-        }
-        if let Some(b) = ids.buildings.get(*id).and_then(|e| buildings.get(e).ok()) {
+    for id in &state.constructing {
+        if let (Some(v), Some(b)) = (
+            state.buildings.get(id),
+            ids.buildings.get(*id).and_then(|e| buildings.get(e).ok()),
+        ) {
             let (code, reveal) = building_params(b, tick);
             slots.set(v.slot, code, reveal);
         }

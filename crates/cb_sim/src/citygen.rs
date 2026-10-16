@@ -148,13 +148,14 @@ pub fn plots_along_all(world: &mut World, zone: ZoneKind, depth: f32, report: &m
     }
 }
 
-/// The mixed-zone city of the `m4_city10k` benchmark scene: 32 × 26 blocks of 110 × 80 m
-/// (≈ 3.5 × 2.1 km, ≈ 10 000 buildings on flat ground).
+/// The mixed-zone city of the `m4_city10k` benchmark scene: 30 × 38 blocks of 110 × 80 m
+/// (≈ 3.3 × 3.0 km, most of the 4 km game map; ≈ 10 000 buildings there, where slopes and water
+/// reject streets, about twice that on flat ground).
 #[must_use]
 pub fn city10k_spec(center: Vec2) -> GridSpec {
     GridSpec {
         center,
-        blocks: (32, 26),
+        blocks: (30, 38),
         mixed: true,
         ..Default::default()
     }
