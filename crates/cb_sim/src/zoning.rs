@@ -32,7 +32,7 @@ pub const PLOT_AREA_M2: (f32, f32) = (100.0, 40_000.0);
 const JOIN_TOL_M: f32 = 1.0;
 
 /// A plot.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, PartialEq)]
 pub struct Plot {
     pub(crate) id: PlotId,
     pub(crate) zone: ZoneKind,
@@ -98,7 +98,7 @@ impl Plot {
 }
 
 /// A lot.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, PartialEq)]
 pub struct Lot {
     pub(crate) id: LotId,
     pub(crate) plot: PlotId,
@@ -427,6 +427,56 @@ fn remove_lot(world: &mut World, id: LotId) {
     }
     world.despawn(e);
     world.write_message(ZoningChanged::LotRemoved(id));
+}
+
+/// Undo/redo: removes a plot entity only (its lots are handled by the caller).
+pub(crate) fn restore_remove_plot(world: &mut World, id: PlotId) {
+    if let Some(e) = world.resource_mut::<Ids>().plots.remove(id) {
+        world.despawn(e);
+        world.write_message(ZoningChanged::PlotRemoved(id));
+    }
+}
+
+/// Undo/redo: removes a lot entity only (its building is handled by the caller).
+pub(crate) fn restore_remove_lot(world: &mut World, id: LotId) {
+    if let Some(e) = world.resource_mut::<Ids>().lots.remove(id) {
+        world.despawn(e);
+        world.write_message(ZoningChanged::LotRemoved(id));
+    }
+}
+
+/// Undo/redo: puts a plot back with its original id.
+pub(crate) fn restore_put_plot(world: &mut World, plot: Plot) {
+    let id = plot.id;
+    match world.get_resource::<Ids>().and_then(|i| i.plots.get(id)) {
+        Some(e) => {
+            if let Some(mut p) = world.get_mut::<Plot>(e) {
+                *p = plot;
+            }
+        }
+        None => {
+            let e = world.spawn(plot).id();
+            world.resource_mut::<Ids>().plots.insert(id, e);
+        }
+    }
+    world.write_message(ZoningChanged::Plot(id));
+}
+
+/// Undo/redo: puts a lot back with its original id.
+pub(crate) fn restore_put_lot(world: &mut World, lot: Lot) {
+    let id = lot.id;
+    match world.get_resource::<Ids>().and_then(|i| i.lots.get(id)) {
+        Some(e) => {
+            if let Some(mut l) = world.get_mut::<Lot>(e) {
+                *l = lot;
+            }
+        }
+        None => {
+            let e = world.spawn(lot).id();
+            world.resource_mut::<Ids>().lots.insert(id, e);
+        }
+    }
+    world.write_message(ZoningChanged::Lot(id));
 }
 
 fn hint_of(p: &Plot, n: usize) -> Option<Hint> {

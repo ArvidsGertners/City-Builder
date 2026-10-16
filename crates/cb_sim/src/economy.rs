@@ -65,3 +65,14 @@ pub(crate) fn charge(world: &mut World, cost: Money) -> Result<(), ValidationErr
     }
     Ok(())
 }
+
+/// Credits a refund (undo, ADR-0055).
+pub(crate) fn refund(world: &mut World, amount: Money) {
+    let sandbox = world.get_resource::<SimConfig>().is_some_and(|c| c.sandbox);
+    if let Some(mut t) = world.get_resource_mut::<Treasury>() {
+        if !sandbox {
+            t.balance = t.balance.saturating_add(amount);
+        }
+        t.spent_construction = Money(t.spent_construction.0 - amount.0);
+    }
+}

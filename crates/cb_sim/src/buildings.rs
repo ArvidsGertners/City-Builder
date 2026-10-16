@@ -25,7 +25,7 @@ pub const GROWTH_PER_PASS: usize = 40;
 pub const GROWTH_PERIOD_TICKS: u64 = 20;
 
 /// A building.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, PartialEq)]
 pub struct Building {
     pub(crate) id: BuildingId,
     pub(crate) lot: LotId,
@@ -116,6 +116,32 @@ pub(crate) fn remove_building(world: &mut World, id: BuildingId) {
     world.write_message(BuildingChanged::Removed(id));
 }
 
+/// Undo/redo: puts a building back with its original id and a fresh pad stamp.
+pub(crate) fn restore_put_building(world: &mut World, mut b: Building) {
+    let id = b.id;
+    let existing = world
+        .get_resource::<Ids>()
+        .and_then(|i| i.buildings.get(id));
+    if let Some(e) = existing
+        && let Some(st) = world.get::<Building>(e).and_then(|x| x.stamp)
+    {
+        terrain::remove_stamp(world, st);
+    }
+    b.stamp = add_pad_stamp(world, &b.foundation);
+    match existing {
+        Some(e) => {
+            if let Some(mut x) = world.get_mut::<Building>(e) {
+                *x = b;
+            }
+        }
+        None => {
+            let e = world.spawn(b).id();
+            world.resource_mut::<Ids>().buildings.insert(id, e);
+        }
+    }
+    world.write_message(BuildingChanged::Built(id));
+}
+
 /// After a lot changed: removes its building if the house no longer fits inside the lot.
 pub(crate) fn check_fit(world: &mut World, lot: LotId) {
     let Some(le) = world.get_resource::<Ids>().and_then(|i| i.lots.get(lot)) else {
@@ -173,22 +199,7 @@ pub(crate) fn grow_lot(world: &mut World, lot: LotId) -> Option<BuildingId> {
         return None;
     };
     let id = world.resource_mut::<Ids>().buildings.allocate().ok()?;
-    let stamp = foundation.pad.as_ref().map(|pad| {
-        let sid = world.resource_mut::<Ids>().stamp();
-        terrain::add_stamp(
-            world,
-            Stamp {
-                id: sid,
-                priority: priority::PAD,
-                shape: StampShape::Pad {
-                    polygon: pad.polygon.clone(),
-                    target_h_m: pad.target_h_m,
-                    falloff_m: pad.falloff_m,
-                },
-            },
-        );
-        sid
-    });
+    let stamp = add_pad_stamp(world, &foundation);
     let tick = world
         .get_resource::<crate::SimClock>()
         .map_or(0, |c| c.tick().0);
@@ -210,6 +221,26 @@ pub(crate) fn grow_lot(world: &mut World, lot: LotId) -> Option<BuildingId> {
     }
     world.write_message(BuildingChanged::Built(id));
     Some(id)
+}
+
+/// Terrain pad stamp of a building foundation (if it has a pad).
+pub(crate) fn add_pad_stamp(world: &mut World, foundation: &Foundation) -> Option<u32> {
+    foundation.pad.as_ref().map(|pad| {
+        let sid = world.resource_mut::<Ids>().stamp();
+        terrain::add_stamp(
+            world,
+            Stamp {
+                id: sid,
+                priority: priority::PAD,
+                shape: StampShape::Pad {
+                    polygon: pad.polygon.clone(),
+                    target_h_m: pad.target_h_m,
+                    falloff_m: pad.falloff_m,
+                },
+            },
+        );
+        sid
+    })
 }
 
 /// `TickSet::SubRate` (every [`GROWTH_PERIOD_TICKS`]): Debug growth of empty residential lots.

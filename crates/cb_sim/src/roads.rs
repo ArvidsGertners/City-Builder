@@ -48,7 +48,7 @@ const NODE_CROSSING_M: f32 = 1.0;
 pub const CONTINUATION_DEG: f32 = 10.0;
 
 /// A road node.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, PartialEq)]
 pub struct RoadNode {
     pub(crate) id: NodeId,
     pub(crate) pos: Vec3,
@@ -132,7 +132,7 @@ impl RoadNode {
 }
 
 /// A road segment.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, PartialEq)]
 pub struct RoadSegment {
     pub(crate) id: SegmentId,
     pub(crate) start: NodeId,
@@ -1775,6 +1775,79 @@ pub fn preview_segment_style(
     }
     let delta = style_cost(cat, seg, st) - style_cost(cat, seg, &seg.style);
     Ok(Money(delta.max(0)))
+}
+
+// ---------- restore (undo/redo, ADR-0055) ----------
+
+/// Removes a segment with its stamps (its nodes are restored or refreshed by the caller).
+pub(crate) fn restore_remove_segment(world: &mut World, id: SegmentId) {
+    let _ = despawn_segment(world, id);
+}
+
+/// Removes a node with its junction stamp.
+pub(crate) fn restore_remove_node(world: &mut World, id: NodeId) {
+    let Some(e) = world.resource_mut::<Ids>().nodes.remove(id) else {
+        return;
+    };
+    if let Some(st) = world.get::<RoadNode>(e).and_then(|n| n.junction_stamp) {
+        terrain::remove_stamp(world, st);
+    }
+    world.despawn(e);
+    world.write_message(NetworkChanged::NodeRemoved(id));
+}
+
+/// Puts a node back with its original id (junction and stamp are rebuilt by
+/// [`restore_refresh`]).
+pub(crate) fn restore_put_node(world: &mut World, mut node: RoadNode) {
+    let id = node.id;
+    if let Some(e) = node_entity(world, id) {
+        if let Some(st) = world.get::<RoadNode>(e).and_then(|n| n.junction_stamp) {
+            terrain::remove_stamp(world, st);
+        }
+        node.junction_stamp = None;
+        if let Some(mut n) = world.get_mut::<RoadNode>(e) {
+            *n = node;
+        }
+    } else {
+        node.junction_stamp = None;
+        let e = world.spawn(node).id();
+        world.resource_mut::<Ids>().nodes.insert(id, e);
+    }
+    world.write_message(NetworkChanged::Node(id));
+}
+
+/// Puts a segment back with its original id and fresh terrain stamps.
+pub(crate) fn restore_put_segment(world: &mut World, mut seg: RoadSegment) {
+    let id = seg.id;
+    if let Some(e) = segment_entity(world, id) {
+        let old: SmallVec<[u32; 4]> = world
+            .get::<RoadSegment>(e)
+            .map(|s| s.stamps.clone())
+            .unwrap_or_default();
+        for st in old {
+            terrain::remove_stamp(world, st);
+        }
+        add_segment_stamps(world, &mut seg);
+        if let Some(mut s) = world.get_mut::<RoadSegment>(e) {
+            *s = seg;
+        }
+    } else {
+        add_segment_stamps(world, &mut seg);
+        let e = world.spawn(seg).id();
+        world.resource_mut::<Ids>().segments.insert(id, e);
+    }
+    world.write_message(NetworkChanged::Segment(id));
+}
+
+/// Rebuilds junctions, stamps, controls and rings of restored nodes.
+pub(crate) fn restore_refresh(world: &mut World, nodes: &[NodeId]) {
+    let mut ns = nodes.to_vec();
+    ns.sort();
+    ns.dedup();
+    for n in &ns {
+        refresh_node(world, *n);
+    }
+    update_rings(world, &ns);
 }
 
 /// Outer road edge of a segment side between arc lengths `s0` and `s1` (either order), walked

@@ -195,3 +195,34 @@ fn ring_detected_as_roundabout() {
     assert!(r.outcome.is_ok());
     assert!(nodes(&s).iter().all(|n| !n.ring()));
 }
+
+#[test]
+fn approach_control_persists_in_snapshot() {
+    let mut s = Scenario::new(1);
+    let n = avenue_x(&mut s);
+    let r = s.command(PlayerCommand::SetApproachControl {
+        node: n,
+        mode: ControlMode::Lights,
+        custom: Vec::new(),
+    });
+    assert!(r.outcome.is_ok());
+    let snap = cb_sim::save::snapshot::capture(s.world());
+    assert_eq!(snap.nodes[&n].control(), ControlMode::Lights);
+    // A later edit at the junction and its undo keep the lights.
+    let side = center(&s)
+        .approaches()
+        .iter()
+        .find(|(sid, _)| seg_kind(&s, *sid) == RoadKind::Street)
+        .unwrap()
+        .0;
+    let r = s.command(PlayerCommand::SetRoadType {
+        segment: side,
+        kind: RoadKind::Avenue,
+        variant: cb_network::Variant::default(),
+    });
+    assert!(r.outcome.is_ok());
+    assert_eq!(center(&s).control(), ControlMode::Lights);
+    assert!(s.command(PlayerCommand::Undo).outcome.is_ok());
+    assert_eq!(center(&s).control(), ControlMode::Lights);
+    assert!(!center(&s).phases().is_empty());
+}

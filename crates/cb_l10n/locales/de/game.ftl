@@ -29,3 +29,16 @@ money-insufficient = Nicht genug Geld
 internal-id-space = Zu viele Objekte
 internal-no-catalog = Spieldaten fehlen
 internal-no-result = Die Aktion konnte nicht ausgeführt werden
+## Undo/redo (ADR-0055)
+undo-empty = Nichts rückgängig zu machen
+undo-expired = Zu lange her, um es rückgängig zu machen
+redo-empty = Nichts zu wiederholen
+undo-build-road = Straße bauen
+undo-remove-segment = Straße abreißen
+undo-set-road-type = Straßentyp ändern
+undo-set-segment-style = Straßengestaltung ändern
+undo-set-control = Kreuzungsregelung ändern
+undo-create-plot = Grundstück zeichnen
+undo-edit-plot = Grundstück bearbeiten
+undo-delete-plot = Grundstück löschen
+undo-set-subdivision = Parzellen ändern

@@ -480,9 +480,8 @@ unlocked" until M7.
 - [x] Junctions (S-J metrics as tests): `junction_random_10k_valid_or_typed_error`,
       `junction_connectors_cover_all_allowed_movements`, `junction_surface_continuous_8pct`,
       `ring_detected_as_roundabout`.
-- [ ] Controls: `light_plan_no_conflicting_greens_{t,x,y,5way,6way}`,
-      `every_movement_green_in_some_phase`, `approach_control_persists_in_snapshot` (first two
-      pass; the snapshot test lands with the snapshot types in M3.6).
+- [x] Controls: `light_plan_no_conflicting_greens_{t,x,y,5way,6way}`,
+      `every_movement_green_in_some_phase`, `approach_control_persists_in_snapshot`.
 - [x] Bridges: `bridge_cost_monotonic_in_length`, `bridge_piers_outside_corridors`,
       `bridge_abutment_step_le_2cm`, `overpass_does_not_modify_lower_corridor`,
       `bridge_classification_hysteresis` (plus `river_bridge_spans_water_with_clearance_and_piers`,
@@ -492,7 +491,8 @@ unlocked" until M7.
 - [ ] Editing: `edit_road_geometry_regenerates_junctions`, `edit_road_geometry_repoints_dependents`.
 - [ ] Undo/redo: per command variant `undo_<cmd>_restores_state_hash`, `redo_<cmd>_equals_apply`;
       `undo_depth_limit_100`, `undo_blocked_reports_reason`, `undo_refund_decays`,
-      `undo_after_window_rejected`, `replay_command_log_reproduces_hash`.
+      `undo_after_window_rejected`, `replay_command_log_reproduces_hash` (all pass for the
+      current commands in `crates/cb_sim/tests/undo.rs`; `EditRoadGeometry` follows).
 - [ ] Bulldoze: `demolish_validate_lists_dependents`; dialog shot M3-12.
 - [ ] Shots (noon clear; d in m; pitch 40° unless noted):
 

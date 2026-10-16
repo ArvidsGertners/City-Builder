@@ -45,6 +45,7 @@ fn hash_objects(world: &World, h: &mut StableHasher) {
         if let Some(n) = world.get::<RoadNode>(e) {
             f32s(h, &n.pos().to_array());
             n.segments().hash(h);
+            (n.control(), n.custom()).hash(h);
             if let Some(j) = n.junction() {
                 f32s(h, &j.cuts);
             }
@@ -62,7 +63,7 @@ fn hash_objects(world: &World, h: &mut StableHasher) {
         id.hash(h);
         if let Some(p) = world.get::<Plot>(e) {
             f32s(h, p.polygon().iter().flat_map(|v| [&v.x, &v.y]));
-            p.lots().hash(h);
+            (p.lots(), p.dn()).hash(h);
         }
     }
     for (id, e) in ids.lots.iter() {

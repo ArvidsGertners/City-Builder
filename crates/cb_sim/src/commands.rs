@@ -127,6 +127,30 @@ pub enum PlayerCommand {
     },
     /// Replace the simulation options (not undoable).
     SetSimConfig(SimConfig),
+    /// Undo the most recent undoable action (ADR-0055).
+    Undo,
+    /// Redo the most recently undone action.
+    Redo,
+}
+
+impl PlayerCommand {
+    /// Localization key of the action label for the undo history; `None` for commands that
+    /// cannot be undone (configuration, undo/redo themselves).
+    #[must_use]
+    pub fn undo_label(&self) -> Option<&'static str> {
+        Some(match self {
+            Self::BuildRoad(_) => "undo-build-road",
+            Self::RemoveSegment { .. } => "undo-remove-segment",
+            Self::SetRoadType { .. } => "undo-set-road-type",
+            Self::SetSegmentStyle { .. } => "undo-set-segment-style",
+            Self::SetApproachControl { .. } => "undo-set-control",
+            Self::CreatePlot(_) => "undo-create-plot",
+            Self::EditPlot { .. } => "undo-edit-plot",
+            Self::DeletePlot { .. } => "undo-delete-plot",
+            Self::SetSubdivision { .. } => "undo-set-subdivision",
+            Self::SetSimConfig(_) | Self::Undo | Self::Redo => return None,
+        })
+    }
 }
 
 /// Sequence number of a queued command.
@@ -260,6 +284,8 @@ fn apply(world: &mut World, cmd: &PlayerCommand, tick: u64) -> Result<Money, Val
             world.insert_resource(c.clone());
             Ok(Money::ZERO)
         }
+        PlayerCommand::Undo => crate::history::undo(world, tick),
+        PlayerCommand::Redo => crate::history::redo(world, tick),
     }
 }
 
@@ -271,10 +297,21 @@ pub(crate) fn apply_commands(world: &mut World) {
     };
     let tick = world.get_resource::<SimClock>().map_or(0, |c| c.tick().0);
     for (seq, cmd) in pending {
+        let label = cmd.undo_label();
+        let before = label.map(|_| crate::save::snapshot::capture(world));
         let outcome = apply(world, &cmd, tick).map(|cost| Applied {
             apply_tick: tick,
             cost,
         });
+        if let (Some(label), Some(before), Ok(applied)) = (label, before, &outcome) {
+            // Plots re-clip in `EditSet::Zoning`; settle them now so the after-state is complete.
+            crate::zoning::update_dirty_plots(world);
+            let after = crate::save::snapshot::capture(world);
+            let (back, forward) = crate::save::snapshot::diff(&before, &after);
+            if let Some(mut h) = world.get_resource_mut::<crate::history::History>() {
+                h.record(label, back, forward, applied.cost, tick);
+            }
+        }
         if outcome.is_ok()
             && let Some(mut log) = world.get_resource_mut::<CommandLog>()
         {
@@ -295,6 +332,7 @@ pub const ALL_KEYS: &[&str] = &[
     "plot-invalid-missing",
     "plot-invalid-overlap",
     "plot-invalid-size",
+    "redo-empty",
     "road-invalid-bridge-pier-conflict",
     "road-invalid-bridge-too-high",
     "road-invalid-crossing-clearance",
@@ -308,6 +346,8 @@ pub const ALL_KEYS: &[&str] = &[
     "road-invalid-too-steep",
     "road-invalid-variant",
     "road-invalid-water-no-bridge",
+    "undo-empty",
+    "undo-expired",
 ];
 
 #[cfg(test)]

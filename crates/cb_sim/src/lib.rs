@@ -13,9 +13,11 @@ pub mod config;
 pub mod driver;
 pub mod economy;
 pub mod hash;
+pub mod history;
 pub mod ids;
 pub mod lanes;
 pub mod roads;
+pub mod save;
 pub mod schedule;
 pub mod terrain;
 pub mod testing;
@@ -88,6 +90,7 @@ impl Plugin for WorldStatePlugin {
         app.init_resource::<ids::Ids>()
             .init_resource::<CommandQueue>()
             .init_resource::<commands::CommandLog>()
+            .init_resource::<history::History>()
             .init_resource::<zoning::DirtyPlots>()
             .init_resource::<lanes::LaneNetwork>()
             .add_message::<CommandResult>()
