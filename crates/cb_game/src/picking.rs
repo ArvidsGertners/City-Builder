@@ -39,6 +39,8 @@ pub fn cursor_ray(
 pub struct GroundPick {
     /// Hit point.
     pub point: Option<Vec3>,
+    /// A bridge deck in front of the ground hit (ALGORITHMS §23): segment and hit point.
+    pub deck: Option<(cb_core::ids::SegmentId, Vec3)>,
     /// Cursor position (logical pixels).
     pub cursor: Option<Vec2>,
 }
@@ -68,8 +70,71 @@ impl Plugin for PickingPlugin {
     }
 }
 
+/// Ray parameter of the first hit on a segment's bridge decks (the road surface ribbon over its
+/// spans), if any.
+#[must_use]
+pub fn ray_deck_hit(
+    origin: Vec3,
+    dir: Vec3,
+    geom: &cb_network::SegmentGeom,
+    profile: &cb_network::Profile,
+    spans: &[(f32, f32)],
+) -> Option<f32> {
+    let hw = geom.half_width_m;
+    let mut best: Option<f32> = None;
+    for &(s0, s1) in spans {
+        let n = (((s1 - s0) / 2.0).ceil() as usize).max(1);
+        let edge = |k: usize| {
+            let s = s0 + (s1 - s0) * k as f32 / n as f32;
+            let c = geom.point_at(s);
+            let nrm = geom.dir_at(s).perp();
+            let h = profile.height_at(s);
+            let (l, r) = (c + nrm * hw, c - nrm * hw);
+            (Vec3::new(l.x, h, l.y), Vec3::new(r.x, h, r.y))
+        };
+        let mut prev = edge(0);
+        for k in 1..=n {
+            let cur = edge(k);
+            for tri in [[prev.0, prev.1, cur.1], [prev.0, cur.1, cur.0]] {
+                if let Some(t) = ray_triangle(origin, dir, tri)
+                    && best.is_none_or(|b| t < b)
+                {
+                    best = Some(t);
+                }
+            }
+            prev = cur;
+        }
+    }
+    best
+}
+
+/// Möller–Trumbore ray–triangle intersection (both sides), ray parameter `t > 0`.
+fn ray_triangle(o: Vec3, d: Vec3, [a, b, c]: [Vec3; 3]) -> Option<f32> {
+    let (e1, e2) = (b - a, c - a);
+    let p = d.cross(e2);
+    let det = e1.dot(p);
+    if det.abs() < 1e-9 {
+        return None;
+    }
+    let inv = 1.0 / det;
+    let s = o - a;
+    let u = s.dot(p) * inv;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+    let q = s.cross(e1);
+    let v = d.dot(q) * inv;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+    let t = e2.dot(q) * inv;
+    (t > 0.0).then_some(t)
+}
+
+#[allow(clippy::too_many_arguments, reason = "Bevy system parameters")]
 fn pick_ground(
     windows: Query<&Window, With<PrimaryWindow>>,
+    segments: Query<&cb_sim::roads::RoadSegment>,
     cams: Query<(&GlobalTransform, &Projection, &Camera), With<WorldCamera>>,
     terrain: Option<Res<TerrainRes>>,
     over_ui: Res<crate::camera::PointerOverUi>,
@@ -108,6 +173,25 @@ fn pick_ground(
             .intersect_plane(Vec3::ZERO, InfinitePlane3d::new(Vec3::Y))
             .map(|d| ray.get_point(d)),
     };
+    // Bridge decks in front of the ground hit.
+    let ground_t = pick
+        .point
+        .map_or(f32::INFINITY, |p| (p - ray.origin).length());
+    let mut best: Option<(f32, cb_core::ids::SegmentId)> = None;
+    for seg in segments.iter().filter(|s| !s.spans().is_empty()) {
+        if let Some(t) = ray_deck_hit(
+            ray.origin,
+            *ray.direction,
+            seg.geom(),
+            seg.profile(),
+            seg.spans(),
+        ) && t < ground_t
+            && best.is_none_or(|b| t < b.0)
+        {
+            best = Some((t, seg.id()));
+        }
+    }
+    pick.deck = best.map(|(t, id)| (id, ray.get_point(t)));
 }
 
 #[cfg(test)]
@@ -128,6 +212,49 @@ mod tests {
         let in_target = physical_cursor * render_scale;
         let back_to_logical = in_target / target * window;
         cursor_ray(back_to_logical, window, w, p).unwrap()
+    }
+
+    #[test]
+    fn ray_hits_deck_not_the_valley_below() {
+        let geom = cb_network::SegmentGeom::new(
+            cb_geometry::CubicBezier2::straight(Vec2::ZERO, Vec2::new(100.0, 0.0)),
+            6.0,
+        );
+        let profile = cb_network::Profile::flat(100.0, 30.0);
+        // Straight down onto the middle of the span.
+        let t = ray_deck_hit(
+            Vec3::new(50.0, 80.0, 1.0),
+            -Vec3::Y,
+            &geom,
+            &profile,
+            &[(20.0, 80.0)],
+        );
+        assert!((t.unwrap() - 50.0).abs() < 1e-3);
+        // Outside the span or beside the deck: no hit.
+        assert!(
+            ray_deck_hit(
+                Vec3::new(10.0, 80.0, 0.0),
+                -Vec3::Y,
+                &geom,
+                &profile,
+                &[(20.0, 80.0)]
+            )
+            .is_none()
+        );
+        assert!(
+            ray_deck_hit(
+                Vec3::new(50.0, 80.0, 7.0),
+                -Vec3::Y,
+                &geom,
+                &profile,
+                &[(20.0, 80.0)]
+            )
+            .is_none()
+        );
+        // An oblique ray from the side.
+        let o = Vec3::new(50.0, 40.0, -40.0);
+        let d = (Vec3::new(50.0, 30.0, 0.0) - o).normalize();
+        assert!(ray_deck_hit(o, d, &geom, &profile, &[(20.0, 80.0)]).is_some());
     }
 
     #[test]

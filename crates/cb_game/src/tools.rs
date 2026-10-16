@@ -485,6 +485,11 @@ fn tool_input(
         }
         ActiveTool::Bulldoze => {
             if buttons.just_pressed(MouseButton::Left) && !alt {
+                // A bridge deck under the cursor wins over the ground below it.
+                if let Some((sid, _)) = pick.deck {
+                    queue.push(PlayerCommand::RemoveSegment { segment: sid });
+                    return;
+                }
                 let seg = segs.iter().find(|s| {
                     s.geom().project(p).1.abs() < s.geom().half_width_m && {
                         let sp = s.geom().project(p).0;
