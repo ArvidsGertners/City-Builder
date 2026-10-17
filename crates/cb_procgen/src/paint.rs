@@ -212,7 +212,7 @@ impl Painter {
 
 /// Orthonormal plan frame `o + ex·u + ey·v` (counter-clockwise: `ey` is `ex` rotated +90° in
 /// the `(x, z)` plane).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Frame {
     /// Origin.
     pub o: Vec2,

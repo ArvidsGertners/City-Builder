@@ -206,7 +206,7 @@ pub fn deck_input(
 }
 
 /// A pier.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Pier {
     /// Arc length on the segment.
     pub s_m: f32,

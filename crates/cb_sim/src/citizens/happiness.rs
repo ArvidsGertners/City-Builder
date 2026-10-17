@@ -181,7 +181,9 @@ pub fn happiness(x: &Inputs) -> f32 {
 }
 
 /// City-wide happiness (derived daily).
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+#[derive(
+    Resource, Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct HappinessStats {
     /// Mean happiness of households.
     pub mean: f32,

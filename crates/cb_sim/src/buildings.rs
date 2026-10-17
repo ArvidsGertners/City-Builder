@@ -34,7 +34,9 @@ pub const GROWTH_PER_PASS: usize = 40;
 pub const GROWTH_PERIOD_TICKS: u64 = 20;
 
 /// What a building is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum BuildingKind {
     /// Grown on a zoned lot.
     Zoned(ZoneKind),
@@ -81,7 +83,7 @@ impl Condition {
 }
 
 /// A zoned building's lot as it was when the building was planned.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ZonedSite {
     /// Lot polygon (counter-clockwise).
     pub polygon: Vec<Vec2>,
@@ -119,7 +121,7 @@ impl ZonedSite {
 }
 
 /// Where a building stands.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Site {
     /// On a zoned lot.
     Zoned(ZonedSite),
@@ -190,7 +192,7 @@ pub fn plan_massing(kind: BuildingKind, level: u8, site: &Site, seed: u64) -> Op
 }
 
 /// A building.
-#[derive(Component, Clone, Debug, PartialEq)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Building {
     pub(crate) id: BuildingId,
     pub(crate) kind: BuildingKind,
@@ -201,6 +203,8 @@ pub struct Building {
     pub(crate) foundation: Foundation,
     pub(crate) height_m: f32,
     pub(crate) outlines: Vec<Vec<Vec2>>,
+    /// Terrain pad stamp (re-added on restore).
+    #[serde(skip)]
     pub(crate) stamp: Option<u32>,
     pub(crate) built_tick: u64,
     pub(crate) condition: Condition,

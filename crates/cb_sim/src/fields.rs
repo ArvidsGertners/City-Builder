@@ -245,7 +245,7 @@ pub fn road_sample_energy(line_l0: f32, spacing: f32, d0: f32) -> f32 {
 }
 
 /// A noise emitter (energy at `d0` for point law).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 struct Emitter {
     pos: Vec2,
     energy: f32,
@@ -253,7 +253,7 @@ struct Emitter {
 
 /// Bucketed emitters: individual emitters per 32 m bucket plus each bucket's total energy at
 /// its energy-weighted centroid, used for buckets beyond the near ring.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 struct NoiseIndex {
     origin: Vec2,
     nx: usize,
@@ -352,35 +352,23 @@ impl NoiseIndex {
     }
 }
 
-/// The fields (pollution and land value saved; noise recomputed hourly).
+/// The fields. Everything is saved, including the per-hour slice inputs, so a game saved in
+/// the middle of a sliced pass continues exactly (ADR-0044 completeness rule).
 #[derive(Resource, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Fields {
     pollution: DoubleField,
-    #[serde(skip, default = "empty_double")]
     noise: DoubleField,
     land_value: DoubleField,
-    #[serde(skip)]
     sources: Vec<f32>,
-    #[serde(skip)]
     trees: Vec<f32>,
-    #[serde(skip)]
     noise_index: NoiseIndex,
     /// Rows and columns within the city margin (lo, hi inclusive).
-    #[serde(skip)]
     city: Option<(usize, usize, usize, usize)>,
-    #[serde(skip)]
     lv_inputs: LvInputs,
 }
 
-fn empty_double() -> DoubleField {
-    DoubleField {
-        front: empty_field(),
-        back: empty_field(),
-    }
-}
-
 /// Per-hour land value inputs.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 struct LvInputs {
     /// Abandoned or ruined building positions.
     abandoned: Vec<Vec2>,

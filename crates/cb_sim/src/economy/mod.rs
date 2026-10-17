@@ -24,7 +24,9 @@ use crate::ids::Ids;
 use crate::roads::RoadSegment;
 
 /// The city's money.
-#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Resource, Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct Treasury {
     pub(crate) balance: Money,
     pub(crate) spent_construction: Money,

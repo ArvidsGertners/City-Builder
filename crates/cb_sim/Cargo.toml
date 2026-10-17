@@ -23,6 +23,8 @@ cb_terrain.workspace = true
 cb_traffic.workspace = true
 glam.workspace = true
 ron.workspace = true
+rmp-serde.workspace = true
+rmpv.workspace = true
 smallvec.workspace = true
 bevy = { workspace = true, features = ["std", "async_executor", "multi_threaded", "bevy_state"] }
 serde.workspace = true

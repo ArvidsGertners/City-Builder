@@ -317,7 +317,9 @@ impl Population {
 }
 
 /// Population statistics for UI and demand (derived each hour).
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+#[derive(
+    Resource, Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct PopulationStats {
     /// Citizens.
     pub population: u32,

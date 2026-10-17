@@ -19,7 +19,7 @@ pub const FLOOR_ABOVE_PAD_M: f32 = 0.2;
 pub const PAD_MARGIN_M: f32 = 0.6;
 
 /// Foundation kinds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FoundationKind {
     /// Levelled pad, short plinth.
     Pad,
@@ -30,7 +30,7 @@ pub enum FoundationKind {
 }
 
 /// A planned foundation.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Foundation {
     /// Kind.
     pub kind: FoundationKind,
@@ -43,7 +43,7 @@ pub struct Foundation {
 }
 
 /// Terrain pad request (becomes a `cb_terrain` `Pad` stamp with building priority).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PadStamp {
     /// Pad polygon (counter-clockwise).
     pub polygon: Vec<Vec2>,

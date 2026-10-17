@@ -92,6 +92,12 @@ impl Terrain {
         &self.forest
     }
 
+    /// Seed of the material moisture noise (saved with the base terrain).
+    #[must_use]
+    pub fn material_seed(&self) -> u64 {
+        self.material_seed
+    }
+
     /// Whether sample `(i, j)` is a stamp core.
     #[must_use]
     pub fn is_core(&self, i: usize, j: usize) -> bool {

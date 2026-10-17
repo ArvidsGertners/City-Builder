@@ -169,6 +169,20 @@ pub struct Traffic {
     path: Vec<u32>,
     /// Access per building, cleared on every network or zoning edit.
     access: BTreeMap<BuildingId, Option<Access>>,
+    /// Link totals restored from a save, applied by the next rebuild (by link key).
+    carry: BTreeMap<u64, (f32, f32)>,
+}
+
+/// The saved part of [`Traffic`] (ADR-0068): link totals by link key, the day accumulators and
+/// the published statistics. Everything else is rebuilt from the roads.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TrafficSave {
+    /// `(link key, today, last day)`.
+    pub links: Vec<(u64, f32, f32)>,
+    /// Today's departures, perceived-minute histogram, commuters and no-route count.
+    pub acc: (Vec<u32>, Vec<u32>, u32, u32),
+    /// Published departures and `(commuters, no route, p50, p95)`.
+    pub stats: (Vec<u32>, u32, u32, f32, f32),
 }
 
 impl Default for Traffic {
@@ -188,6 +202,7 @@ impl Default for Traffic {
             tree: Tree::new(),
             path: Vec::new(),
             access: BTreeMap::new(),
+            carry: BTreeMap::new(),
         }
     }
 }
@@ -347,18 +362,75 @@ impl Traffic {
             .collect()
     }
 
-    fn rebuild(&mut self, world: &World) {
-        let old: BTreeMap<u64, (f32, f32)> = (0..self.graph.link_count() as u32)
+    /// The saved state.
+    #[must_use]
+    pub fn to_save(&self) -> TrafficSave {
+        let mut links: Vec<(u64, f32, f32)> = (0..self.graph.link_count())
             .map(|l| {
                 (
-                    self.graph.link(l).key,
-                    (
-                        self.today.get(l as usize).copied().unwrap_or(0.0),
-                        self.last.get(l as usize).copied().unwrap_or(0.0),
-                    ),
+                    self.graph.link(l as u32).key,
+                    self.today.get(l).copied().unwrap_or(0.0),
+                    self.last.get(l).copied().unwrap_or(0.0),
                 )
             })
+            .chain(self.carry.iter().map(|(k, (t, y))| (*k, *t, *y)))
             .collect();
+        links.sort_by_key(|x| x.0);
+        TrafficSave {
+            links,
+            acc: (
+                self.acc.departures.to_vec(),
+                self.acc.perceived.to_vec(),
+                self.acc.commuters,
+                self.acc.no_route,
+            ),
+            stats: (
+                self.stats.departures.to_vec(),
+                self.stats.commuters,
+                self.stats.no_route,
+                self.stats.p50_perceived_min,
+                self.stats.p95_perceived_min,
+            ),
+        }
+    }
+
+    /// Traffic from a save; the graph is rebuilt (and the totals re-attached) on the next tick
+    /// or edit.
+    #[must_use]
+    pub fn from_save(s: &TrafficSave) -> Self {
+        let mut t = Self {
+            carry: s.links.iter().map(|(k, a, b)| (*k, (*a, *b))).collect(),
+            ..Self::default()
+        };
+        for (dst, src) in t.acc.departures.iter_mut().zip(&s.acc.0) {
+            *dst = *src;
+        }
+        for (dst, src) in t.acc.perceived.iter_mut().zip(&s.acc.1) {
+            *dst = *src;
+        }
+        t.acc.commuters = s.acc.2;
+        t.acc.no_route = s.acc.3;
+        for (dst, src) in t.stats.departures.iter_mut().zip(&s.stats.0) {
+            *dst = *src;
+        }
+        t.stats.commuters = s.stats.1;
+        t.stats.no_route = s.stats.2;
+        t.stats.p50_perceived_min = s.stats.3;
+        t.stats.p95_perceived_min = s.stats.4;
+        t
+    }
+
+    fn rebuild(&mut self, world: &World) {
+        let mut old: BTreeMap<u64, (f32, f32)> = std::mem::take(&mut self.carry);
+        old.extend((0..self.graph.link_count() as u32).map(|l| {
+            (
+                self.graph.link(l).key,
+                (
+                    self.today.get(l as usize).copied().unwrap_or(0.0),
+                    self.last.get(l as usize).copied().unwrap_or(0.0),
+                ),
+            )
+        }));
         let (graph, nodes, seg_links) = build_graph(world);
         let n = graph.link_count();
         self.today = vec![0.0; n];

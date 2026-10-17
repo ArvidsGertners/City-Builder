@@ -20,7 +20,7 @@ pub const EMA_ALPHA: f32 = 0.109_101_01;
 pub const DEFAULT_TAX: f32 = 0.09;
 
 /// Every term of one demand sample (raw, before smoothing).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Breakdown {
     /// `(jobs − filled) / jobs`.
     pub job_vacancy: f32,
@@ -65,7 +65,9 @@ impl Breakdown {
 }
 
 /// Smoothed demand per zone and the last breakdown.
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+#[derive(
+    Resource, Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct Demand {
     pub(crate) r: f32,
     pub(crate) c: f32,

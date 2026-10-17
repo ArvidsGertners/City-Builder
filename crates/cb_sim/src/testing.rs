@@ -2,7 +2,7 @@
 //! control and the state hash.
 
 use bevy::MinimalPlugins;
-use bevy::app::App;
+use bevy::app::{App, PluginGroup};
 
 use crate::commands::{CommandQueue, CommandResult, PlayerCommand};
 use crate::driver::drive_frame;
@@ -28,6 +28,22 @@ impl Scenario {
     pub fn with_terrain(seed: u64, terrain: TerrainSetup) -> Self {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, SimPlugins { seed, terrain }));
+        app.finish();
+        app.cleanup();
+        Self { app }
+    }
+
+    /// A new scenario whose task pools use `threads` worker threads (determinism tests; the
+    /// pools are process-wide, so use one thread count per process).
+    #[must_use]
+    pub fn with_threads(seed: u64, terrain: TerrainSetup, threads: usize) -> Self {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins.set(bevy::app::TaskPoolPlugin {
+                task_pool_options: bevy::app::TaskPoolOptions::with_num_threads(threads),
+            }),
+            SimPlugins { seed, terrain },
+        ));
         app.finish();
         app.cleanup();
         Self { app }
@@ -100,6 +116,27 @@ impl Scenario {
     /// The world (mutable, for citygen and direct setup).
     pub fn world_mut(&mut self) -> &mut bevy::ecs::world::World {
         self.app.world_mut()
+    }
+
+    /// Saves the world (format v0).
+    ///
+    /// # Panics
+    /// If encoding fails (a test failure).
+    #[must_use]
+    pub fn save(&self) -> Vec<u8> {
+        #[allow(clippy::expect_used)]
+        crate::save::save(self.app.world(), "test").expect("save encodes")
+    }
+
+    /// A fresh scenario loaded from `bytes`.
+    ///
+    /// # Errors
+    /// Any [`crate::save::SaveError`].
+    pub fn load(bytes: &[u8]) -> Result<Self, crate::save::SaveError> {
+        let header = crate::save::read_header(bytes)?;
+        let mut s = Self::new(header.seed);
+        crate::save::load(s.app.world_mut(), bytes)?;
+        Ok(s)
     }
 
     /// Canonical state hash.

@@ -35,6 +35,27 @@ fn main() {
         grid.buildings + f.report.buildings,
         s.state_hash()
     );
+    // M5 town: citizens, economy, utilities, fields, commute model; and its save body.
+    let mut s = Scenario::new(5);
+    cb_sim::citygen::grid(
+        s.world_mut(),
+        &cb_sim::citygen::GridSpec {
+            blocks: (4, 3),
+            mixed: true,
+            ..Default::default()
+        },
+    );
+    s.run_ticks(2 * TICKS_PER_GAME_DAY + 777);
+    let bytes = s.save();
+    let body = cb_sim::save::format::split(&bytes)
+        .map_or(0, |(_, _, b)| cb_sim::save::format::checksum(b));
+    println!(
+        "probe=m5_town seed=5 population={} hash={:016x} save_body={body:016x}",
+        s.world()
+            .resource::<cb_sim::citizens::PopulationStats>()
+            .population,
+        s.state_hash()
+    );
     for seed in SEEDS {
         let mut s = Scenario::new(seed);
         s.run_ticks(2 * TICKS_PER_GAME_DAY);

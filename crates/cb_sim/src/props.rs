@@ -64,7 +64,7 @@ pub fn spec(kind: DecorKind) -> DecorSpec {
 }
 
 /// A placed decoration.
-#[derive(Component, Clone, Debug, PartialEq)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PlacedProp {
     pub(crate) id: PropId,
     pub(crate) kind: DecorKind,

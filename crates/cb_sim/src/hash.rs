@@ -100,6 +100,14 @@ fn hash_population(world: &World, h: &mut StableHasher) {
     }
     for (id, c) in pop.citizens() {
         (id, c.household(), c.age(), c.education(), c.job()).hash(h);
+        (c.shift_start_min(), c.commute_sim_s(), c.no_route()).hash(h);
+    }
+    if let Some(t) = world.get_resource::<crate::traffic::Traffic>() {
+        let s = t.to_save();
+        for (k, today, last) in &s.links {
+            (k, today.to_bits(), last.to_bits()).hash(h);
+        }
+        (&s.acc.0, &s.acc.1, s.acc.2, s.acc.3).hash(h);
     }
     // The ledger is a record of flows, not world state: an undone build leaves a charge and a
     // refund in it while the balance (hashed above) returns. Saves carry it in full.

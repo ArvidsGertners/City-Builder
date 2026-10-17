@@ -115,8 +115,7 @@ jobs:
   determinism-compare:
     needs: determinism
     runs-on: ubuntu-24.04
-    # Informational until M5, blocking afterwards (ADR-0054).
-    continue-on-error: true
+    # Blocking from M5 (ADR-0054/0060): any cross-OS hash difference fails the run.
     steps:
       - uses: actions/download-artifact@v5
         with:

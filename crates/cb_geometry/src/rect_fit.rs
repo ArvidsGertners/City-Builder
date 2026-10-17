@@ -76,7 +76,7 @@ pub struct Fit {
 }
 
 /// Lot edge classes for setbacks and yard features.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum EdgeKind {
     /// On the frontage (road side).
     Front,

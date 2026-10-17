@@ -19,7 +19,7 @@ use crate::ids::Ids;
 /// Storey height used to count floors (m).
 const STOREY_M: f32 = 3.0;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Entry {
     zone: ZoneKind,
     level: u8,
@@ -31,7 +31,7 @@ struct Entry {
 }
 
 /// Capacities of every zoned building (derived).
-#[derive(Resource, Clone, Debug, Default)]
+#[derive(Resource, Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Capacities {
     entries: BTreeMap<BuildingId, Entry>,
 }

@@ -578,6 +578,25 @@ const UTILITIES_RON: &str = include_str!("../data/utilities.ron");
 const FIELDS_RON: &str = include_str!("../data/fields.ron");
 
 impl Catalog {
+    /// Stable hash of the catalog data files (save headers warn when it changed).
+    #[must_use]
+    pub fn content_hash(&self) -> u64 {
+        use std::hash::Hasher;
+        let mut h = cb_core::hash::StableHasher::default();
+        for f in [
+            ROADS_RON,
+            ZONES_RON,
+            ECONOMY_RON,
+            CIVIC_RON,
+            CITIZENS_RON,
+            UTILITIES_RON,
+            FIELDS_RON,
+        ] {
+            h.write(f.as_bytes());
+        }
+        h.finish()
+    }
+
     /// Parses the embedded data.
     ///
     /// # Errors

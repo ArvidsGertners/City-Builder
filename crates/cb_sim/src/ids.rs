@@ -40,6 +40,16 @@ impl<K: StableId + Ord + Copy> Registry<K> {
         self.map.remove(&id)
     }
 
+    /// The allocator (saved).
+    pub(crate) fn allocator(&self) -> &IdAllocator<K> {
+        &self.alloc
+    }
+
+    /// Restores the allocator (load).
+    pub(crate) fn set_allocator(&mut self, alloc: IdAllocator<K>) {
+        self.alloc = alloc;
+    }
+
     /// Entity of `id`.
     #[must_use]
     pub fn get(&self, id: K) -> Option<Entity> {

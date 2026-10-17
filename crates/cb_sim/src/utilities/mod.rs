@@ -73,9 +73,9 @@ pub struct Utilities {
     /// Concentration per river point.
     pub(crate) river_pollution: Vec<Vec<f32>>,
     /// Power and water balance per network (component id = smallest node id).
-    #[serde(skip)]
+    #[serde(default)]
     pub(crate) power: BTreeMap<NodeId, Balance>,
-    #[serde(skip)]
+    #[serde(default)]
     pub(crate) water: BTreeMap<NodeId, Balance>,
 }
 

@@ -32,7 +32,7 @@ pub const PLOT_AREA_M2: (f32, f32) = (100.0, 40_000.0);
 const JOIN_TOL_M: f32 = 1.0;
 
 /// A plot.
-#[derive(Component, Clone, Debug, PartialEq)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Plot {
     pub(crate) id: PlotId,
     pub(crate) zone: ZoneKind,
@@ -105,7 +105,7 @@ impl Plot {
 }
 
 /// A lot.
-#[derive(Component, Clone, Debug, PartialEq)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Lot {
     pub(crate) id: LotId,
     pub(crate) plot: PlotId,
