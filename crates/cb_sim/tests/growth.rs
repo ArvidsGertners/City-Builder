@@ -87,3 +87,127 @@ fn print_growth_trajectory() {
         );
     }
 }
+
+/// A riverside town: a flat plain beside a river valley, an empty mixed grid whose west street
+/// runs along the river, a water pump on the bank and a diesel generator on the east edge.
+fn riverside_town(seed: u64) -> (Scenario, usize) {
+    use cb_procgen::building::civic::CivicKind;
+    use cb_sim::buildings::BuildingKind;
+    use cb_sim::commands::{DebugCommand, PlayerCommand};
+    use cb_sim::roads::RoadSegment;
+    use cb_sim::zoning::Lot;
+    let mut s = Scenario::with_terrain(
+        seed,
+        cb_sim::TerrainSetup::Valley {
+            samples: 513,
+            spacing_m: 4.0,
+            h: 20.0,
+            depth_m: 8.0,
+            width_m: 60.0,
+            water_m: Some(3.0),
+        },
+    )
+    .config(SimConfig {
+        growth: GrowthMode::Normal,
+        ..SimConfig::default()
+    });
+    let spec = GridSpec {
+        center: glam::Vec2::new(315.0, 0.0),
+        blocks: (5, 4),
+        mixed: true,
+        grow: false,
+        ..GridSpec::default()
+    };
+    let rep = citygen::grid(s.world_mut(), &spec);
+    assert!(rep.buildings == 0 && rep.plots > 20, "{rep:?}");
+    let hw = {
+        let ids = s.world().resource::<Ids>();
+        let (_, e) = ids.segments.iter().next().unwrap();
+        s.world().get::<RoadSegment>(e).unwrap().geom().half_width_m
+    };
+    for (kind, pos) in [
+        (CivicKind::WaterPump, glam::Vec2::new(40.0 - hw - 0.5, 0.0)),
+        (
+            CivicKind::DieselGenerator,
+            glam::Vec2::new(590.0 + hw + 0.5, 0.0),
+        ),
+    ] {
+        let r = s.command(PlayerCommand::PlaceBuilding { kind, pos });
+        assert!(r.outcome.is_ok(), "{kind:?}: {:?}", r.outcome);
+        let id = {
+            let ids = s.world().resource::<Ids>();
+            ids.buildings
+                .iter()
+                .find(|(_, e)| {
+                    s.world()
+                        .get::<Building>(*e)
+                        .is_some_and(|b| b.kind() == BuildingKind::Civic(kind))
+                })
+                .map(|(id, _)| id)
+                .unwrap()
+        };
+        let r = s.command(PlayerCommand::Debug(DebugCommand::SetCondition {
+            building: id,
+            condition: Condition::Active,
+        }));
+        assert!(r.outcome.is_ok(), "{:?}", r.outcome);
+    }
+    let r_lots = {
+        let ids = s.world().resource::<Ids>();
+        ids.lots
+            .iter()
+            .filter(|(_, e)| {
+                s.world().get::<Lot>(*e).is_some_and(|l| {
+                    ids.plots.get(l.plot()).is_some_and(|p| {
+                        s.world()
+                            .get::<cb_sim::zoning::Plot>(p)
+                            .is_some_and(|p| p.zone() == ZoneKind::Residential)
+                    })
+                })
+            })
+            .count()
+    };
+    (s, r_lots)
+}
+
+#[test]
+fn growth_scenario_flat_3days() {
+    let (mut s, r_lots) = riverside_town(17);
+    assert!(r_lots >= 120, "{r_lots} residential lots");
+    s.run_ticks(3 * TICKS_PER_GAME_DAY);
+    let st = *s.world().resource::<PopulationStats>();
+    assert!(st.population >= 400, "{st:?}");
+    let unemployment = st.unemployed as f32 / st.labour_force.max(1) as f32;
+    assert!(unemployment <= 0.15, "unemployment {unemployment} {st:?}");
+    // Homes are powered and watered.
+    let u = s.world().resource::<cb_sim::utilities::Utilities>();
+    let pop = s.world().resource::<cb_sim::citizens::Population>();
+    let (mut served, mut homes) = (0, 0);
+    for (_, h) in pop.households() {
+        homes += 1;
+        let st = u.status(h.home());
+        served += usize::from(st.power && st.water);
+    }
+    assert!(
+        served * 10 >= homes * 9,
+        "{served} of {homes} households served"
+    );
+    // A morning rush: the peak lies between 05:30 and 08:00 (bins 11–15) and most commuters
+    // leave between 05:00 and 09:30. (Commerce starts at 08:45, ADR-0062; in a town this small
+    // commutes take minutes, so the peak sits later than the 05:30–07:30 of city-scale commutes.)
+    let c = *s.world().resource::<cb_sim::traffic::Traffic>().stats();
+    let peak = (0..c.departures.len())
+        .max_by_key(|b| (c.departures[*b], std::cmp::Reverse(*b)))
+        .unwrap();
+    assert!(
+        (11..=15).contains(&peak),
+        "peak bin {peak}: {:?}",
+        c.departures
+    );
+    let morning: u32 = c.departures[10..19].iter().sum();
+    assert!(
+        morning * 10 >= c.commuters * 7,
+        "{morning} of {} leave 05:00–09:30",
+        c.commuters
+    );
+}

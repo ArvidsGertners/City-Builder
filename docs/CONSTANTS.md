@@ -62,7 +62,7 @@ in the PROGRESS.md log. Values live in code consts or `crates/cb_sim/data/*.ron`
 | Fire growth | 60 s ramp, damage/100 | `fire_contained_with_station_within_reach` | contained when station within reach |
 | Pollution decay | 0.97 / game h | `pollution_decays_0_97_per_hour` | exact |
 | Demand EMA half-life | 6 game h | `demand_monotonic_responses` | monotonic responses on synthetic inputs |
-| Growth rate | `clamp(0.5 + pop/2000, 0.5, 6)` / game h | `balance_tier1_time` | tier 1 in 12–25 real min |
+| Growth rate | `clamp(2 + pop/500, 2, 8)` × D / game h (`zones.ron`) | `growth_scenario_flat_3days`, `balance_tier1_time` | pop ≥ 400 from 120 R lots in 3 game days; tier 1 in 12–25 real min |
 | Leveling thresholds | up `[0.35, 0.5, 0.62, 0.75]`, down −0.15 | `leveling_fully_served_reaches_l3` | L3 within 10 game days at LV 0.8 |
 | Undo refund decay | 100 % → 25 % over 1 game day | `undo_refund_decays` | exact; `undo_after_window_rejected` |
 | Render scale target | 2.2 MP integrated / 3.7 MP discrete | `auto_render_scale_table` | table in ADR-0053 |

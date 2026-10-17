@@ -6,7 +6,10 @@ use std::collections::VecDeque;
 use bevy::prelude::*;
 use bevy::reflect::{PartialReflect, ReflectRef};
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
-use cb_sim::{DayLength, SimClock, SimConfig, SimDriver, SimPacing, SimSpeed, SimStepRequest};
+use cb_sim::{
+    CommandQueue, DayLength, GrowthMode, PlayerCommand, SimClock, SimConfig, SimDriver, SimPacing,
+    SimSpeed, SimStepRequest,
+};
 
 use crate::bootstrap::logging::LogRing;
 
@@ -136,6 +139,7 @@ fn windows(
     ring: Option<Res<ConsoleRing>>,
     snapshot: Res<InspectorSnapshot>,
     entities: Query<Entity>,
+    mut queue: ResMut<CommandQueue>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
     let ui = &mut *ui_state;
@@ -194,6 +198,29 @@ fn windows(
                         step.0 += 1;
                     }
                 });
+                // Sim-affecting options go through `SetSimConfig` (ADR-0055), never direct writes.
+                let mut next = config.clone();
+                ui.horizontal(|ui| {
+                    ui.label("Growth");
+                    for (label, mode) in [
+                        ("off", GrowthMode::Off),
+                        ("debug", GrowthMode::Debug),
+                        ("normal", GrowthMode::Normal),
+                    ] {
+                        if ui.selectable_label(next.growth == mode, label).clicked() {
+                            next.growth = mode;
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut next.sandbox, "sandbox");
+                    ui.checkbox(&mut next.traffic_agents, "traffic agents");
+                    ui.label("season days");
+                    ui.add(egui::DragValue::new(&mut next.season_length_days).range(1..=28));
+                });
+                if next != *config {
+                    queue.push(PlayerCommand::SetSimConfig(next));
+                }
                 ui.horizontal(|ui| {
                     ui.label("Day length");
                     for d in DayLength::ALL {

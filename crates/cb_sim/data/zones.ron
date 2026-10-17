@@ -10,4 +10,7 @@
     },
     // Construction time (game hours): base + per level above 1.
     construction: (base_game_h: 3.0, per_level_game_h: 2.0),
+    // Constructions per zone and game hour in normal growth: ceil(max(0, D) × clamp(base +
+    // pop / pop_scale, base, max)).
+    development: (base_per_h: 2.0, pop_scale: 500.0, max_per_h: 8.0),
 )

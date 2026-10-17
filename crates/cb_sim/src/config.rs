@@ -36,10 +36,11 @@ pub enum Difficulty {
 pub enum GrowthMode {
     /// Lots stay empty.
     Off,
-    /// Empty residential lots grow L1–L3 after a fixed delay (M2 stand-in for demand).
-    #[default]
+    /// Empty residential lots grow L1–L3 after a fixed delay (M2 stand-in for demand; tests
+    /// and screenshot scenes).
     Debug,
     /// Demand-driven development (M5).
+    #[default]
     Normal,
 }
 
@@ -73,7 +74,7 @@ impl Default for SimConfig {
             season_length_days: 4,
             sandbox: false,
             difficulty: Difficulty::Normal,
-            growth: GrowthMode::Debug,
+            growth: GrowthMode::Normal,
         }
     }
 }

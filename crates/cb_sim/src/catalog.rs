@@ -183,6 +183,18 @@ pub struct ConstructionSpec {
     pub per_level_game_h: f32,
 }
 
+/// Development rate in `GrowthMode::Normal` (ALGORITHMS §15): constructions per zone and game
+/// hour = `ceil(max(0, D) × clamp(base + pop / pop_scale, base, max))`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DevelopmentSpec {
+    /// Rate at zero population.
+    pub base_per_h: f32,
+    /// Population that adds one to the rate.
+    pub pop_scale: f32,
+    /// Highest rate.
+    pub max_per_h: f32,
+}
+
 impl ConstructionSpec {
     /// Construction duration of a level (game hours).
     #[must_use]
@@ -271,6 +283,7 @@ pub struct VariantCosts {
 struct ZonesFile {
     zones: BTreeMap<ZoneKind, ZoneSpec>,
     construction: ConstructionSpec,
+    development: DevelopmentSpec,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
@@ -539,6 +552,7 @@ pub struct Catalog {
     decor: DecorCosts,
     zones: BTreeMap<ZoneKind, ZoneSpec>,
     construction: ConstructionSpec,
+    development: DevelopmentSpec,
     civic: CivicFile,
     start_money: StartMoney,
     growth_debug_delay_ticks: u64,
@@ -661,6 +675,7 @@ impl Catalog {
             decor: roads.decor,
             zones: zones.zones,
             construction: zones.construction,
+            development: zones.development,
             civic,
             start_money: eco.start_money_cents,
             growth_debug_delay_ticks: eco.growth_debug_delay_ticks,
@@ -773,6 +788,12 @@ impl Catalog {
     #[must_use]
     pub fn construction(&self) -> ConstructionSpec {
         self.construction
+    }
+
+    /// Development rate.
+    #[must_use]
+    pub fn development(&self) -> DevelopmentSpec {
+        self.development
     }
 
     /// Ticks after which an empty lot grows in `GrowthMode::Debug`.

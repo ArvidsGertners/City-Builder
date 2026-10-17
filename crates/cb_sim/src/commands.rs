@@ -276,6 +276,11 @@ impl PlayerCommand {
     }
 }
 
+/// Longest season `SetSimConfig` accepts (game days).
+pub const MAX_SEASON_DAYS: u32 = 28;
+/// Largest agent cap `SetSimConfig` accepts.
+pub const MAX_AGENT_CAP: u32 = 100_000;
+
 /// Sequence number of a queued command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct CommandSeq(pub u64);
@@ -429,6 +434,10 @@ fn apply(world: &mut World, cmd: &PlayerCommand, tick: u64) -> Result<Money, Val
             crate::zoning::set_subdivision(world, *plot, *dn).map(|()| Money::ZERO)
         }
         PlayerCommand::SetSimConfig(c) => {
+            if !(1..=MAX_SEASON_DAYS).contains(&c.season_length_days) || c.agent_cap > MAX_AGENT_CAP
+            {
+                return Err(ValidationError::new("config-invalid"));
+            }
             world.insert_resource(c.clone());
             Ok(Money::ZERO)
         }

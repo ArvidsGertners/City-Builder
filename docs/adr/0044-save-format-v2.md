@@ -56,3 +56,19 @@ data was not validated.
 
 - Save/load continuation is bit-exact with traffic on (tested); saves survive worldgen changes
   and move between platforms. Saves grow to ≈ 10–15 MB for a max city (acceptable).
+
+## Amendments
+
+- 2026-10-17 (M5, format v0 implemented in `cb_sim::save`): framing is `MAGIC "CBSAVE\0\0" |
+  format version u32 LE | header length u32 LE | header | body | checksum u64 LE` (stable hash of
+  everything before it); a mismatch is `SaveError::Checksum`. Base heights are stored as `u16`
+  steps of 1/256 m above the minimum — lossless because worldgen already quantizes to
+  `HEIGHT_QUANTUM_M` — and fall back to raw `f32` when a terrain (test valleys) is not on that
+  grid, so a loaded game never differs from the continuous one. Fields are stored as `f32`
+  rasters for the same reason. Because sliced passes carry state across ticks (field slice
+  inputs, the ADR-0068 day accumulators), those inputs are saved too: a save made at any tick
+  continues bit-identically (`save_load_continue_equals_continuous`). Roads are saved as their
+  authored inputs (curve, profile, kind, variant, style, spans, piers, controls); segment
+  geometry, cut-backs, junctions and all terrain stamps are rebuilt through the undo restore
+  path, then `DirtyPlots` is cleared (restored plots already match their roads). Not in v0:
+  the command log (replay) and undo history; the LZ4 wrapper and autosave live in the game.

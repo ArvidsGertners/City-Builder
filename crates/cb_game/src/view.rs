@@ -1471,7 +1471,11 @@ mod tests {
 
     /// A sim scenario with the building view system (no renderer: meshes are plain assets).
     fn scenario() -> Scenario {
-        let mut s = Scenario::new(11);
+        // Debug growth: houses appear on every lot after a fixed delay.
+        let mut s = Scenario::new(11).config(cb_sim::SimConfig {
+            growth: cb_sim::GrowthMode::Debug,
+            ..cb_sim::SimConfig::default()
+        });
         s.app
             .init_resource::<Assets<Mesh>>()
             .init_resource::<crate::render::ObjectSlots>()

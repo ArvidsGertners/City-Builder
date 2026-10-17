@@ -535,7 +535,7 @@ terms normalized to [0, 1] unless signed:
   `export_access = 1` if an outside connection is reachable within 300 sim s, else 0.3.
 - `tax_pen = max(0, (rate − 9 %) / 11 %)`.
 - **Development**: per game hour `k = ceil(max(0, D) × growth_rate)`, `growth_rate =
-  clamp(0.5 + pop / 2 000, 0.5, 6)` new constructions per zone, chosen by **weighted sampling**
+  clamp(2 + pop / 500, 2, 8)` new constructions per zone (`zones.ron` `development`), chosen by **weighted sampling**
   (weight = LV × access × utilities) with `SimRng::for_event(Growth, purpose, hour, k)` so cities
   grow organically and deterministically.
 

@@ -33,6 +33,7 @@ building-invalid-overlap = Überschneidet eine Straße, ein Grundstück oder ein
 building-invalid-shore = Braucht tiefes Wasser direkt hinter dem Gebäude
 building-invalid-steep = Das Gelände ist hier zu steil
 building-invalid-water = Auf Wasser kann nicht gebaut werden
+config-invalid = Diese Simulationseinstellungen liegen außerhalb des zulässigen Bereichs
 loan-missing = Es gibt keinen Kredit dieser Stufe
 loan-taken = Ein Kredit dieser Stufe läuft bereits
 money-bankrupt = Während der Zahlungsunfähigkeit ist das Bauen gesperrt

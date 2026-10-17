@@ -642,11 +642,16 @@ pub(crate) fn growth(world: &mut World) {
 /// Tick of lot development in the game hour (phase table, with immigration).
 pub const DEVELOP_OFFSET: u64 = 720;
 
-/// New constructions per zone in one game hour: `ceil(max(0, D) × clamp(0.5 + pop / 2000,
-/// 0.5, 6))` (ALGORITHMS §15).
+/// New constructions per zone in one game hour: `ceil(max(0, D) × clamp(base + pop /
+/// pop_scale, base, max))` (ALGORITHMS §15, `zones.ron`).
 #[must_use]
-pub fn constructions_per_hour(demand: f32, population: usize) -> usize {
-    let rate = (0.5 + population as f32 / 2000.0).clamp(0.5, 6.0);
+pub fn constructions_per_hour(
+    demand: f32,
+    population: usize,
+    spec: &crate::catalog::DevelopmentSpec,
+) -> usize {
+    let rate = (spec.base_per_h + population as f32 / spec.pop_scale.max(1.0))
+        .clamp(spec.base_per_h, spec.max_per_h.max(spec.base_per_h));
     (demand.max(0.0) * rate).ceil() as usize
 }
 
@@ -671,6 +676,9 @@ pub(crate) fn develop(world: &mut World) {
     let Some(demand) = world.get_resource::<crate::demand::Demand>().copied() else {
         return;
     };
+    let Some(dev) = world.get_resource::<Catalog>().map(Catalog::development) else {
+        return;
+    };
     for (zi, zone) in [
         ZoneKind::Residential,
         ZoneKind::Commercial,
@@ -679,7 +687,7 @@ pub(crate) fn develop(world: &mut World) {
     .into_iter()
     .enumerate()
     {
-        let k = constructions_per_hour(demand.zone(zone), population);
+        let k = constructions_per_hour(demand.zone(zone), population, &dev);
         if k == 0 {
             continue;
         }

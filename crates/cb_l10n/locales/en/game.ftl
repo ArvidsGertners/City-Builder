@@ -33,6 +33,7 @@ building-invalid-overlap = Overlaps a road, plot or building
 building-invalid-shore = Needs deep water right behind the building
 building-invalid-steep = The ground is too steep here
 building-invalid-water = Cannot build on water
+config-invalid = These simulation settings are out of range
 loan-missing = There is no loan of this tier
 loan-taken = A loan of this tier is already outstanding
 money-bankrupt = Construction is frozen while the city is bankrupt

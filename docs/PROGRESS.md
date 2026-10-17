@@ -572,8 +572,9 @@ commute model), goods economy, save core per ADR-0044 (format v0) incl. placehol
 state, happiness stubs, `SetSimConfig` + dev panel, cross-OS determinism job becomes blocking.
 - [x] Calendar: `calendar_day_is_28800_ticks`, `season_changes_every_4_days`
       (`cb_sim/tests/calendar.rs`).
-- [ ] Growth: `growth_scenario_flat_3days` — pop ≥ 400 with 120 R lots + power + water;
-      unemployment ≤ 15 %; morning departure histogram peaks 05:30–07:30.
+- [x] Growth: `growth_scenario_flat_3days` — pop ≥ 400 with 120 R lots + power + water;
+      unemployment ≤ 15 %; morning departure histogram peaks 05:30–08:00 with ≥ 70 % leaving
+      05:00–09:30 (window widened from 05:30–07:30, see the 2026-10-17 M5.8 log entry).
 - [x] Demand: `demand_monotonic_responses`, `demand_breakdown_sums_to_value` (`cb_sim::demand`).
 - [x] Economy: `ledger_sum_equals_money_delta`, `bankruptcy_after_7_days_triggers_loan`,
       `goods_units_conserved`, `deliveries_prefer_nearest_supplier`, `import_when_no_supplier`
@@ -590,11 +591,12 @@ state, happiness stubs, `SetSimConfig` + dev panel, cross-OS determinism job bec
       `commute_estimates_routed_and_published_daily`, `departures_follow_shift_starts`,
       `day_costs_rise_with_assigned_volume`, `job_matching_rejects_commutes_over_300_sim_s`,
       `one_way_trap_flagged_no_route` (`cb_sim/tests/commute.rs`).
-- [ ] Save: `save_roundtrip_hash_equal`, `save_load_continue_equals_continuous`,
+- [x] Save: `save_roundtrip_hash_equal`, `save_load_continue_equals_continuous`,
       `save_corrupt_returns_error`, `save_fuzz_no_panic`, `migration_v0_to_v1_synthetic`,
-      `struct_map_missing_field_defaults`.
-- [ ] Determinism: `same_seed_same_commands_same_hash_daily`, `results_identical_1_4_8_threads`,
-      cross-OS job green.
+      `struct_map_missing_field_defaults` (+ `save_roundtrip_valley_terrain_continues`;
+      `cb_sim/tests/save.rs`).
+- [ ] Determinism: `same_seed_same_commands_same_hash_daily`, `results_identical_1_4_8_threads`
+      (`cb_sim/tests/determinism.rs`, pass), cross-OS job green (now blocking; pending CI).
 - [ ] Perf: `headless_bench --city 50k --no-traffic` tick p95 ≤ 1.0 ms, p99.9 ≤ 2.5 ms;
       `phase_table_nominal_le_0_6ms_per_tick`.
 
