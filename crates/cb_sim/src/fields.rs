@@ -10,6 +10,8 @@
 //! - Land value (tick 400): weighted components smoothed with a half-life of one game day;
 //!   cells beyond the city margin keep the terrain term only.
 
+use std::collections::BTreeMap;
+
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use cb_core::ids::SegmentId;
@@ -532,18 +534,27 @@ fn noise_emitters(world: &World, spec: &FieldsSpec) -> Vec<Emitter> {
     let trip_scale = world
         .get_resource::<Catalog>()
         .map_or(6.0, |c| c.citizens().commute.trip_scale);
+    // Every sample of a segment carries the same energy: compute it once per segment.
+    let mut last: Option<(SegmentId, f32)> = None;
     let mut out: Vec<Emitter> = road_samples(world, NOISE_SAMPLE_M)
         .into_iter()
         .map(|(p, k, sid)| {
-            let flow = traffic.map_or(0.0, |t| t.segment_volume_per_sim_h(sid, trip_scale));
-            let volume = n.base_volume_per_sim_h.get(k) + flow;
-            let l0 = 10.0 * log10(volume.max(1.0)) + n.road_db.get(k);
-            Emitter {
-                pos: p,
-                energy: road_sample_energy(l0, NOISE_SAMPLE_M, n.d0_m),
-            }
+            let energy = match last {
+                Some((s, e)) if s == sid => e,
+                _ => {
+                    let flow = traffic.map_or(0.0, |t| t.segment_volume_per_sim_h(sid, trip_scale));
+                    let volume = n.base_volume_per_sim_h.get(k) + flow;
+                    let l0 = 10.0 * log10(volume.max(1.0)) + n.road_db.get(k);
+                    let e = road_sample_energy(l0, NOISE_SAMPLE_M, n.d0_m);
+                    last = Some((sid, e));
+                    e
+                }
+            };
+            Emitter { pos: p, energy }
         })
         .collect();
+    // Point sources: energies per distinct level, computed once.
+    let mut by_db: BTreeMap<u32, f32> = BTreeMap::new();
     for (kind, cond, p, level) in building_points(world) {
         let db = match (kind, cond) {
             (_, Condition::Constructing { .. }) => Some(n.construction_db),
@@ -557,10 +568,8 @@ fn noise_emitters(world: &World, spec: &FieldsSpec) -> Vec<Emitter> {
             _ => None,
         };
         if let Some(db) = db {
-            out.push(Emitter {
-                pos: p,
-                energy: energy(db),
-            });
+            let e = *by_db.entry(db.to_bits()).or_insert_with(|| energy(db));
+            out.push(Emitter { pos: p, energy: e });
         }
     }
     out
@@ -571,11 +580,20 @@ fn lv_inputs(
     f: &ScalarField,
     city: Option<(usize, usize, usize, usize)>,
 ) -> LvInputs {
-    let abandoned = building_points(world)
-        .into_iter()
-        .filter(|(_, c, _, _)| matches!(c, Condition::Abandoned | Condition::Ruined))
-        .map(|(_, _, p, _)| p)
-        .collect();
+    let abandoned = world.get_resource::<Ids>().map_or(Vec::new(), |ids| {
+        ids.buildings
+            .iter()
+            .filter_map(|(_, e)| {
+                let b = world.get::<Building>(e)?;
+                if !matches!(b.condition(), Condition::Abandoned | Condition::Ruined) {
+                    return None;
+                }
+                b.outlines()
+                    .first()
+                    .map(|o| cb_geometry::polygon::centroid(o))
+            })
+            .collect()
+    });
     let samples: Vec<Emitter> = road_samples(world, 16.0)
         .into_iter()
         .map(|(p, k, _)| Emitter {
