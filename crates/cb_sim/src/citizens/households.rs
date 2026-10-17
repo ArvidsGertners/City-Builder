@@ -228,6 +228,7 @@ pub(crate) fn move_in(
             cars,
             happiness: NEUTRAL_HAPPINESS,
             moved_in_tick: now,
+            unhappy_days: 0,
         },
     );
     pop.homes.entry(home).or_default().push(hid);

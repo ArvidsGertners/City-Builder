@@ -30,11 +30,21 @@ fn main() {
     }
     s.run_ticks(1);
     let mut samples = Vec::with_capacity(usize::try_from(ticks).unwrap_or(0));
+    let mut worst: Vec<(f64, u64)> = Vec::new();
     for _ in 0..ticks {
         let t = Instant::now();
         s.run_ticks(1);
-        samples.push(t.elapsed().as_secs_f64() * 1e3);
+        let ms = t.elapsed().as_secs_f64() * 1e3;
+        samples.push(ms);
+        worst.push((ms, s.ticks() % cb_core::time::TICKS_PER_GAME_HOUR));
     }
+    // The slowest ticks with their tick-in-hour (phase-table slot).
+    worst.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let slots: Vec<String> = worst
+        .iter()
+        .take(6)
+        .map(|(ms, t)| format!("{ms:.2}@{t}"))
+        .collect();
     samples.sort_by(f64::total_cmp);
     let pick = |q: f64| {
         let i = ((samples.len() as f64 - 1.0) * q).round() as usize;
@@ -47,4 +57,5 @@ fn main() {
         pick(0.99),
         pick(1.0)
     );
+    println!("slowest (ms@tick-in-hour): {}", slots.join(" "));
 }

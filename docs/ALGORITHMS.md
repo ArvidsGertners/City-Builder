@@ -637,6 +637,13 @@ terms normalized to [0, 1] unless signed:
   side within 40 m: tree row +0.04, grass strip +0.02, cobblestone +0.03; placed props per
   GAME_DESIGN; transit bonus per ADR-0035 amendment.
 
+M5 implementation (`cb_sim::fields`): noise is computed on a 16 m grid (every other cell, 2 × 2
+blocks) from road samples every 8 m whose point-law sum reproduces the line law
+(`road_sample_energy`), emitters within two 32 m buckets summed individually and farther buckets
+as one aggregate at their energy centroid, cutoff 240 m; land value adds a 0.25 neutral offset so
+a plain served lot sits near 0.5, and cells beyond 300 m of the road network keep the base and
+terrain terms only. Weights and emissions in `fields.ron`.
+
 ## 20. Building leveling — `cb_sim::buildings::leveling`
 
 Daily, sliced: `score = w_lv LV + w_srv services + w_util utilities + w_hap (happiness or profit)

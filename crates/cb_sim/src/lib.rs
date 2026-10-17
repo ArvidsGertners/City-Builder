@@ -14,6 +14,7 @@ pub mod config;
 pub mod demand;
 pub mod driver;
 pub mod economy;
+pub mod fields;
 pub mod hash;
 pub mod history;
 pub mod ids;
@@ -114,6 +115,8 @@ impl Plugin for WorldStatePlugin {
             .init_resource::<economy::Finances>()
             .init_resource::<economy::goods::Goods>()
             .init_resource::<utilities::Utilities>()
+            .init_resource::<fields::Fields>()
+            .init_resource::<citizens::happiness::HappinessStats>()
             .add_systems(
                 SimTick,
                 (
@@ -122,6 +125,8 @@ impl Plugin for WorldStatePlugin {
                     economy::goods::tick,
                     demand::tick,
                     utilities::tick,
+                    fields::tick,
+                    citizens::happiness::tick,
                     buildings::develop,
                     citizens::tick,
                 )

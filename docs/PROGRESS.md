@@ -574,9 +574,9 @@ state, happiness stubs, `SetSimConfig` + dev panel, cross-OS determinism job bec
 - [x] Utilities: `power_brownout_outer_first`, `pump_requires_depth_1_5m_within_15m`,
       `disconnected_component_unserved`, `water_pollution_advects_downstream`
       (`cb_sim::utilities`, `cb_sim/tests/utilities.rs`).
-- [ ] Fields/happiness: `pollution_decays_0_97_per_hour`, `noise_line_and_point_attenuation`,
+- [x] Fields/happiness: `pollution_decays_0_97_per_hour`, `noise_line_and_point_attenuation`,
       `happiness_factors_weights_sum_100`, `happiness_stub_replacement_keeps_formula`,
-      `fields_double_buffer_no_seams`.
+      `fields_double_buffer_no_seams` (`cb_sim::fields`, `cb_sim::citizens::happiness`).
 - [ ] Routing (macro): `astar_equals_dijkstra_random_graphs`, `alt_heuristic_admissible_with_variants`,
       `route_cache_invalidation_on_removed_links`, `routing_budget_deterministic`,
       `one_way_trap_flagged`.
@@ -722,7 +722,12 @@ Includes: agent state saved, garbage trucks replace analytic collection, vehicle
 
 ## Known bugs
 
-None open.
+- **Perf (sim tick spikes, M5):** `headless_bench --city 10k` single ticks up to 16 ms at
+  tick-in-hour 120 (utility balance runs in one slot instead of the phase table's 4), 7–10 ms at
+  300–335 (noise emitter index build + dense slices), 6 ms at 400 (land value inputs). Plan
+  (M5.8): slice the utility pass per network, build the noise/land-value inputs incrementally
+  across the first slices, reuse one road-sample index for both fields; gate with
+  `headless_bench` p99.9 ≤ 2.5 ms.
 
 Fixed:
 - 2026-10-17 — Container CPU budget over 4 ms p95 (open since M3: `bench_city` 3.67–4.81 ms,
@@ -941,3 +946,11 @@ Known gaps (planned):
   has one). Tests: `power_brownout_outer_first`, `water_pollution_advects_downstream`,
   `disconnected_component_unserved`, `pump_requires_depth_1_5m_within_15m`,
   `sewage_pollutes_the_river_downstream_only`.
+- 2026-10-17 — M5.6 fields and happiness: `cb_sim::fields` (512² double-buffered rasters, 64
+  slices: ground pollution at tick 200, noise at 300 on a 16 m grid with near emitters summed
+  individually and far 32 m buckets aggregated, land value at 400 smoothed over a day; `fields.ron`)
+  and `cb_sim::citizens::happiness` (daily at hour 2, 11 weighted factors with the GAME_DESIGN §10
+  stubs, 3 unhappy days → 20 %/day move-out). `headless_bench --city 10k` now reports its slowest
+  ticks by phase-table slot: p95 1.0 ms, p99 1.9 ms, but single-slot spikes of 16 ms (utilities
+  at tick 120), 7–10 ms (noise setup/slices at 300–335) and 6 ms (land value setup at 400) —
+  to be sliced in M5.8 (Known bugs).

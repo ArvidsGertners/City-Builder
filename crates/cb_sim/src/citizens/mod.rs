@@ -7,6 +7,7 @@
 //! `SimRng::for_event(Citizens, purpose, tick, id)`, so results never depend on ECS order.
 
 pub mod capacity;
+pub mod happiness;
 pub mod households;
 pub mod jobs;
 
@@ -109,6 +110,9 @@ pub struct Household {
     /// 0–100 (neutral 60 until happiness lands, GAME_DESIGN §10).
     pub(crate) happiness: f32,
     pub(crate) moved_in_tick: u64,
+    /// Consecutive days below the unhappiness threshold.
+    #[serde(default)]
+    pub(crate) unhappy_days: u16,
 }
 
 impl Household {

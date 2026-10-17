@@ -366,6 +366,114 @@ pub struct UtilitySpec {
     pub polluted_threshold: f32,
 }
 
+/// Ground pollution emissions (field units per game hour).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PollutionSpec {
+    /// Industrial building per level.
+    pub industrial_per_level: f32,
+    /// Coal plant.
+    pub coal_plant: f32,
+    /// Diesel generator.
+    pub diesel_generator: f32,
+    /// Landfill.
+    pub landfill: f32,
+    /// Hourly decay factor.
+    pub decay: f32,
+    /// Share removed per unit of tree density.
+    pub tree_absorption: f32,
+    /// Level treated as fully polluted.
+    pub saturation: f32,
+}
+
+/// Values per road kind.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PerRoad {
+    /// Dirt path.
+    pub dirt: f32,
+    /// Street.
+    pub street: f32,
+    /// One-way street.
+    pub one_way: f32,
+    /// Avenue.
+    pub avenue: f32,
+}
+
+impl PerRoad {
+    /// Value for a road kind.
+    #[must_use]
+    pub fn get(&self, k: RoadKind) -> f32 {
+        match k {
+            RoadKind::Dirt => self.dirt,
+            RoadKind::Street => self.street,
+            RoadKind::OneWayStreet => self.one_way,
+            _ => self.avenue,
+        }
+    }
+}
+
+/// Noise sources (ALGORITHMS §19).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NoiseSpec {
+    /// Reference distance (m).
+    pub d0_m: f32,
+    /// Type offset of road line sources (dB).
+    pub road_db: PerRoad,
+    /// Volume stubs (veh per sim-hour) until the flow model reports volumes.
+    pub volume_stub_per_sim_h: PerRoad,
+    /// Industrial point source at d0 (dB).
+    pub industrial_db: f32,
+    /// Power plant point source (dB).
+    pub power_plant_db: f32,
+    /// Construction site (dB).
+    pub construction_db: f32,
+    /// Cutoff distance (m).
+    pub cutoff_m: f32,
+    /// Quiet level (dB).
+    pub quiet_db: f32,
+    /// Loud level (dB).
+    pub loud_db: f32,
+}
+
+/// Land value weights (ALGORITHMS §19).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LandValueSpec {
+    /// Neutral offset.
+    pub base: f32,
+    /// Service coverage.
+    pub services: f32,
+    /// Parks and decorations.
+    pub parks: f32,
+    /// Transit access.
+    pub transit: f32,
+    /// Terrain (water view, slope).
+    pub terrain: f32,
+    /// Road type.
+    pub road: f32,
+    /// Pollution (negative).
+    pub pollution: f32,
+    /// Noise (negative).
+    pub noise: f32,
+    /// Crime (negative).
+    pub crime: f32,
+    /// Abandoned buildings nearby (negative).
+    pub abandoned: f32,
+    /// Abandoned radius (m).
+    pub abandoned_radius_m: f32,
+    /// City margin beyond the road network (m).
+    pub city_margin_m: f32,
+}
+
+/// Scalar field parameters, `data/fields.ron`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FieldsSpec {
+    /// Ground pollution.
+    pub pollution: PollutionSpec,
+    /// Noise.
+    pub noise: NoiseSpec,
+    /// Land value.
+    pub land_value: LandValueSpec,
+}
+
 /// Economy parameters (GAME_DESIGN §9).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EconomySpec {
@@ -400,6 +508,7 @@ pub struct Catalog {
     citizens: CitizensSpec,
     economy: EconomySpec,
     utilities: UtilitySpec,
+    fields: FieldsSpec,
 }
 
 /// Catalog parse errors.
@@ -429,6 +538,7 @@ const ECONOMY_RON: &str = include_str!("../data/economy.ron");
 const CIVIC_RON: &str = include_str!("../data/civic.ron");
 const CITIZENS_RON: &str = include_str!("../data/citizens.ron");
 const UTILITIES_RON: &str = include_str!("../data/utilities.ron");
+const FIELDS_RON: &str = include_str!("../data/fields.ron");
 
 impl Catalog {
     /// Parses the embedded data.
@@ -461,6 +571,11 @@ impl Catalog {
         let utilities: UtilitySpec =
             ron::from_str(UTILITIES_RON).map_err(|source| CatalogError::Parse {
                 file: "utilities.ron",
+                source,
+            })?;
+        let fields: FieldsSpec =
+            ron::from_str(FIELDS_RON).map_err(|source| CatalogError::Parse {
+                file: "fields.ron",
                 source,
             })?;
         for k in RoadKind::ALL {
@@ -504,6 +619,7 @@ impl Catalog {
                 bankruptcy_days: eco.bankruptcy_days,
             },
             utilities,
+            fields,
         })
     }
 
@@ -523,6 +639,12 @@ impl Catalog {
     #[must_use]
     pub fn utilities(&self) -> &UtilitySpec {
         &self.utilities
+    }
+
+    /// Scalar field parameters.
+    #[must_use]
+    pub fn fields(&self) -> &FieldsSpec {
+        &self.fields
     }
 
     /// Road type data (every kind is present after [`Catalog::load`]).

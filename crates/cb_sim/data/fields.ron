@@ -1,0 +1,48 @@
+// Scalar fields (ADR-0028, ALGORITHMS §19).
+(
+    // Ground pollution emitted per game hour by building kind (field units).
+    pollution: (
+        industrial_per_level: 0.5,
+        coal_plant: 6.0,
+        diesel_generator: 2.0,
+        landfill: 1.5,
+        // Hourly decay factor, and the share removed per unit of tree density.
+        decay: 0.97,
+        tree_absorption: 0.03,
+        // Level treated as fully polluted by happiness and land value.
+        saturation: 20.0,
+    ),
+    noise: (
+        // Reference distance (m) and type offsets (dB) of road line sources.
+        d0_m: 10.0,
+        road_db: (dirt: -6.0, street: 0.0, one_way: 0.0, avenue: 3.0),
+        // Traffic volume stubs (veh per sim-hour) until the flow model reports volumes.
+        volume_stub_per_sim_h: (dirt: 30.0, street: 300.0, one_way: 300.0, avenue: 1200.0),
+        // Point sources at d0 (dB).
+        industrial_db: 70.0,
+        power_plant_db: 75.0,
+        construction_db: 68.0,
+        // Sources are ignored beyond this distance (m).
+        cutoff_m: 240.0,
+        // dB range mapped to 0..1 by happiness and land value.
+        quiet_db: 45.0,
+        loud_db: 75.0,
+    ),
+    land_value: (
+        // Neutral offset so a plain lot with stub inputs sits near 0.5.
+        base: 0.25,
+        services: 0.30,
+        parks: 0.15,
+        transit: 0.10,
+        terrain: 0.15,
+        road: 0.05,
+        pollution: -0.20,
+        noise: -0.10,
+        crime: -0.10,
+        abandoned: -0.10,
+        // Abandoned buildings within this distance lower land value (m).
+        abandoned_radius_m: 50.0,
+        // Fields beyond this distance from any road keep only the terrain term (m).
+        city_margin_m: 300.0,
+    ),
+)
