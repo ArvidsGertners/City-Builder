@@ -65,6 +65,7 @@ fn main() {
         let class = |t: u64| match t {
             500..=699 => "jobs",
             200..=263 | 300..=363 | 400..=463 => "fields",
+            _ if t.is_multiple_of(20) => "every20",
             _ if t.is_multiple_of(2) => "commute",
             _ => "other",
         };
@@ -91,10 +92,11 @@ fn main() {
         samples.get(i).copied().unwrap_or(0.0)
     };
     println!(
-        "bench={label} ticks={ticks} p50_ms={:.4} p95_ms={:.4} p99_ms={:.4} max_ms={:.4}",
+        "bench={label} ticks={ticks} p50_ms={:.4} p95_ms={:.4} p99_ms={:.4} p999_ms={:.4} max_ms={:.4}",
         pick(0.5),
         pick(0.95),
         pick(0.99),
+        pick(0.999),
         pick(1.0)
     );
     println!("slowest slots (max ms@tick-in-hour): {}", slots.join(" "));

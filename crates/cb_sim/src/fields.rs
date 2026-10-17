@@ -439,10 +439,20 @@ fn building_points(world: &World) -> Vec<(BuildingKind, Condition, Vec2, u8)> {
     let Some(ids) = world.get_resource::<Ids>() else {
         return Vec::new();
     };
+    // Only point sources need centroids.
+    let loud = |b: &Building| match (b.kind(), b.condition()) {
+        (_, Condition::Constructing { .. })
+        | (BuildingKind::Zoned(ZoneKind::Industrial), _)
+        | (BuildingKind::Civic(CivicKind::CoalPlant | CivicKind::DieselGenerator), _) => true,
+        _ => false,
+    };
     ids.buildings
         .iter()
         .filter_map(|(_, e)| {
             let b = world.get::<Building>(e)?;
+            if !loud(b) {
+                return None;
+            }
             let c = b
                 .outlines()
                 .first()

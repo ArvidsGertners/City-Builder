@@ -586,19 +586,17 @@ pub(crate) fn add_pad_stamp(world: &mut World, foundation: &Foundation) -> Optio
 
 /// Finishes construction of buildings whose time is up.
 fn finish_construction(world: &mut World, now: u64) {
-    let Some(ids) = world.get_resource::<Ids>() else {
-        return;
-    };
-    let done: Vec<BuildingId> = ids
-        .buildings
-        .iter()
-        .filter_map(|(id, e)| {
-            let b = world.get::<Building>(e)?;
-            (matches!(b.condition, Condition::Constructing { .. })
-                && b.condition.progress(now) >= 1.0)
-                .then_some(id)
+    // Dense component iteration (fast); sorted by id so the order never depends on the ECS.
+    let mut done: Vec<BuildingId> = world
+        .query::<&Building>()
+        .iter(world)
+        .filter(|b| {
+            matches!(b.condition, Condition::Constructing { .. })
+                && b.condition.progress(now) >= 1.0
         })
+        .map(|b| b.id)
         .collect();
+    done.sort_unstable();
     for id in done {
         set_condition(world, id, Condition::Active);
     }

@@ -52,6 +52,8 @@ const PERCEIVED_BINS: usize = 121;
 const GAME_HOURS_PER_SIM_H: f32 = 30.0;
 /// A game day in sim hours.
 const SIM_H_PER_GAME_DAY: f32 = 0.8;
+/// Civic buildings attach to a segment within this distance of their centre (m).
+pub const CIVIC_ACCESS_M: f32 = 60.0;
 /// Commute value of a worker without a route.
 pub const NO_ROUTE: u16 = u16::MAX;
 
@@ -156,6 +158,8 @@ pub struct Traffic {
     nodes: BTreeMap<NodeId, u32>,
     /// Road node per graph node index (ascending ids).
     node_ids: Vec<NodeId>,
+    /// End nodes of every segment (also those without car lanes).
+    seg_ends: BTreeMap<SegmentId, (NodeId, NodeId)>,
     seg_links: BTreeMap<SegmentId, [Option<u32>; 2]>,
     version: u64,
     dirty: bool,
@@ -193,6 +197,7 @@ impl Default for Traffic {
             graph: Graph::default(),
             nodes: BTreeMap::new(),
             node_ids: Vec::new(),
+            seg_ends: BTreeMap::new(),
             seg_links: BTreeMap::new(),
             version: 0,
             dirty: true,
@@ -272,6 +277,12 @@ impl Traffic {
     #[must_use]
     pub fn node_id(&self, idx: u32) -> Option<NodeId> {
         self.node_ids.get(idx as usize).copied()
+    }
+
+    /// End nodes `(start, end)` of a segment.
+    #[must_use]
+    pub fn segment_ends(&self, seg: SegmentId) -> Option<(NodeId, NodeId)> {
+        self.seg_ends.get(&seg).copied()
     }
 
     /// Day costs of all links (ms).
@@ -418,6 +429,15 @@ impl Traffic {
             )
         }));
         let (graph, nodes, seg_links) = build_graph(world);
+        self.seg_ends = world.get_resource::<Ids>().map_or(BTreeMap::new(), |ids| {
+            ids.segments
+                .iter()
+                .filter_map(|(sid, e)| {
+                    let s = world.get::<RoadSegment>(e)?;
+                    Some((sid, (s.start(), s.end())))
+                })
+                .collect()
+        });
         let n = graph.link_count();
         self.today = vec![0.0; n];
         self.last = vec![0.0; n];
@@ -552,6 +572,27 @@ fn build_graph(world: &World) -> Built {
 pub fn access(world: &World, b: BuildingId) -> Option<Access> {
     let ids = world.get_resource::<Ids>()?;
     let bld = world.get::<Building>(ids.buildings.get(b)?)?;
+    if matches!(bld.kind(), crate::buildings::BuildingKind::Civic(_)) {
+        // Civic parcels: the nearest segment within reach of the centre (scanned once per edit;
+        // the result is cached in `Traffic`).
+        let pos = bld
+            .outlines()
+            .first()
+            .map(|o| cb_geometry::polygon::centroid(o))?;
+        return ids
+            .segments
+            .iter()
+            .filter_map(|(sid, e)| {
+                let line = &world.get::<RoadSegment>(e)?.geom().centerline;
+                let (s, d) = line.project(pos);
+                (d.abs() <= CIVIC_ACCESS_M).then(|| (d.abs(), sid, s / line.length().max(0.1)))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
+            .map(|(_, segment, at)| Access {
+                segment,
+                at: at.clamp(0.0, 1.0),
+            });
+    }
     let lot = world.get::<Lot>(ids.lots.get(bld.lot()?)?)?;
     let plot = world.get::<Plot>(ids.plots.get(lot.plot())?)?;
     let (f0, f1) = lot.front();

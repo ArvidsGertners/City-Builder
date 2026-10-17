@@ -14,7 +14,6 @@ use glam::Vec2;
 
 use crate::buildings::{Building, BuildingKind, Condition};
 use crate::catalog::{Catalog, ZoneKind};
-use crate::ids::Ids;
 
 /// Storey height used to count floors (m).
 const STOREY_M: f32 = 3.0;
@@ -131,25 +130,27 @@ fn measure(cat: &Catalog, zone: ZoneKind, b: &Building) -> Entry {
 /// Brings the table up to date with the buildings (new, removed, re-levelled, condition).
 pub(crate) fn refresh(world: &mut World) {
     let mut table = world.remove_resource::<Capacities>().unwrap_or_default();
-    if let (Some(ids), Some(cat)) = (world.get_resource::<Ids>(), world.get_resource::<Catalog>()) {
-        let mut next = BTreeMap::new();
-        for (id, e) in ids.buildings.iter() {
-            let Some(b) = world.get::<Building>(e) else {
-                continue;
-            };
-            let BuildingKind::Zoned(zone) = b.kind() else {
-                continue;
-            };
-            let entry = match table.entries.get(&id) {
-                Some(old) if old.level == b.level() && old.zone == zone => Entry {
-                    habitable: habitable(b.condition()),
-                    ..*old
-                },
-                _ => measure(cat, zone, b),
-            };
-            next.insert(id, entry);
-        }
-        table.entries = next;
+    if let Some(cat) = world.get_resource::<Catalog>().cloned() {
+        // Dense component iteration, then sorted by id: the table never depends on ECS order.
+        let mut next: Vec<(BuildingId, Entry)> = world
+            .query::<&Building>()
+            .iter(world)
+            .filter_map(|b| {
+                let BuildingKind::Zoned(zone) = b.kind() else {
+                    return None;
+                };
+                let entry = match table.entries.get(&b.id()) {
+                    Some(old) if old.level == b.level() && old.zone == zone => Entry {
+                        habitable: habitable(b.condition()),
+                        ..*old
+                    },
+                    _ => measure(&cat, zone, b),
+                };
+                Some((b.id(), entry))
+            })
+            .collect();
+        next.sort_unstable_by_key(|e| e.0);
+        table.entries = next.into_iter().collect::<BTreeMap<_, _>>();
     }
     world.insert_resource(table);
 }

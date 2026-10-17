@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
-use cb_core::ids::{BuildingId, NodeId, SegmentId};
+use cb_core::ids::{BuildingId, NodeId};
 use cb_core::time::TICKS_PER_GAME_HOUR;
 use cb_procgen::building::civic::CivicKind;
 use glam::Vec2;
@@ -26,15 +26,12 @@ use crate::catalog::{Catalog, UtilitySpec, ZoneKind};
 use crate::citizens::Capacities;
 use crate::ids::Ids;
 use crate::roads::RoadSegment;
-use crate::zoning::{Lot, Plot};
 use network::Consumer;
 
 /// First tick of the utility pass in the game hour (phase table).
 pub const OFFSET: u64 = 120;
 /// Building collection slices (`BuildingId % 16`); the allocation runs on the tick after.
 pub const COLLECT_SLICES: u64 = 16;
-/// Civic buildings attach to a segment within this distance of their centre (m).
-const CIVIC_ACCESS_M: f32 = 60.0;
 /// Outlets inject into a river point within this distance (m); pumps draw within it too.
 const RIVER_REACH_M: f32 = 150.0;
 
@@ -175,90 +172,68 @@ pub(crate) struct Node {
     profile: Profile,
 }
 
-fn access_ends(world: &World, ids: &Ids, seg: SegmentId) -> Option<(NodeId, NodeId)> {
-    let s = world.get::<RoadSegment>(ids.segments.get(seg)?)?;
-    Some((s.start(), s.end()))
-}
-
-/// Collects buildings with their access and profile.
-fn collect(world: &World, spec: &UtilitySpec, slice: u64) -> Vec<Node> {
-    let (Some(ids), Some(cap)) = (
-        world.get_resource::<Ids>(),
-        world.get_resource::<Capacities>(),
-    ) else {
+/// Collects buildings with their access and profile (access from the `Traffic` cache).
+fn collect(world: &mut World, spec: &UtilitySpec, slice: u64) -> Vec<Node> {
+    crate::traffic::rebuild_if_dirty(world);
+    if world.get_resource::<crate::traffic::Traffic>().is_none() {
         return Vec::new();
-    };
-    // Segments with their centreline bounds, so civic access projects only onto nearby ones.
-    let segments: Vec<(SegmentId, &RoadSegment, Vec2, Vec2)> = ids
-        .segments
-        .iter()
-        .filter_map(|(id, e)| {
-            let s = world.get::<RoadSegment>(e)?;
-            let (lo, hi) = cb_geometry::polygon::bounds(s.geom().centerline.points());
-            Some((id, s, lo, hi))
-        })
-        .collect();
-    let mut out = Vec::new();
-    for (id, e) in ids
-        .buildings
-        .iter()
-        .filter(|(id, _)| u64::from(id.get()) % COLLECT_SLICES == slice)
-    {
-        let Some(b) = world.get::<Building>(e) else {
-            continue;
-        };
-        if !matches!(b.condition(), Condition::Active | Condition::Declining) {
-            continue;
-        }
-        let pos = b
-            .outlines()
-            .first()
-            .map_or(Vec2::ZERO, |o| cb_geometry::polygon::centroid(o));
-        let (ends, profile) = match b.kind() {
-            BuildingKind::Zoned(zone) => {
-                let ends = b
-                    .lot()
-                    .and_then(|l| world.get::<Lot>(ids.lots.get(l)?))
-                    .and_then(|l| world.get::<Plot>(ids.plots.get(l.plot())?))
-                    .and_then(|p| p.segments().first().copied())
-                    .and_then(|s| access_ends(world, ids, s));
-                let profile = if zone == ZoneKind::Residential {
-                    consumption(
-                        spec,
-                        spec.household,
-                        f32::from(cap.home_slots(id)),
-                        b.level(),
-                    )
-                } else {
-                    let jobs: u16 = cap.jobs_of(id).iter().sum();
-                    consumption(spec, spec.job, f32::from(jobs), b.level())
-                };
-                (ends, profile)
-            }
-            BuildingKind::Civic(kind) => {
-                let ends = segments
-                    .iter()
-                    .filter(|(_, _, lo, hi)| {
-                        pos.x >= lo.x - CIVIC_ACCESS_M
-                            && pos.x <= hi.x + CIVIC_ACCESS_M
-                            && pos.y >= lo.y - CIVIC_ACCESS_M
-                            && pos.y <= hi.y + CIVIC_ACCESS_M
-                    })
-                    .map(|(sid, s, _, _)| (s.geom().centerline.project(pos).1.abs(), *sid, *s))
-                    .filter(|x| x.0 <= CIVIC_ACCESS_M)
-                    .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
-                    .map(|(_, _, s)| (s.start(), s.end()));
-                (ends, civic_profile(spec, kind))
-            }
-        };
-        out.push(Node {
-            id,
-            pos,
-            ends,
-            profile,
-        });
     }
-    out
+    world.resource_scope(
+        |world, mut traffic: bevy::ecs::world::Mut<crate::traffic::Traffic>| {
+            let (Some(ids), Some(cap)) = (
+                world.get_resource::<Ids>(),
+                world.get_resource::<Capacities>(),
+            ) else {
+                return Vec::new();
+            };
+            let mut out = Vec::new();
+            for (id, e) in ids
+                .buildings
+                .iter()
+                .filter(|(id, _)| u64::from(id.get()) % COLLECT_SLICES == slice)
+            {
+                let Some(b) = world.get::<Building>(e) else {
+                    continue;
+                };
+                if !matches!(b.condition(), Condition::Active | Condition::Declining) {
+                    continue;
+                }
+                let ends = traffic
+                    .access_of(world, id)
+                    .and_then(|a| traffic.segment_ends(a.segment));
+                let (pos, profile) = match b.kind() {
+                    BuildingKind::Zoned(zone) => {
+                        let profile = if zone == ZoneKind::Residential {
+                            consumption(
+                                spec,
+                                spec.household,
+                                f32::from(cap.home_slots(id)),
+                                b.level(),
+                            )
+                        } else {
+                            let jobs: u16 = cap.jobs_of(id).iter().sum();
+                            consumption(spec, spec.job, f32::from(jobs), b.level())
+                        };
+                        (cap.pos(id).unwrap_or(Vec2::ZERO), profile)
+                    }
+                    BuildingKind::Civic(kind) => {
+                        let pos = b
+                            .outlines()
+                            .first()
+                            .map_or(Vec2::ZERO, |o| cb_geometry::polygon::centroid(o));
+                        (pos, civic_profile(spec, kind))
+                    }
+                };
+                out.push(Node {
+                    id,
+                    pos,
+                    ends,
+                    profile,
+                });
+            }
+            out
+        },
+    )
 }
 
 /// A per-building map aligned to `nodes` (both sorted by id), by a merge walk.
