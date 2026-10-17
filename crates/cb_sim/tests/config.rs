@@ -15,10 +15,7 @@ fn set_sim_config_validates_and_applies() {
         ..SimConfig::default()
     };
     let r = s.command(PlayerCommand::SetSimConfig(bad));
-    assert_eq!(
-        r.outcome.err().map(|e| e.key),
-        Some("config-invalid".into())
-    );
+    assert_eq!(r.outcome.err().map(|e| e.key), Some("config-invalid"));
     assert_eq!(*s.world().resource::<SimConfig>(), SimConfig::default());
     let good = SimConfig {
         growth: GrowthMode::Normal,

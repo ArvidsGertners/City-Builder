@@ -74,9 +74,28 @@ fn ok(s: &mut Scenario, cmd: PlayerCommand) -> Money {
     }
 }
 
+/// Debug growth (houses on every lot after a fixed delay): these tests exercise mechanics, not
+/// demand.
+fn debug_cfg() -> cb_sim::SimConfig {
+    cb_sim::SimConfig {
+        growth: cb_sim::GrowthMode::Debug,
+        ..cb_sim::SimConfig::default()
+    }
+}
+
+#[allow(dead_code)]
+fn debug_scenario(seed: u64) -> Scenario {
+    Scenario::new(seed).config(debug_cfg())
+}
+
+#[allow(dead_code)]
+fn debug_terrain_scenario(seed: u64, terrain: cb_sim::TerrainSetup) -> Scenario {
+    Scenario::with_terrain(seed, terrain).config(debug_cfg())
+}
+
 #[test]
 fn build_straight_road_charges_and_creates_nodes() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     let before = s.world().resource::<Treasury>().balance();
     let cost = ok(
         &mut s,
@@ -99,7 +118,7 @@ fn build_straight_road_charges_and_creates_nodes() {
 
 #[test]
 fn road_invalid_reasons_return_keys() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     let short = s.command(road(
         RoadKind::Street,
         Vec2::ZERO,
@@ -133,7 +152,7 @@ fn road_invalid_reasons_return_keys() {
 
 #[test]
 fn crossing_roads_form_an_x_junction() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     ok(
         &mut s,
         road(
@@ -170,7 +189,7 @@ fn crossing_roads_form_an_x_junction() {
 
 #[test]
 fn t_junction_by_snapping_onto_a_segment() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     ok(
         &mut s,
         road(
@@ -211,7 +230,7 @@ fn t_junction_by_snapping_onto_a_segment() {
 
 #[test]
 fn junction_too_close_is_rejected() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     ok(
         &mut s,
         road(
@@ -275,7 +294,7 @@ fn street_with_plot(s: &mut Scenario) -> cb_core::ids::SegmentId {
 
 #[test]
 fn plot_subdivides_into_lots_covering_it() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     street_with_plot(&mut s);
     let p = &plots(&s)[0];
     let area = cb_geometry::polygon::area(p.polygon());
@@ -297,7 +316,7 @@ fn plot_subdivides_into_lots_covering_it() {
 
 #[test]
 fn plot_clipped_by_new_corridor() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     let _ = street_with_plot(&mut s);
     let before = plots(&s)[0].polygon().to_vec();
     let lots_before: Vec<_> = lots(&s).iter().map(Lot::id).collect();
@@ -347,7 +366,7 @@ fn plot_clipped_by_new_corridor() {
 
 #[test]
 fn corner_plot_around_a_junction() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     ok(
         &mut s,
         road(
@@ -416,7 +435,7 @@ fn corner_plot_around_a_junction() {
 
 #[test]
 fn debug_growth_builds_houses_inside_lots() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     street_with_plot(&mut s);
     s.run_ticks(800);
     let ids = s.world().resource::<Ids>();
@@ -438,7 +457,7 @@ fn debug_growth_builds_houses_inside_lots() {
 
 #[test]
 fn removing_a_segment_rebuilds_the_junction() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     ok(
         &mut s,
         road(
@@ -482,7 +501,7 @@ fn removing_a_segment_rebuilds_the_junction() {
 
 #[test]
 fn citygen_grid_with_houses() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     let spec = cb_sim::citygen::GridSpec {
         blocks: (3, 2),
         ..Default::default()
@@ -496,7 +515,7 @@ fn citygen_grid_with_houses() {
 #[test]
 fn same_commands_same_state_hash() {
     let run = || {
-        let mut s = Scenario::new(7);
+        let mut s = debug_scenario(7);
         street_with_plot(&mut s);
         ok(
             &mut s,
@@ -516,7 +535,7 @@ fn same_commands_same_state_hash() {
 
 #[test]
 fn edit_plot_keeps_lot_ids_and_previews_agree() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     let sid = street_with_plot(&mut s);
     let p = plots(&s)[0].clone();
     let before: Vec<_> = p.lots().to_vec();
@@ -577,7 +596,7 @@ fn edit_plot_keeps_lot_ids_and_previews_agree() {
 
 #[test]
 fn road_preview_matches_build() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     let cmd = BuildRoad {
         kind: RoadKind::Street,
         curve: CubicBezier2::straight(Vec2::ZERO, Vec2::new(120.0, 0.0)),
@@ -594,7 +613,7 @@ fn road_preview_matches_build() {
 
 #[test]
 fn m2_scripted_scene_has_its_features() {
-    let mut s = Scenario::with_terrain(1234, cb_sim::terrain::TerrainSetup::Generate);
+    let mut s = debug_terrain_scenario(1234, cb_sim::terrain::TerrainSetup::Generate);
     let f = cb_sim::citygen::m2_features(s.world_mut(), Vec2::ZERO, Vec2::new(220.0, 120.0));
     eprintln!("{f:#?}");
     assert!(f.slope.is_some(), "no slope street");
@@ -638,7 +657,7 @@ fn junction_terrain_poke(s: &Scenario) -> (f32, Vec2) {
 
 #[test]
 fn junction_surface_above_terrain() {
-    let mut s = Scenario::with_terrain(1234, cb_sim::terrain::TerrainSetup::Generate);
+    let mut s = debug_terrain_scenario(1234, cb_sim::terrain::TerrainSetup::Generate);
     let site = Vec2::new(19.2, -1228.8);
     cb_sim::citygen::grid(
         s.world_mut(),
@@ -659,7 +678,7 @@ fn junction_surface_above_terrain() {
 
 #[test]
 fn m2_scripted_lots_all_grow() {
-    let mut s = Scenario::with_terrain(1234, cb_sim::terrain::TerrainSetup::Generate);
+    let mut s = debug_terrain_scenario(1234, cb_sim::terrain::TerrainSetup::Generate);
     let site = Vec2::new(19.2, -1228.8);
     cb_sim::citygen::grid(
         s.world_mut(),
@@ -692,7 +711,7 @@ fn m2_scripted_lots_all_grow() {
 fn road_through_existing_node_joins_it() {
     // A diagonal road passing exactly through the T node of an east–west street joins that node
     // (the crossing is reported by both segments meeting there).
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     ok(
         &mut s,
         road(
@@ -739,7 +758,7 @@ fn road_through_existing_node_joins_it() {
 
 #[test]
 fn m3_scripted_scene_has_its_features() {
-    let mut s = Scenario::with_terrain(1234, cb_sim::terrain::TerrainSetup::Generate);
+    let mut s = debug_terrain_scenario(1234, cb_sim::terrain::TerrainSetup::Generate);
     let site = Vec2::new(19.2, -1228.8);
     let spec = cb_sim::citygen::GridSpec {
         center: site,

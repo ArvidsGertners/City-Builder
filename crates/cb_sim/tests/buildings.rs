@@ -73,11 +73,20 @@ fn lot(s: &Scenario, b: &Building) -> Lot {
     s.world().get::<Lot>(e).cloned().unwrap()
 }
 
+/// These tests exercise building mechanics under debug growth (houses on every lot after a
+/// fixed delay), independent of demand.
+fn debug_scenario(seed: u64) -> Scenario {
+    Scenario::new(seed).config(cb_sim::SimConfig {
+        growth: cb_sim::GrowthMode::Debug,
+        ..cb_sim::SimConfig::default()
+    })
+}
+
 #[test]
 fn debug_growth_fills_every_zone_within_level_caps() {
-    let mut s = Scenario::new(3);
+    let mut s = debug_scenario(3);
     zoned_street(&mut s, [ZoneKind::Residential, ZoneKind::Commercial]);
-    let mut t = Scenario::new(3);
+    let mut t = debug_scenario(3);
     zoned_street(&mut t, [ZoneKind::Industrial, ZoneKind::Residential]);
     for sc in [&mut s, &mut t] {
         sc.run_ticks(800);
@@ -121,7 +130,7 @@ fn debug_growth_fills_every_zone_within_level_caps() {
 
 #[test]
 fn construction_finishes_after_its_time() {
-    let mut s = Scenario::new(5);
+    let mut s = debug_scenario(5);
     zoned_street(&mut s, [ZoneKind::Residential, ZoneKind::Residential]);
     s.run_ticks(800);
     let bs = buildings(&s);
@@ -155,7 +164,7 @@ fn construction_finishes_after_its_time() {
 
 #[test]
 fn debug_commands_change_level_and_condition() {
-    let mut s = Scenario::new(7);
+    let mut s = debug_scenario(7);
     zoned_street(&mut s, [ZoneKind::Residential, ZoneKind::Commercial]);
     s.run_ticks(800);
     let cat = Catalog::load().unwrap();
@@ -261,7 +270,7 @@ fn road_half_width(s: &Scenario) -> f32 {
 #[test]
 fn place_building_snaps_to_road_edge_within_2m() {
     use cb_procgen::building::civic::CivicKind;
-    let mut s = Scenario::new(9);
+    let mut s = debug_scenario(9);
     street(&mut s);
     let hw = road_half_width(&s);
     let before = s.world().resource::<cb_sim::economy::Treasury>().balance();
@@ -314,7 +323,7 @@ fn place_building_snaps_to_road_edge_within_2m() {
 #[test]
 fn place_building_rejects_overlap() {
     use cb_procgen::building::civic::CivicKind;
-    let mut s = Scenario::new(9);
+    let mut s = debug_scenario(9);
     street(&mut s);
     let hw = road_half_width(&s);
     ok(
@@ -377,7 +386,7 @@ fn place_building_rejects_overlap() {
 #[test]
 fn place_prop_lv_effect() {
     use cb_sim::props::{DecorKind, land_value_bonus_at, spec};
-    let mut s = Scenario::new(4);
+    let mut s = debug_scenario(4);
     street(&mut s);
     let p = Vec2::new(0.0, 30.0);
     assert_eq!(land_value_bonus_at(s.world(), p), 0.0);
@@ -424,7 +433,7 @@ fn place_prop_lv_effect() {
 #[test]
 fn town_hall_auto_placed_at_start() {
     use cb_procgen::building::civic::CivicKind;
-    let mut s = Scenario::new(2);
+    let mut s = debug_scenario(2);
     let spec = cb_sim::citygen::GridSpec {
         blocks: (2, 2),
         grow: false,

@@ -121,9 +121,28 @@ fn next_balance(s: &mut Scenario) {
     s.run_ticks(to);
 }
 
+/// Debug growth (houses on every lot after a fixed delay): these tests exercise mechanics, not
+/// demand.
+fn debug_cfg() -> cb_sim::SimConfig {
+    cb_sim::SimConfig {
+        growth: cb_sim::GrowthMode::Debug,
+        ..cb_sim::SimConfig::default()
+    }
+}
+
+#[allow(dead_code)]
+fn debug_scenario(seed: u64) -> Scenario {
+    Scenario::new(seed).config(debug_cfg())
+}
+
+#[allow(dead_code)]
+fn debug_terrain_scenario(seed: u64, terrain: TerrainSetup) -> Scenario {
+    Scenario::with_terrain(seed, terrain).config(debug_cfg())
+}
+
 #[test]
 fn disconnected_component_unserved() {
-    let mut s = Scenario::new(31);
+    let mut s = debug_scenario(31);
     road(&mut s, Vec2::new(-100.0, 0.0), Vec2::new(100.0, 0.0));
     road(&mut s, Vec2::new(-100.0, 600.0), Vec2::new(100.0, 600.0));
     residential_plot(&mut s, Vec2::new(0.0, 0.0), true);
@@ -156,7 +175,7 @@ fn disconnected_component_unserved() {
 /// A narrow valley with a river 3 m deep along z: water ≥ 1.5 m deep only within 7.5 m of the
 /// centreline, dry plain beyond 30 m.
 fn river_valley() -> Scenario {
-    Scenario::with_terrain(
+    debug_terrain_scenario(
         2,
         TerrainSetup::Valley {
             samples: 257,

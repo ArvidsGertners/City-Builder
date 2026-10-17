@@ -69,9 +69,28 @@ struct SegmentRemote {
     len: f32,
 }
 
+/// Debug growth (houses on every lot after a fixed delay): these tests exercise mechanics, not
+/// demand.
+fn debug_cfg() -> cb_sim::SimConfig {
+    cb_sim::SimConfig {
+        growth: cb_sim::GrowthMode::Debug,
+        ..cb_sim::SimConfig::default()
+    }
+}
+
+#[allow(dead_code)]
+fn debug_scenario(seed: u64) -> Scenario {
+    Scenario::new(seed).config(debug_cfg())
+}
+
+#[allow(dead_code)]
+fn debug_terrain_scenario(seed: u64, terrain: cb_sim::TerrainSetup) -> Scenario {
+    Scenario::with_terrain(seed, terrain).config(debug_cfg())
+}
+
 #[test]
 fn upgrade_street_to_avenue_rebuilds_lanes() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     road(
         &mut s,
         RoadKind::Street,
@@ -160,7 +179,7 @@ fn upgrade_street_to_avenue_rebuilds_lanes() {
 
 #[test]
 fn upgrade_clips_plots_and_prices_demolition() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     road(
         &mut s,
         RoadKind::Street,
@@ -227,7 +246,7 @@ fn upgrade_clips_plots_and_prices_demolition() {
 
 #[test]
 fn downgrade_refund_zero() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     road(
         &mut s,
         RoadKind::Avenue,
@@ -258,7 +277,7 @@ fn downgrade_refund_zero() {
 #[test]
 fn segment_style_costs_decorations_and_slows_cobblestone() {
     use cb_network::style::{RoadSurface, SegmentStyle};
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     road(
         &mut s,
         RoadKind::Street,

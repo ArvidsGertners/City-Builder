@@ -43,9 +43,28 @@ fn nodes(s: &Scenario) -> Vec<RoadNode> {
         .collect()
 }
 
+/// Debug growth (houses on every lot after a fixed delay): these tests exercise mechanics, not
+/// demand.
+fn debug_cfg() -> cb_sim::SimConfig {
+    cb_sim::SimConfig {
+        growth: cb_sim::GrowthMode::Debug,
+        ..cb_sim::SimConfig::default()
+    }
+}
+
+#[allow(dead_code)]
+fn debug_scenario(seed: u64) -> Scenario {
+    Scenario::new(seed).config(debug_cfg())
+}
+
+#[allow(dead_code)]
+fn debug_terrain_scenario(seed: u64, terrain: cb_sim::TerrainSetup) -> Scenario {
+    Scenario::with_terrain(seed, terrain).config(debug_cfg())
+}
+
 #[test]
 fn edit_road_geometry_regenerates_junctions() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     road(&mut s, Vec2::new(-150.0, 0.0), Vec2::new(150.0, 0.0));
     road(&mut s, Vec2::new(0.0, 0.0), Vec2::new(0.0, 120.0));
     let t = nodes(&s)
@@ -99,7 +118,7 @@ fn edit_road_geometry_regenerates_junctions() {
 
 #[test]
 fn edit_road_geometry_repoints_dependents() {
-    let mut s = Scenario::new(1);
+    let mut s = debug_scenario(1);
     road(&mut s, Vec2::new(-150.0, 0.0), Vec2::new(150.0, 0.0));
     let sid = segs(&s)[0].id();
     let r = s.command(PlayerCommand::CreatePlot(CreatePlot {
@@ -151,7 +170,7 @@ fn edit_road_geometry_repoints_dependents() {
 #[test]
 fn demolish_validate_lists_dependents() {
     let build = || {
-        let mut s = Scenario::new(1);
+        let mut s = debug_scenario(1);
         road(&mut s, Vec2::new(-150.0, 0.0), Vec2::new(150.0, 0.0));
         road(&mut s, Vec2::new(-150.0, 200.0), Vec2::new(150.0, 200.0));
         let sid = segs(&s)[0].id();
