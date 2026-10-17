@@ -5,7 +5,8 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Current status
 
-- **Phase:** M3 full road system ☑ (user verification UV-10 open; CI green on all three OSes) → M4 next. M2 ☑
+- **Phase:** M4 all zone types, special buildings, leveling visuals ☑ (CI pending at commit; UV-5,
+  UV-11 open) → M5 next. M3 ☑ (UV-10 open). M2 ☑
   (UV-2/3/4 open). Phase S ☑ — S-Render ☑, S-Time ☑ (fallback
   ADR-0062), S-J ☑ (ADR-0063), S-P ☑ (ADR-0064), S-G ☑ (ADR-0065), S-T ☑ (ADR-0066/0067).
 - **M2 done so far (pure crates):** `cb_terrain` (worldgen with rivers/lakes/outside connections,
@@ -32,21 +33,22 @@ milestone and before ending a session (skill `milestone-completion`).
   overlay (draped fills, outlines, lot lines), `--benchmark` (per-set timings) and the 14-shot M2
   suite (`at:`/`hour:`/`ui:`/`zoning:`/`tool:`/`crack_check:` per shot), off-thread chunk
   meshing, merged far terrain, junction terrain stamps. M2 complete, CI green on all three OSes.
-- **Last updated:** 2026-10-16
+- **Last updated:** 2026-10-17
 - **Verified environment:** Bevy 0.20.0 (2026-10-08), bevy_egui 0.43.1 (Bevy 0.20), rustc 1.97.1;
   `bevy-inspector-egui` 0.37 targets Bevy 0.19 (ADR-0031); `mesa-vulkan-drivers` (lavapipe) and
   Xvfb installable in the container for rendering without a GPU.
 
 ## Next step
 
-**M4 — All zone types, special buildings, leveling visuals.** First action: in
-`crates/cb_procgen/src/building/` add the residential L4–L5 typologies (row houses, apartment
-blocks) next to `house.rs` behind a `BuildingKind { zone, level }` input, then the C L1–L3 and
-I L1–L3 generators, each with its triangle budget, and the 10k-lot property test
-`procgen_{r,c,i}_levels_within_lot_10k` in `crates/cb_procgen/tests/`. Before the M4 perf gate:
-profile `view::sync_terrain` sub-steps (Known bugs, perf) with the per-step benchmark report.
-Carry-over: split `cb_game/src/tools.rs` (≈ 1 900 lines) into `tools/{road,edit,plot,bulldoze,
-ui}.rs` when the M4 placement/prop tools land.
+**M5 — Simulation core.** First action: in `crates/cb_sim/src/clock.rs` add the owning tests
+`calendar_day_is_28800_ticks` and `season_changes_every_4_days` for `SimClock::calendar` and the
+`HourElapsed`/`DayElapsed`/`SeasonChanged` messages (headless, `crates/cb_sim/tests/calendar.rs`),
+then start the population model in `crates/cb_sim/src/citizens/{population,households}.rs`
+(`CitizensPlugin`, ARCHITECTURE §3: households per residential lot from `ZoneSpec` capacities,
+seeds via `derive_seed` from the `LotId` with a new household domain) feeding
+`growth_scenario_flat_3days`. Read ADR-0044 (save core) before touching `save/`. Carry-overs: the
+city10k centre is hilly (empty commercial blocks, see `docs/screenshots/M4/index.md`); split
+`cb_game/src/tools.rs` further (road/edit/plot/bulldoze submodules like `tools/place.rs`).
 
 ## Process conventions (ADR-0058)
 
@@ -76,7 +78,7 @@ ui}.rs` when the M4 placement/prop tools land.
 | S | Risk spikes (S-Render, S-Time, S-J, S-P, S-G, S-T) | 22 | ≈ 4 | ☑ (S-Render ☑, S-Time ☑ fallback, S-J ☑ ADR-0063, S-P ☑ ADR-0064, S-G ☑ ADR-0065, S-T ☑ ADR-0066/0067) |
 | 2 | Vertical slice | 12 | ≈ 6 | ☑ (☑ᵤ UV-2/3/4 open) |
 | 3 | Full road system | 12 | ≈ 6 | ☑ (☑ᵤ UV-10 open) |
-| 4 | All zone types, special buildings, leveling visuals | 10 | | ☐ |
+| 4 | All zone types, special buildings, leveling visuals | 10 | ≈ 3 | ☑ (☑ᵤ UV-5, UV-11 open) |
 | 5 | Simulation core | 12 | | ☐ |
 | 6 | Services | 6 | | ☐ |
 | 7 | Progression | 3 | | ☐ |
@@ -516,14 +518,16 @@ unlocked" until M7.
 Includes: citygen 10k scene, `DebugCommand::{SetBuildingLevel, SetCondition}`, free decoration
 tool (`PlaceProp`), town hall auto-placement, generator set A (police, fire, clinic, school,
 diesel, coal, pump, outlet, landfill); set B may land with its system (M6/M10).
-- [ ] `procgen_{r,c,i}_levels_within_lot_10k`, `procgen_triangle_budget_per_type`,
-      `facade_no_window_crosses_edge`.
-- [ ] Silhouettes: `silhouette_iou_between_service_types_le_0_6` (LOD1 masks, 4 yaws, 128²) and
-      vs zoned buildings of the same footprint ≤ 0.6.
-- [ ] Placement: `place_building_snaps_to_road_edge_within_2m`, `place_building_rejects_overlap`,
-      `place_prop_lv_effect`.
-- [ ] Condition: `condition_change_does_not_remesh` (counter).
-- [ ] Plot tool, freehand (user request 2026-10-16; ALGORITHMS §9): **polygon mode** (click
+- [x] `procgen_{r,c,i}_levels_within_lot_10k`, `procgen_triangle_budget_per_type`,
+      `facade_no_window_crosses_edge` (`cb_procgen/tests/zoned.rs`).
+- [x] Silhouettes: `silhouette_iou_between_service_types_le_0_6` (LOD1 masks, 4 yaws, 128²) and
+      vs zoned buildings of the same footprint ≤ 0.6 (`silhouette_iou_vs_zoned_same_footprint_le_0_6`;
+      worst mean 0.505 between kinds, 0.598 vs zoned over 8 seeds).
+- [x] Placement: `place_building_snaps_to_road_edge_within_2m`, `place_building_rejects_overlap`,
+      `place_prop_lv_effect` (`cb_sim/tests/buildings.rs`).
+- [x] Condition: `condition_change_does_not_remesh` (counter) and
+      `construction_reveal_rises_with_progress` (`cb_game::view`).
+- [x] Plot tool, freehand (user request 2026-10-16; ALGORITHMS §9): **polygon mode** (click
       vertices; edges within 1.5 m of a road edge snap and become frontage) and **full editing**
       (drag any vertex or edge; frontage vertices stay on the road edge; depth handle and ± lots
       as in M2). Plots store a free outline besides frontage spans (DATA_MODEL). Tests:
@@ -531,11 +535,17 @@ diesel, coal, pump, outlet, landfill); set B may land with its system (M6/M10).
       `plot_vertex_drag_keeps_lot_ids`, `plot_edge_drag_keeps_lot_ids`,
       `plot_freehand_validation_keys` (self-intersection, area, overlap); shot M4-0x plot tool
       with a hand-drawn plot and its handles. Lot lines stay automatic (± count only; user
-      decision 2026-10-16).
-- [ ] Gallery: `--procgen-gallery --smoke-test 120` exits 0.
-- [ ] Perf: container CPU budgets (PERFORMANCE §3) with citygen 10k under `--no-gpu-work`; memory
-      within PERFORMANCE §8; ☑ᵤ GPU ≤ 12 ms p95 PC, ≤ 13 ms p95 M4.
-- [ ] Shots:
+      decision 2026-10-16). Evidence: the five tests in `cb_sim/tests/plots_freehand.rs`; shot
+      M4-11 (polygon mode, L plot with vertex and edge handles).
+- [x] Gallery: `--procgen-gallery --smoke-test 120` exits 0 (`frames=120 validation_errors=0`).
+- [x] Perf: container CPU budgets (PERFORMANCE §3) with citygen 10k under `--no-gpu-work`; memory
+      within PERFORMANCE §8; ☑ᵤ GPU ≤ 12 ms p95 PC, ≤ 13 ms p95 M4. Evidence: game sets p95
+      `m4_city10k` 2.57 ms, `bench_city` 1.92 ms, `empty` 1.33 ms (≤ 4 ms); peak RSS of the city10k
+      smoke under lavapipe 2.63 GB (CPU + software-GPU memory together; unified budget 3.5 GB),
+      headless 10k sim 61 MB; `headless_bench --city 10k` tick p95 0.035 ms; GPU → UV-5.
+- [x] Shots: suites `M4`, `M4gallery`, `M4city` reviewed in `docs/screenshots/M4/index.md`
+      (24 shots, gates clean).
+  Shot list:
 
   | ID | Subject | Must be visible |
   |---|---|---|
@@ -700,7 +710,8 @@ Includes: agent state saved, garbage trucks replace analytic collection, vehicle
 | UV-3 | M2 | Benchmark | `cargo run -p cb_game --release -- --benchmark m2_slice` and `-- --benchmark empty` on PC and M4; paste both reports (also in the logs folder as `benchmark-*.txt`) | main ≤ 8 ms p95, frame ≤ 16.7 ms p95 (GPU ≤ 12 ms) | planned |
 | UV-4 | M2 | Mac input | trackpad pinch, two-finger scroll/rotate, ⌥-drag, ⌘Z/⌘⇧Z, ⌘Q save prompt | as ADR-0052 | planned |
 | UV-10 | M3 | Road tools on real GPUs | `cb_game --screenshot-suite M3 --out shots/` on PC and M4; then in a new game: Edit road (U) → Upgrade a street to an avenue, Junction → Traffic lights, Decorate with trees/lamps, Move node; Road → Roundabout | images comparable to `docs/screenshots/M3/`; tools behave as in the shots; signal lamps cycle | planned |
-| UV-5 | M4 | 10k benchmark | `--benchmark m4_city10k` on PC and M4 | PERFORMANCE §5 | planned |
+| UV-5 | M4 | 10k benchmark | `cargo run -p cb_game --release -- --benchmark m4_city10k` on PC and M4; paste the report | frame ≤ 16.7 ms p95, GPU ≤ 12 ms p95 PC / ≤ 13 ms M4 | **open — please run when convenient** |
+| UV-11 | M4 | Buildings on real GPUs | `scripts/screenshot.sh M4`, `M4gallery` and `M4city` (or `cb_game --screenshot-suite <suite> --out shots/`) on PC and M4; in a new game try Buildings (P) and Decorate (O) and the plot tool's Outline mode (Tab) | images comparable to `docs/screenshots/M4/`; no popping when zooming over the 10k city | planned |
 | UV-6 | M9 | Traffic benchmark | `--benchmark bench_city` | PERFORMANCE §3–5 | planned |
 | UV-7 | M11 | Night look | `--screenshot-suite M11` on PC/M4 | night readable | planned |
 | UV-8 | M13 | Listening pass | play 10 min with ambient/UI/sirens; note anything unpleasant | — | planned |
@@ -708,15 +719,15 @@ Includes: agent state saved, garbage trucks replace analytic collection, vehicle
 
 ## Known bugs
 
-- **Perf (container CPU budget, open since M3):** `--benchmark bench_city --no-gpu-work` game
-  sets p95 3.67–4.81 ms over five runs (median 4.49), `m2_slice` 4.07–4.17 ms (M2: 3.90) against
-  ≤ 4 ms. The per-step report attributes the spikes to `view:terrain` (p95 1.8–3.1 ms; terrain
-  chunk hand-over and LOD bookkeeping from M2) — M3's own `view:network` is p95 ≈ 0.5 ms.
-  Capping chunk uploads per frame did not help (reverted). Plan: sub-step spans inside
-  `view::sync_terrain` (want/merge/work/start) and move the per-chunk distance/LOD pass off the
-  per-frame path (recompute only when the eye moves > 8 m); due before the M4 perf gate.
+None open.
 
 Fixed:
+- 2026-10-17 — Container CPU budget over 4 ms p95 (open since M3: `bench_city` 3.67–4.81 ms,
+  `view:terrain` p95 1.8–3.1 ms). The per-chunk distance/LOD pass now reruns only when the eye
+  moves > 8 m (`view::TERRAIN_EYE_STEP_M`) and settles early; buildings iterate only the
+  constructing set. Now `bench_city` 1.92 ms, `m4_city10k` 2.57 ms, `empty` 1.33 ms.
+- 2026-10-17 — Construction scaffold sank with the reveal height (it shared the building's
+  object slot); it now uses the neutral slot (found in the M4-05 review).
 - 2026-10-16 — Junction asphalt shading fan (M2): large, slightly non-planar ear-clipped
   triangles under flat (derivative) normals. Now `junction::carriageway_triangles` (centre fan +
   zippered rings with mean-value heights), shared with the terrain stamp; this also removed a
@@ -868,3 +879,21 @@ Known gaps (planned):
   (https://github.com/ArvidsGertners/City-Builder/actions/runs/38955953609); `nightly.yml`
   dispatch run 4 green — macOS check default + dev, determinism probe on Linux/Windows/macOS
   with matching hashes (https://github.com/ArvidsGertners/City-Builder/actions/runs/38955970587).
+- 2026-10-17 — M4.1–M4.7: zoned typologies R L4–L5, C L1–L3, I L1–L3 with budgets and 10k-lot
+  property tests; civic generator set A + town hall (silhouette IoU ≤ 0.6 between kinds and vs
+  zoned buildings); zone-aware growth with level caps, construction time and conditions
+  (per-object shader slots: tint, condition, reveal height — ADR-0049 amendment); `PlaceBuilding`
+  (snap to road edge, overlap/water/slope checks, town hall auto-placement) and `PlaceProp`
+  (land-value bonus); freehand plot tool (polygon mode, vertex/edge drags, auto-clip); chunked
+  building meshes with LOD0/LOD1 and visibility ranges; citygen 10k (`--scene city10k`,
+  benchmark `m4_city10k`); procedural vehicles (`cb_procgen::vehicle`, 12 types) in the gallery.
+  Suites `M4`/`M4gallery`/`M4city` reviewed (`docs/screenshots/M4/`); review fixes: scaffold slot,
+  stronger condition look, gallery vehicle row and civic terrace fallback.
+- 2026-10-17 — **M4 done** (estimate 10, actual ≈ 3). Evidence: fmt; clippy default + `dev` clean;
+  `cargo test --workspace` and `--features dev` green; sim isolation ok (290 dependency lines);
+  release smoke `frames=60 validation_errors=0`; gallery smoke `frames=120 validation_errors=0`;
+  determinism probe (Linux): terrain/subdivision/clock hashes unchanged, m2_scene
+  `722aa747f8e1f8c0` (287 buildings; changes with zone-aware growth and the town hall);
+  benchmark game sets p95 `m4_city10k` 2.57, `bench_city` 1.92, `empty` 1.33 ms (≤ 4 ms);
+  `headless_bench --city 10k`: citygen 14.3 s, 13 777 buildings, tick p95 0.035 ms; peak RSS
+  city10k smoke 2.63 GB (lavapipe, CPU + GPU memory), headless 61 MB.

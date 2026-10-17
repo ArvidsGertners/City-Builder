@@ -199,6 +199,12 @@ components and cost only sim work.
   `view::ViewStep`: terrain p95 1.8–3.1 ms (chunk hand-over and LOD bookkeeping), network ≈ 0.5,
   scatter ≈ 0.8, buildings ≈ 0.3, zoning ≈ 0.2 ms. Over budget → PROGRESS Known bugs (plan due
   before the M4 perf gate).
+- 2026-10-17 M4 (`--no-gpu-work`): game sets p95 `m4_city10k` 2.57 ms (10 812 + 1 buildings,
+  view:buildings p95 0.18, terrain 0.45), `bench_city` 1.92 ms, `empty` 1.33 ms — within 4 ms
+  after the terrain LOD pass moved off the per-frame path (`TERRAIN_EYE_STEP_M` = 8 m).
+  `headless_bench --city 10k`: tick p95 0.035 ms (no citizens yet). Memory: city10k smoke peak RSS
+  2.63 GB under lavapipe (CPU and software-GPU allocations together; §8 unified estimate 1.6 GB,
+  budget 3.5 GB); headless 10k sim 61 MB. Real-GPU split → UV-5.
 - Bench scenarios: `bench_autosave_max` (snapshot p99), `bench_road_commit` (100 random 200 m
   roads; command → visible mesh frames).
 - `tracing` spans on every set and heavy system; Tracy via `--features trace_tracy` (nightly).

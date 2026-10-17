@@ -52,13 +52,14 @@ fn condition_color(c: vec3<f32>, code: f32, kind: u32) -> vec3<f32> {
     }
     let grey = vec3(dot(c, vec3(0.2126, 0.7152, 0.0722)));
     if code < 1.5 {
-        return mix(c, grey, 0.35) * 0.9;
+        return mix(c, grey, 0.45) * 0.86;
     }
     if kind == 2u {
-        return vec3(0.16, 0.11, 0.07);
+        // Weathered plywood boards: lighter than glass so they read as boarded, not dark.
+        return vec3(0.36, 0.27, 0.18);
     }
     if code < 2.5 {
-        return mix(c, grey, 0.6) * 0.78;
+        return mix(c, grey, 0.7) * 0.7;
     }
     return mix(c, grey, 0.7) * 0.6;
 }

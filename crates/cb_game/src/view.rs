@@ -1016,7 +1016,9 @@ fn sync_buildings(
                 b.outlines(),
                 fy,
                 fy + b.height_m() + 1.0,
-                slot,
+                // The neutral slot: the scaffold stands full height while the building's own
+                // reveal height rises inside it.
+                0,
             );
             commands
                 .spawn((

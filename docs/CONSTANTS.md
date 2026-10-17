@@ -13,6 +13,10 @@ in the PROGRESS.md log. Values live in code consts or `crates/cb_sim/data/*.ron`
 | IDM car `a, b, T, s0` | 1.6, 2.5, 1.2 s, 2 m | `idm_saturation_flow_matches_capacity` | street lane 1 600 veh/sim-h ± 10 % |
 | `a_lat_max` (curve speed) | 2.5 m/s² | `curve_speed_r25` | 7.9 m/s at r = 25 m |
 | Critical gaps (left/merge/cross) | 4.0 / 3.0 / 3.5 s | `junction_unsignalized_minor_flow` | minor throughput ≥ 450 veh/sim-h at major 600 |
+| `zoning::PLOT_SNAP_M` (polygon-mode frontage snap) | 1.5 m | `plot_polygon_mode_snaps_frontage_1_5m` | edges within 1.5 m of a road edge become frontage; 1.6 m does not |
+| `buildings::PLACE_SNAP_M` (service placement snap) | 2.0 m | `place_building_snaps_to_road_edge_within_2m` | parcel front on the road edge when the cursor is ≤ 2 m away |
+| Civic terrace grade (plinth limit `max(2.5 m, 4 % × parcel side)`) | 4 % | `civic_volumes_stay_on_parcel` | every set-A type stays on its parcel; the gallery founds every type on seed 1234 (taller terrace fallback logged) |
+| `view::TERRAIN_EYE_STEP_M` (terrain LOD pass recompute) | 8 m | `--benchmark bench_city --no-gpu-work` | game sets p95 ≤ 4 ms (M4: 1.92 ms) |
 | Anti-starvation | 12 sim s | `equal_priority_4way_all_occupied_no_idle_gt_2s` | no approach idle > 2 s while waiting |
 | Signal timings | min 8, max 30, yellow 3, all-red 1.5 s | `signal_discharge_rate` | ≥ 1 500 veh/sim-h/lane of green |
 | Junction release headway `h0` | 1.8 s | `background_headway_scaling` | flow reduced by V_bg/C as specified |

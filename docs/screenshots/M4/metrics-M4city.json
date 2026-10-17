@@ -1,0 +1,6 @@
+[
+  {"name":"M4-08-city-overview","width":1600,"height":900,"luma_median":169,"clipped_pct":0.000,"black_pct":0.000,"magenta_count":0,"holes":0,"lum_mean":0.3934,"lum_median":0.4000,"luma_histogram":[0,0,0,0,67,3364,13230,134958,96345,209435,633835,180010,90196,66012,12548,0]},
+  {"name":"M4-09-city-mid","width":1600,"height":900,"luma_median":171,"clipped_pct":0.000,"black_pct":0.000,"magenta_count":0,"holes":0,"lum_mean":0.3884,"lum_median":0.4118,"luma_histogram":[0,0,0,6,4065,5214,10900,143349,39337,194558,551260,419546,69470,2295,0,0]},
+  {"name":"M4-09b-city-residential","width":1600,"height":900,"luma_median":168,"clipped_pct":0.000,"black_pct":0.000,"magenta_count":0,"holes":0,"lum_mean":0.3458,"lum_median":0.3961,"luma_histogram":[0,0,0,553,3429,14438,46206,234245,196638,135638,507605,262745,38189,314,0,0]},
+  {"name":"M4-09c-city-industrial","width":1600,"height":900,"luma_median":173,"clipped_pct":0.000,"black_pct":0.000,"magenta_count":0,"holes":0,"lum_mean":0.3948,"lum_median":0.4235,"luma_histogram":[0,0,0,0,1518,5340,11622,141115,48032,65183,791351,334607,40584,648,0,0]}
+]
