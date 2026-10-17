@@ -191,10 +191,23 @@ pub struct HappinessStats {
     pub factors: [f32; 11],
     /// Households that moved out today.
     pub moved_out_today: u32,
+    /// Running sums of the day's slices (saved: the pass spans 600 ticks).
+    #[serde(default)]
+    pub(crate) acc_sum: f64,
+    #[serde(default)]
+    pub(crate) acc_factors: [f64; 11],
+    #[serde(default)]
+    pub(crate) acc_n: u32,
+    #[serde(default)]
+    pub(crate) acc_moved: u32,
 }
 
-/// The daily pass: score every household, count unhappy days, move the long-unhappy out.
-pub(crate) fn daily(world: &mut World, now: u64) {
+/// Happiness slices per day (households `id % 600`), one per tick from [`OFFSET`].
+pub const SLICES: u64 = 600;
+
+/// One slice of the daily pass (households with `id % SLICES == k`): score them, count unhappy
+/// days, move the long-unhappy out; the last slice publishes the city-wide means.
+pub(crate) fn daily_slice(world: &mut World, now: u64, k: u64) {
     let Some(cat) = world.get_resource::<Catalog>() else {
         return;
     };
@@ -215,7 +228,19 @@ pub(crate) fn daily(world: &mut World, now: u64) {
     let utilities = world.get_resource::<crate::utilities::Utilities>();
     let fields = world.get_resource::<crate::fields::Fields>();
     let mut results: Vec<(HouseholdId, f32, [f32; 11])> = Vec::new();
-    for (hid, h) in pop.households() {
+    let mut slice_ids = Vec::new();
+    let mut raw = k;
+    while raw < u64::from(pop.household_ids.peek_next()) {
+        if let Some(hid) = u32::try_from(raw)
+            .ok()
+            .and_then(|r| HouseholdId::try_new(r).ok())
+            && let Some(h) = pop.household(hid)
+        {
+            slice_ids.push((hid, h));
+        }
+        raw += SLICES;
+    }
+    for (hid, h) in slice_ids {
         let st = utilities.map(|u| u.status(h.home())).unwrap_or_default();
         let pos = cap.pos(h.home()).unwrap_or_default();
         let commute = commute_score(pop, h.members(), &cspec);
@@ -255,13 +280,22 @@ pub(crate) fn daily(world: &mut World, now: u64) {
         };
         results.push((hid, happiness(&x), scores(&x)));
     }
-    let mut stats = HappinessStats::default();
-    let n = results.len().max(1) as f32;
+    let mut stats = world
+        .get_resource::<HappinessStats>()
+        .copied()
+        .unwrap_or_default();
+    if k == 0 {
+        stats.acc_sum = 0.0;
+        stats.acc_factors = [0.0; 11];
+        stats.acc_n = 0;
+        stats.acc_moved = 0;
+    }
     for (_, v, s) in &results {
-        stats.mean += v / n;
-        for (acc, x) in stats.factors.iter_mut().zip(s) {
-            *acc += x / n;
+        stats.acc_sum += f64::from(*v);
+        for (acc, x) in stats.acc_factors.iter_mut().zip(s) {
+            *acc += f64::from(*x);
         }
+        stats.acc_n += 1;
     }
     let day = now / TICKS_PER_GAME_DAY;
     let Some(mut pop) = world.get_resource_mut::<Population>() else {
@@ -285,9 +319,17 @@ pub(crate) fn daily(world: &mut World, now: u64) {
             leaving.push(hid);
         }
     }
-    stats.moved_out_today = u32::try_from(leaving.len()).unwrap_or(u32::MAX);
+    stats.acc_moved += u32::try_from(leaving.len()).unwrap_or(u32::MAX);
     for hid in leaving {
         pop.remove_household(hid);
+    }
+    if k + 1 == SLICES {
+        let n = f64::from(stats.acc_n.max(1));
+        stats.mean = (stats.acc_sum / n) as f32;
+        for (f, a) in stats.factors.iter_mut().zip(stats.acc_factors) {
+            *f = (a / n) as f32;
+        }
+        stats.moved_out_today = stats.acc_moved;
     }
     world.insert_resource(stats);
 }
@@ -320,8 +362,9 @@ pub(crate) fn tick(world: &mut World) {
     let now = world
         .get_resource::<crate::SimClock>()
         .map_or(0, |c| c.tick().0);
-    if now % TICKS_PER_GAME_DAY == OFFSET {
-        daily(world, now);
+    let t = now % TICKS_PER_GAME_DAY;
+    if (OFFSET..OFFSET + SLICES).contains(&t) {
+        daily_slice(world, now, t - OFFSET);
     }
 }
 
