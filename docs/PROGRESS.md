@@ -563,7 +563,8 @@ diesel, coal, pump, outlet, landfill); set B may land with its system (M6/M10).
 Includes enabling work: link graph + router + cache + batching + macro flow model (aggregate
 commute model), goods economy, save core per ADR-0044 (format v0) incl. placeholders for traffic
 state, happiness stubs, `SetSimConfig` + dev panel, cross-OS determinism job becomes blocking.
-- [ ] Calendar: `calendar_day_is_28800_ticks`, `season_changes_every_4_days`.
+- [x] Calendar: `calendar_day_is_28800_ticks`, `season_changes_every_4_days`
+      (`cb_sim/tests/calendar.rs`).
 - [ ] Growth: `growth_scenario_flat_3days` — pop ≥ 400 with 120 R lots + power + water;
       unemployment ≤ 15 %; morning departure histogram peaks 05:30–07:30.
 - [ ] Demand: `demand_monotonic_responses`, `demand_breakdown_sums_to_value`.
