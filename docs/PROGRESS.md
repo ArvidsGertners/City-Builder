@@ -571,8 +571,9 @@ state, happiness stubs, `SetSimConfig` + dev panel, cross-OS determinism job bec
 - [x] Economy: `ledger_sum_equals_money_delta`, `bankruptcy_after_7_days_triggers_loan`,
       `goods_units_conserved`, `deliveries_prefer_nearest_supplier`, `import_when_no_supplier`
       (`cb_sim/tests/economy.rs`, `cb_sim::economy::goods`).
-- [ ] Utilities: `power_brownout_outer_first`, `pump_requires_depth_1_5m_within_15m`,
-      `disconnected_component_unserved`, `water_pollution_advects_downstream`.
+- [x] Utilities: `power_brownout_outer_first`, `pump_requires_depth_1_5m_within_15m`,
+      `disconnected_component_unserved`, `water_pollution_advects_downstream`
+      (`cb_sim::utilities`, `cb_sim/tests/utilities.rs`).
 - [ ] Fields/happiness: `pollution_decays_0_97_per_hour`, `noise_line_and_point_attenuation`,
       `happiness_factors_weights_sum_100`, `happiness_stub_replacement_keeps_formula`,
       `fields_double_buffer_no_seams`.
@@ -933,3 +934,10 @@ Known gaps (planned):
   `bankruptcy_after_7_days_triggers_loan`, `bankrupt_without_loans_freezes_construction`,
   `tax_rate_clamped_and_applied`, `goods_units_conserved`, `deliveries_prefer_nearest_supplier`,
   `import_when_no_supplier`.
+- 2026-10-17 — M5.5 utilities: `cb_sim::utilities` (road components, access per building,
+  power/water/sewage allocation services-first then nearest-to-producer with 10 % hysteresis,
+  analytic garbage collection by landfills, sewage outlets polluting rivers downstream, polluted
+  pump water); `utilities.ron`; `TerrainRes` keeps river centrelines (the valley test terrain now
+  has one). Tests: `power_brownout_outer_first`, `water_pollution_advects_downstream`,
+  `disconnected_component_unserved`, `pump_requires_depth_1_5m_within_15m`,
+  `sewage_pollutes_the_river_downstream_only`.

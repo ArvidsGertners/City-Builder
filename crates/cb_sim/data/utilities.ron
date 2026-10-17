@@ -1,0 +1,29 @@
+// Utilities (GAME_DESIGN §6, ALGORITHMS §18). Power in kW, water and sewage in m³/h,
+// garbage in kg per game day.
+(
+    // Output of producers by civic kind.
+    diesel_generator_kw: 2000.0,
+    coal_plant_kw: 25000.0,
+    water_pump_m3h: 300.0,
+    sewage_outlet_m3h: 300.0,
+    // Landfill: storage (kg) and collection per game day with its trucks (kg).
+    landfill_storage_kg: 400000.0,
+    landfill_collection_kg_day: 20000.0,
+    // Consumption per L1 household / per job; × (1 + level_factor × (level − 1)).
+    household: (power_kw: 1.2, water_m3h: 0.25, garbage_kg_day: 2.5),
+    job: (power_kw: 0.8, water_m3h: 0.15, garbage_kg_day: 1.5),
+    level_factor: 0.15,
+    // Civic buildings consume like this many jobs.
+    civic_job_equivalent: 20.0,
+    // Sewage is this share of water.
+    sewage_share: 0.9,
+    // Kept-served margin: a building already served keeps service while the shortfall is below
+    // this share of its need (hysteresis).
+    hysteresis: 0.1,
+    // Days of garbage after which a building reports a garbage problem.
+    garbage_problem_days: 3.0,
+    // Water pollution: decay per km downstream, mixing flow of a river (m³/h), polluted above.
+    pollution_decay_per_km: 0.05,
+    river_flow_m3h: 3000.0,
+    polluted_threshold: 0.3,
+)

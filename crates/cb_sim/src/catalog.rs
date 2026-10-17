@@ -318,6 +318,54 @@ pub struct LoanTier {
     pub rate_per_day: f32,
 }
 
+/// Per-unit utility consumption.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Consumption {
+    /// Power (kW).
+    pub power_kw: f32,
+    /// Water (m³/h).
+    pub water_m3h: f32,
+    /// Garbage (kg per game day).
+    pub garbage_kg_day: f32,
+}
+
+/// Utility parameters (GAME_DESIGN §6, ALGORITHMS §18), `data/utilities.ron`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UtilitySpec {
+    /// Diesel generator output (kW).
+    pub diesel_generator_kw: f32,
+    /// Coal plant output (kW).
+    pub coal_plant_kw: f32,
+    /// Water pump output (m³/h).
+    pub water_pump_m3h: f32,
+    /// Sewage outlet capacity (m³/h).
+    pub sewage_outlet_m3h: f32,
+    /// Landfill storage (kg).
+    pub landfill_storage_kg: f32,
+    /// Landfill collection per game day (kg).
+    pub landfill_collection_kg_day: f32,
+    /// Consumption per L1 household.
+    pub household: Consumption,
+    /// Consumption per L1 job.
+    pub job: Consumption,
+    /// Consumption increase per level above 1.
+    pub level_factor: f32,
+    /// Civic buildings consume like this many jobs.
+    pub civic_job_equivalent: f32,
+    /// Sewage share of water.
+    pub sewage_share: f32,
+    /// Hysteresis of served buildings (share of need).
+    pub hysteresis: f32,
+    /// Days of uncollected garbage before a problem.
+    pub garbage_problem_days: f32,
+    /// Water pollution decay per km downstream.
+    pub pollution_decay_per_km: f32,
+    /// Mixing flow of a river (m³/h).
+    pub river_flow_m3h: f32,
+    /// Concentration above which water is polluted.
+    pub polluted_threshold: f32,
+}
+
 /// Economy parameters (GAME_DESIGN §9).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EconomySpec {
@@ -351,6 +399,7 @@ pub struct Catalog {
     growth_debug_delay_ticks: u64,
     citizens: CitizensSpec,
     economy: EconomySpec,
+    utilities: UtilitySpec,
 }
 
 /// Catalog parse errors.
@@ -379,6 +428,7 @@ const ZONES_RON: &str = include_str!("../data/zones.ron");
 const ECONOMY_RON: &str = include_str!("../data/economy.ron");
 const CIVIC_RON: &str = include_str!("../data/civic.ron");
 const CITIZENS_RON: &str = include_str!("../data/citizens.ron");
+const UTILITIES_RON: &str = include_str!("../data/utilities.ron");
 
 impl Catalog {
     /// Parses the embedded data.
@@ -406,6 +456,11 @@ impl Catalog {
         let citizens: CitizensSpec =
             ron::from_str(CITIZENS_RON).map_err(|source| CatalogError::Parse {
                 file: "citizens.ron",
+                source,
+            })?;
+        let utilities: UtilitySpec =
+            ron::from_str(UTILITIES_RON).map_err(|source| CatalogError::Parse {
+                file: "utilities.ron",
                 source,
             })?;
         for k in RoadKind::ALL {
@@ -448,6 +503,7 @@ impl Catalog {
                 loans: eco.loans,
                 bankruptcy_days: eco.bankruptcy_days,
             },
+            utilities,
         })
     }
 
@@ -461,6 +517,12 @@ impl Catalog {
     #[must_use]
     pub fn economy(&self) -> &EconomySpec {
         &self.economy
+    }
+
+    /// Utility parameters.
+    #[must_use]
+    pub fn utilities(&self) -> &UtilitySpec {
+        &self.utilities
     }
 
     /// Road type data (every kind is present after [`Catalog::load`]).

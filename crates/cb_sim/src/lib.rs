@@ -24,6 +24,7 @@ pub mod save;
 pub mod schedule;
 pub mod terrain;
 pub mod testing;
+pub mod utilities;
 pub mod zoning;
 
 use bevy::app::{App, Plugin, PluginGroup, PluginGroupBuilder, Update};
@@ -112,6 +113,7 @@ impl Plugin for WorldStatePlugin {
             .init_resource::<economy::Ledger>()
             .init_resource::<economy::Finances>()
             .init_resource::<economy::goods::Goods>()
+            .init_resource::<utilities::Utilities>()
             .add_systems(
                 SimTick,
                 (
@@ -119,6 +121,7 @@ impl Plugin for WorldStatePlugin {
                     economy::tick,
                     economy::goods::tick,
                     demand::tick,
+                    utilities::tick,
                     buildings::develop,
                     citizens::tick,
                 )

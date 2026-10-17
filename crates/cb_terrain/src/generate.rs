@@ -160,6 +160,18 @@ impl World {
         if let Some(wm) = water_m {
             let level = h - depth_m + wm;
             let id = w.water.add_body(crate::WaterBodyKind::River);
+            // The river runs along the valley floor from −z to +z.
+            let half_map = 0.5 * (n - 1) as f32 * w.base.spacing_m();
+            let steps = (2.0 * half_map / 16.0).ceil() as usize;
+            let points: Vec<Vec2> = (0..=steps)
+                .map(|k| Vec2::new(0.0, -half_map + 2.0 * half_map * k as f32 / steps as f32))
+                .collect();
+            w.rivers.push(RiverPath {
+                levels: vec![level; points.len()],
+                points,
+                width_m: width_m.min(2.0 * wm.max(0.0) + 4.0),
+                depth_m: wm,
+            });
             for j in 0..n {
                 for i in 0..n {
                     if w.base.get(i, j) < level {

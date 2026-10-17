@@ -128,6 +128,17 @@ fn hash_population(world: &World, h: &mut StableHasher) {
             (t, d.to, d.units_mu, d.cost_cents).hash(h);
         }
     }
+    if let Some(u) = world.get_resource::<crate::utilities::Utilities>() {
+        for (id, st) in &u.status {
+            (id, st).hash(h);
+        }
+        for (id, g) in &u.garbage_kg {
+            (id, g.to_bits()).hash(h);
+        }
+        for (id, g) in &u.landfill_kg {
+            (id, g.to_bits()).hash(h);
+        }
+    }
     if let Some(d) = world.get_resource::<crate::demand::Demand>() {
         f32s(
             h,

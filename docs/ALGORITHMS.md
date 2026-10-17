@@ -613,6 +613,15 @@ terms normalized to [0, 1] unless signed:
   match analytic within 10 %). Full landfill stops accepting and notifies; `EmptyLandfill`
   hauls to an incinerator (2 per t) or the landfill can be closed (becomes a park after 4 days).
 - Status flips (hysteresis 10 %) emit `BuildingChanged`.
+- M5 implementation (`cb_sim::utilities`, tick 120): components = connected road graph (id = the
+  smallest node id); access = a zoned lot's first frontage segment or the segment within 60 m of a
+  civic building; consumption from capacity units (`utilities.ron`: 1.2/0.8 kW, 0.25/0.15 m³/h,
+  2.5/1.5 kg/day per household/job, +15 % per level, civic = 20 jobs); allocation stops at the
+  first consumer that cannot be covered (outer areas fail first), a served consumer keeps service
+  while ≥ 90 % of its need is left. Outlets inject their share of the sewage taken at the nearest
+  river point (≤ 150 m); concentration = decayed mass / 3 000 m³/h river flow; a network whose
+  pumps mostly draw water above 0.3 delivers polluted water. Lakes, the overlay raster, wind/solar
+  and heating arrive with weather (M12) and overlays (M8).
 
 ## 19. Land value, pollution, noise — `cb_sim::fields` (ADR-0028)
 

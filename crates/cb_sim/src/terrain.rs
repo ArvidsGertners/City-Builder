@@ -52,6 +52,8 @@ pub struct TerrainRes {
     pub(crate) t: Arc<Terrain>,
     /// End points of the outside road connections inside the map (trade origin/destination).
     pub(crate) outside: Vec<Vec2>,
+    /// River centrelines, source to mouth (water pollution advection).
+    pub(crate) rivers: Vec<Vec<Vec2>>,
 }
 
 impl TerrainRes {
@@ -63,9 +65,11 @@ impl TerrainRes {
             .iter()
             .map(cb_terrain::OutsideConnection::end)
             .collect();
+        let rivers = w.rivers.iter().map(|r| r.points.clone()).collect();
         Self {
             t: Arc::new(Terrain::from_world(w)),
             outside,
+            rivers,
         }
     }
 
@@ -73,6 +77,12 @@ impl TerrainRes {
     #[must_use]
     pub fn outside_ends(&self) -> &[Vec2] {
         &self.outside
+    }
+
+    /// River centrelines, source to mouth.
+    #[must_use]
+    pub fn rivers(&self) -> &[Vec<Vec2>] {
+        &self.rivers
     }
 
     /// The terrain (read-only; edits go through commands).
