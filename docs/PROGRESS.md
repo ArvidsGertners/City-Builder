@@ -913,3 +913,11 @@ Known gaps (planned):
   `abandoned_home_empties_and_closed_workplace_lays_off`. 4×3 mixed town: 6 households/h,
   622 citizens after 44 game hours, unemployment 3–9 %. The state hash now covers population and
   demand (probe hashes change).
+- 2026-10-17 — M5.3 development: `GrowthMode::Normal` (`buildings::develop`, tick 720) starts
+  `ceil(max(0, D) × clamp(0.5 + pop / 2000, 0.5, 6))` constructions per zone and hour on lots drawn
+  with `SimRng` Growth (weights land value × access × utilities, stubs 1). Test
+  `normal_growth_develops_lots_and_fills_them` (empty 4×3 mixed town: 92 buildings, 353 citizens,
+  unemployment ≤ 1 % after 3 days). Balance note for the M7/M16 `--balance` pass: at low
+  population the rate gives ~1 home per game hour, so tier 1 (250) arrives after ~2.2 game days —
+  slower than the 12–25 real-minute target; `SimConfig::default().growth` stays `Debug` until the
+  M5 loop (utilities, routing) is complete.

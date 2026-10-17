@@ -635,6 +635,84 @@ pub(crate) fn growth(world: &mut World) {
     }
 }
 
+/// Tick of lot development in the game hour (phase table, with immigration).
+pub const DEVELOP_OFFSET: u64 = 720;
+
+/// New constructions per zone in one game hour: `ceil(max(0, D) × clamp(0.5 + pop / 2000,
+/// 0.5, 6))` (ALGORITHMS §15).
+#[must_use]
+pub fn constructions_per_hour(demand: f32, population: usize) -> usize {
+    let rate = (0.5 + population as f32 / 2000.0).clamp(0.5, 6.0);
+    (demand.max(0.0) * rate).ceil() as usize
+}
+
+/// `GrowthMode::Normal` (ALGORITHMS §15): each game hour at [`DEVELOP_OFFSET`], every zone with
+/// positive demand starts [`constructions_per_hour`] buildings on empty lots drawn by weighted
+/// sampling (weight = land value × access × utilities; stubs of 1 until fields and utilities
+/// exist), with `SimRng::for_event(Growth, zone, hour, k)`.
+pub(crate) fn develop(world: &mut World) {
+    let now = tick(world);
+    if now % TICKS_PER_GAME_HOUR != DEVELOP_OFFSET
+        || world
+            .get_resource::<SimConfig>()
+            .is_none_or(|c| c.growth != GrowthMode::Normal)
+    {
+        return;
+    }
+    let hour = now / TICKS_PER_GAME_HOUR;
+    let seed = world.get_resource::<WorldSeed>().map_or(0, |s| s.0);
+    let population = world
+        .get_resource::<crate::citizens::Population>()
+        .map_or(0, crate::citizens::Population::population);
+    let Some(demand) = world.get_resource::<crate::demand::Demand>().copied() else {
+        return;
+    };
+    for (zi, zone) in [
+        ZoneKind::Residential,
+        ZoneKind::Commercial,
+        ZoneKind::Industrial,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let k = constructions_per_hour(demand.zone(zone), population);
+        if k == 0 {
+            continue;
+        }
+        let Some(ids) = world.get_resource::<Ids>() else {
+            return;
+        };
+        let mut candidates: Vec<LotId> = ids
+            .lots
+            .iter()
+            .filter_map(|(id, e)| {
+                let l = world.get::<Lot>(e)?;
+                let can_build = l.footprint.is_some() || !l.inset.is_empty();
+                let z = world.get::<Plot>(ids.plots.get(l.plot)?)?.zone;
+                (z == zone && l.building.is_none() && can_build).then_some(id)
+            })
+            .collect();
+        for j in 0..k {
+            if candidates.is_empty() {
+                break;
+            }
+            let weights = vec![1.0f32; candidates.len()];
+            let mut rng = cb_core::rng::SimRng::for_event(
+                seed,
+                cb_core::rng::RngStream::Growth,
+                1 + zi as u16,
+                hour,
+                j as u64,
+            );
+            let Some(i) = rng.weighted_index(&weights) else {
+                break;
+            };
+            let lot = candidates.remove(i);
+            grow_lot(world, lot);
+        }
+    }
+}
+
 /// How far from a road edge a civic building's front snaps onto it (m).
 pub const PLACE_SNAP_M: f32 = 2.0;
 /// Overlap tolerated between a parcel and a road corridor (the front edge touches it), m².

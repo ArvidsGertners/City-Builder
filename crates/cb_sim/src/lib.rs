@@ -111,7 +111,12 @@ impl Plugin for WorldStatePlugin {
             .init_resource::<demand::Demand>()
             .add_systems(
                 SimTick,
-                (buildings::growth, demand::tick, citizens::tick)
+                (
+                    buildings::growth,
+                    demand::tick,
+                    buildings::develop,
+                    citizens::tick,
+                )
                     .chain()
                     .in_set(TickSet::SubRate),
             );
