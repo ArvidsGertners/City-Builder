@@ -101,6 +101,33 @@ fn hash_population(world: &World, h: &mut StableHasher) {
     for (id, c) in pop.citizens() {
         (id, c.household(), c.age(), c.education(), c.job()).hash(h);
     }
+    // The ledger is a record of flows, not world state: an undone build leaves a charge and a
+    // refund in it while the balance (hashed above) returns. Saves carry it in full.
+    if let Some(f) = world.get_resource::<crate::economy::Finances>() {
+        for z in [
+            crate::catalog::ZoneKind::Residential,
+            crate::catalog::ZoneKind::Commercial,
+            crate::catalog::ZoneKind::Industrial,
+        ] {
+            f.tax_bp(z).hash(h);
+        }
+        (f.loans().len(), f.days_negative(), f.bankrupt()).hash(h);
+    }
+    if let Some(g) = world.get_resource::<crate::economy::goods::Goods>() {
+        for (id, b) in g.businesses() {
+            (
+                id,
+                b.stock_mu,
+                b.incoming_mu,
+                b.daily_customers,
+                b.profit_hour_cents,
+            )
+                .hash(h);
+        }
+        for (t, d) in g.deliveries() {
+            (t, d.to, d.units_mu, d.cost_cents).hash(h);
+        }
+    }
     if let Some(d) = world.get_resource::<crate::demand::Demand>() {
         f32s(
             h,

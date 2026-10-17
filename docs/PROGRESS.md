@@ -568,8 +568,9 @@ state, happiness stubs, `SetSimConfig` + dev panel, cross-OS determinism job bec
 - [ ] Growth: `growth_scenario_flat_3days` — pop ≥ 400 with 120 R lots + power + water;
       unemployment ≤ 15 %; morning departure histogram peaks 05:30–07:30.
 - [x] Demand: `demand_monotonic_responses`, `demand_breakdown_sums_to_value` (`cb_sim::demand`).
-- [ ] Economy: `ledger_sum_equals_money_delta`, `bankruptcy_after_7_days_triggers_loan`,
-      `goods_units_conserved`, `deliveries_prefer_nearest_supplier`, `import_when_no_supplier`.
+- [x] Economy: `ledger_sum_equals_money_delta`, `bankruptcy_after_7_days_triggers_loan`,
+      `goods_units_conserved`, `deliveries_prefer_nearest_supplier`, `import_when_no_supplier`
+      (`cb_sim/tests/economy.rs`, `cb_sim::economy::goods`).
 - [ ] Utilities: `power_brownout_outer_first`, `pump_requires_depth_1_5m_within_15m`,
       `disconnected_component_unserved`, `water_pollution_advects_downstream`.
 - [ ] Fields/happiness: `pollution_decays_0_97_per_hour`, `noise_line_and_point_attenuation`,
@@ -921,3 +922,14 @@ Known gaps (planned):
   population the rate gives ~1 home per game hour, so tier 1 (250) arrives after ~2.2 game days —
   slower than the 12–25 real-minute target; `SimConfig::default().growth` stays `Debug` until the
   M5 loop (utilities, routing) is complete.
+- 2026-10-17 — M5.4 economy: ledger with accounts and carried millicent residuals, hourly accrual
+  (household taxes by home level and wealth, business profit taxes from the goods model, road and
+  civic upkeep, loan interest), daily statements (30 kept), projection warning, emergency loan
+  after 7 days below zero, bankruptcy (50 % building upkeep, construction frozen,
+  `money-bankrupt`) and recovery; commands `SetTaxRate`, `TakeLoan`, `RepayLoan`. Goods model in
+  integer milli-units (production, exports, retail consumption, delivery requests to the nearest
+  industry or imports through the nearest outside connection — `TerrainRes` now keeps the
+  outside connection ends). Tests: `ledger_sum_equals_money_delta`,
+  `bankruptcy_after_7_days_triggers_loan`, `bankrupt_without_loans_freezes_construction`,
+  `tax_rate_clamped_and_applied`, `goods_units_conserved`, `deliveries_prefer_nearest_supplier`,
+  `import_when_no_supplier`.

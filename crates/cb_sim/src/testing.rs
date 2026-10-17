@@ -33,6 +33,17 @@ impl Scenario {
         Self { app }
     }
 
+    /// Sets the treasury balance (test setup; bypasses the ledger on purpose).
+    pub fn set_balance(&mut self, cents: i64) {
+        if let Some(mut t) = self
+            .app
+            .world_mut()
+            .get_resource_mut::<crate::economy::Treasury>()
+        {
+            t.balance = cb_core::Money(cents);
+        }
+    }
+
     /// Replaces the sim config.
     #[must_use]
     pub fn config(mut self, config: SimConfig) -> Self {

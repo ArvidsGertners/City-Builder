@@ -109,10 +109,15 @@ impl Plugin for WorldStatePlugin {
             .init_resource::<citizens::Capacities>()
             .init_resource::<citizens::PopulationStats>()
             .init_resource::<demand::Demand>()
+            .init_resource::<economy::Ledger>()
+            .init_resource::<economy::Finances>()
+            .init_resource::<economy::goods::Goods>()
             .add_systems(
                 SimTick,
                 (
                     buildings::growth,
+                    economy::tick,
+                    economy::goods::tick,
                     demand::tick,
                     buildings::develop,
                     citizens::tick,

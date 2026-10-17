@@ -282,11 +282,17 @@ fn undo_refund_decays() {
     let m1 = s.world().resource::<Treasury>().balance();
     // Halfway through the window after the first hour: 62.5 %.
     s.run_ticks(TICKS_PER_GAME_HOUR + (TICKS_PER_GAME_DAY - TICKS_PER_GAME_HOUR) / 2);
+    let upkeep = s
+        .world()
+        .resource::<cb_sim::economy::Ledger>()
+        .total(cb_sim::economy::Account::RoadUpkeep);
     let refund = -ok(&mut s, PlayerCommand::Undo).0;
     assert_eq!(refund, cost.0 * 625 / 1000);
+    // The road cost upkeep while it existed (M5 economy).
+    assert!(upkeep < 0);
     assert_eq!(
         s.world().resource::<Treasury>().balance(),
-        Money(m1.0 + refund)
+        Money(m1.0 + refund + upkeep)
     );
 }
 

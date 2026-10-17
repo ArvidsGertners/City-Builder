@@ -272,6 +272,69 @@ struct CivicFile {
 struct EconomyFile {
     start_money_cents: StartMoney,
     growth_debug_delay_ticks: u64,
+    tax_default_bp: u16,
+    household_income_cents_per_day: [i64; 5],
+    wealth_income_factor: [f32; 3],
+    wages_cents_per_day: Wages,
+    goods: GoodsSpec,
+    loans: [LoanTier; 3],
+    bankruptcy_days: u32,
+}
+
+/// Wages per job and game day by level (cents).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Wages {
+    /// Commercial L1–L3.
+    pub commercial: [i64; 3],
+    /// Industrial L1–L3.
+    pub industrial: [i64; 3],
+}
+
+/// Goods economy parameters (ALGORITHMS §27).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GoodsSpec {
+    /// Price of one unit between businesses (cents).
+    pub unit_price_cents: i64,
+    /// Export price relative to the unit price.
+    pub export_factor: f32,
+    /// Import cost relative to the unit price.
+    pub import_factor: f32,
+    /// Commercial revenue per customer unit (cents).
+    pub revenue_per_customer_cents: i64,
+    /// Units per delivery truck.
+    pub units_per_delivery: u32,
+    /// Stock capacity per building level (units).
+    pub stock_units_per_level: u32,
+    /// Macro truck speed until routing (m/s).
+    pub macro_speed_mps: f32,
+}
+
+/// One loan tier.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LoanTier {
+    /// Principal (cents).
+    pub principal_cents: i64,
+    /// Simple interest per game day.
+    pub rate_per_day: f32,
+}
+
+/// Economy parameters (GAME_DESIGN §9).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EconomySpec {
+    /// Default tax rate (basis points).
+    pub tax_default_bp: u16,
+    /// Household income per day by home level (cents).
+    pub household_income_cents_per_day: [i64; 5],
+    /// Income factor by wealth.
+    pub wealth_income_factor: [f32; 3],
+    /// Wages.
+    pub wages: Wages,
+    /// Goods.
+    pub goods: GoodsSpec,
+    /// Loan tiers.
+    pub loans: [LoanTier; 3],
+    /// Days below zero before the emergency loan or bankruptcy.
+    pub bankruptcy_days: u32,
 }
 
 /// The loaded catalog.
@@ -287,6 +350,7 @@ pub struct Catalog {
     start_money: StartMoney,
     growth_debug_delay_ticks: u64,
     citizens: CitizensSpec,
+    economy: EconomySpec,
 }
 
 /// Catalog parse errors.
@@ -375,6 +439,15 @@ impl Catalog {
             start_money: eco.start_money_cents,
             growth_debug_delay_ticks: eco.growth_debug_delay_ticks,
             citizens,
+            economy: EconomySpec {
+                tax_default_bp: eco.tax_default_bp,
+                household_income_cents_per_day: eco.household_income_cents_per_day,
+                wealth_income_factor: eco.wealth_income_factor,
+                wages: eco.wages_cents_per_day,
+                goods: eco.goods,
+                loans: eco.loans,
+                bankruptcy_days: eco.bankruptcy_days,
+            },
         })
     }
 
@@ -382,6 +455,12 @@ impl Catalog {
     #[must_use]
     pub fn citizens(&self) -> &CitizensSpec {
         &self.citizens
+    }
+
+    /// Economy parameters.
+    #[must_use]
+    pub fn economy(&self) -> &EconomySpec {
+        &self.economy
     }
 
     /// Road type data (every kind is present after [`Catalog::load`]).

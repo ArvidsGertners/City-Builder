@@ -50,9 +50,31 @@ pub enum TerrainSetup {
 #[derive(Resource)]
 pub struct TerrainRes {
     pub(crate) t: Arc<Terrain>,
+    /// End points of the outside road connections inside the map (trade origin/destination).
+    pub(crate) outside: Vec<Vec2>,
 }
 
 impl TerrainRes {
+    /// Wraps a generated world, keeping its outside connection ends.
+    #[must_use]
+    pub fn from_world(w: cb_terrain::World) -> Self {
+        let outside = w
+            .outside
+            .iter()
+            .map(cb_terrain::OutsideConnection::end)
+            .collect();
+        Self {
+            t: Arc::new(Terrain::from_world(w)),
+            outside,
+        }
+    }
+
+    /// End points of the outside road connections.
+    #[must_use]
+    pub fn outside_ends(&self) -> &[Vec2] {
+        &self.outside
+    }
+
     /// The terrain (read-only; edits go through commands).
     #[must_use]
     pub fn terrain(&self) -> &Terrain {
@@ -95,9 +117,7 @@ pub fn build(
                 },
                 *h,
             );
-            Some(TerrainRes {
-                t: Arc::new(Terrain::from_world(w)),
-            })
+            Some(TerrainRes::from_world(w))
         }
         TerrainSetup::Valley {
             samples,
@@ -117,15 +137,11 @@ pub fn build(
                 *width_m,
                 *water_m,
             );
-            Some(TerrainRes {
-                t: Arc::new(Terrain::from_world(w)),
-            })
+            Some(TerrainRes::from_world(w))
         }
         TerrainSetup::Generate => {
             let w = cb_terrain::generate(&WorldGenParams::default(), seed)?;
-            Some(TerrainRes {
-                t: Arc::new(Terrain::from_world(w)),
-            })
+            Some(TerrainRes::from_world(w))
         }
     })
 }

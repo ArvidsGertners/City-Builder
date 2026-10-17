@@ -1,5 +1,30 @@
-// Economy basics (GAME_DESIGN §7). Money in cents.
+// Economy (GAME_DESIGN §9, ALGORITHMS §21, §27). Money in cents unless noted.
 (
     start_money_cents: (relaxed: 12000000, normal: 6000000, hard: 3500000),
     growth_debug_delay_ticks: 600,
+    // Default tax rate R, C, I (basis points; range 100–2500).
+    tax_default_bp: 900,
+    // Household income per game day by home level (cents) and the wealth factor (Low, Mid, High).
+    household_income_cents_per_day: (9000, 12000, 15000, 19000, 23000),
+    wealth_income_factor: (0.8, 1.0, 1.4),
+    // Wages per job and game day by level (cents).
+    wages_cents_per_day: (commercial: (3000, 4000, 5500), industrial: (2800, 3800, 5000)),
+    goods: (
+        // Price of one goods unit between businesses (cents).
+        unit_price_cents: 400,
+        // Export price and import cost relative to the unit price.
+        export_factor: 0.8,
+        import_factor: 1.3,
+        // Commercial revenue per customer unit (cents).
+        revenue_per_customer_cents: 150,
+        units_per_delivery: 10,
+        // Stock capacity per level (units).
+        stock_units_per_level: 40,
+        // Mean macro truck speed until routing estimates travel times (m/s).
+        macro_speed_mps: 8.0,
+    ),
+    // Loan tiers: principal (cents) and simple interest per game day.
+    loans: ((principal_cents: 2500000, rate_per_day: 0.0008), (principal_cents: 6000000, rate_per_day: 0.0007), (principal_cents: 15000000, rate_per_day: 0.0006)),
+    // Days below zero before the emergency loan or bankruptcy.
+    bankruptcy_days: 7,
 )

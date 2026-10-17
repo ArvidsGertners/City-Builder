@@ -219,6 +219,23 @@ pub enum PlayerCommand {
     },
     /// Replace the simulation options (not undoable).
     SetSimConfig(SimConfig),
+    /// Set a zone's tax rate in basis points (clamped to 1–25 %; not undoable).
+    SetTaxRate {
+        /// Zone.
+        zone: ZoneKind,
+        /// Rate (basis points).
+        bp: u16,
+    },
+    /// Take the loan of a tier (≤ 1 per tier; not undoable).
+    TakeLoan {
+        /// Tier 0–2.
+        tier: u8,
+    },
+    /// Repay the loan of a tier in full (not undoable).
+    RepayLoan {
+        /// Tier 0–2.
+        tier: u8,
+    },
     /// Debug tooling (not undoable).
     Debug(DebugCommand),
     /// Undo the most recent undoable action (ADR-0055).
@@ -248,7 +265,13 @@ impl PlayerCommand {
             Self::EditPlot { .. } => "undo-edit-plot",
             Self::DeletePlot { .. } => "undo-delete-plot",
             Self::SetSubdivision { .. } => "undo-set-subdivision",
-            Self::SetSimConfig(_) | Self::Debug(_) | Self::Undo | Self::Redo => return None,
+            Self::SetSimConfig(_)
+            | Self::SetTaxRate { .. }
+            | Self::TakeLoan { .. }
+            | Self::RepayLoan { .. }
+            | Self::Debug(_)
+            | Self::Undo
+            | Self::Redo => return None,
         })
     }
 }
@@ -409,6 +432,19 @@ fn apply(world: &mut World, cmd: &PlayerCommand, tick: u64) -> Result<Money, Val
             world.insert_resource(c.clone());
             Ok(Money::ZERO)
         }
+        PlayerCommand::SetTaxRate { zone, bp } => {
+            crate::economy::set_tax_rate(world, *zone, *bp);
+            Ok(Money::ZERO)
+        }
+        PlayerCommand::TakeLoan { tier } => {
+            let day = world
+                .get_resource::<SimClock>()
+                .map_or(0, |c| c.tick().0 / cb_core::time::TICKS_PER_GAME_DAY);
+            crate::economy::take_loan(world, *tier, day).map(|()| Money::ZERO)
+        }
+        PlayerCommand::RepayLoan { tier } => {
+            crate::economy::repay_loan(world, *tier).map(|()| Money::ZERO)
+        }
         PlayerCommand::Debug(d) => {
             let ok = match d {
                 DebugCommand::SetBuildingLevel { building, level } => {
@@ -473,6 +509,9 @@ pub const ALL_KEYS: &[&str] = &[
     "internal-id-space",
     "internal-no-catalog",
     "internal-no-result",
+    "loan-missing",
+    "loan-taken",
+    "money-bankrupt",
     "money-insufficient",
     "plot-invalid-corner",
     "plot-invalid-frontage",

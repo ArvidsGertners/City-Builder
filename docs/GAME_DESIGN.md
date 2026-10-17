@@ -161,7 +161,7 @@ circular. Bus lanes are a segment style.
 | Starting money | 60 000 (difficulty changes only this) |
 | Tax rates | R/C/I 9 %; range 1–25 % |
 | Household income/day (L1…L5) | 90, 120, 150, 190, 230 × wealth (0.8 / 1.0 / 1.4) |
-| Business profit | from the goods model (ALGORITHMS §27): sales − wages − goods cost |
+| Business profit | from the goods model (ALGORITHMS §27): sales − wages − goods cost; goods unit 4.00, exports × 0.8, imports × 1.3, commercial revenue 1.50 per customer unit, stock 40 units × level, deliveries of 10 units at a macro truck speed of 8 m/s until routing (`economy.ron`) |
 | Wages per job per day | C 30/40/55, I 28/38/50 by level |
 | Loans | tier 1: 25 000 @ 0.08 %/day; tier 2: 60 000 @ 0.07 %/day; tier 3: 150 000 @ 0.06 %/day; simple interest, ≤ 1 per tier |
 | Demolish refund | 25 % within 1 game day of construction, else 0 |

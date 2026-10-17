@@ -639,6 +639,11 @@ abandon → recover as before (3/4/2 days). Test: a fully served lot at LV 0.8 r
 
 ## 21. Economy tick — `cb_sim::economy`
 
+- **Ledger** (M5): every balance change is posted to an account (taxes R/C/I, road upkeep,
+  building upkeep, construction, refunds, loan interest/proceeds/repayment); accruals are summed
+  in millicents and settled in whole cents with the remainder carried per account, so the ledger
+  always equals the balance delta (`ledger_sum_equals_money_delta`). Commands `SetTaxRate`
+  (1–25 %), `TakeLoan`, `RepayLoan` (not undoable).
 - **Hourly accrual**: household taxes `income(wealth, level) × rate_R / 24`; business profit
   taxes (§27) `× rate_C/I`; road upkeep `m × upkeep × (1 + 0.6 snow_cover)`; building upkeep ×
   budget; transit vehicle-hours × rate − fares; loan interest. Money in cents, banker's rounding,
