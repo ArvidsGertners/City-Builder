@@ -567,7 +567,7 @@ state, happiness stubs, `SetSimConfig` + dev panel, cross-OS determinism job bec
       (`cb_sim/tests/calendar.rs`).
 - [ ] Growth: `growth_scenario_flat_3days` — pop ≥ 400 with 120 R lots + power + water;
       unemployment ≤ 15 %; morning departure histogram peaks 05:30–07:30.
-- [ ] Demand: `demand_monotonic_responses`, `demand_breakdown_sums_to_value`.
+- [x] Demand: `demand_monotonic_responses`, `demand_breakdown_sums_to_value` (`cb_sim::demand`).
 - [ ] Economy: `ledger_sum_equals_money_delta`, `bankruptcy_after_7_days_triggers_loan`,
       `goods_units_conserved`, `deliveries_prefer_nearest_supplier`, `import_when_no_supplier`.
 - [ ] Utilities: `power_brownout_outer_first`, `pump_requires_depth_1_5m_within_15m`,
@@ -905,3 +905,11 @@ Known gaps (planned):
   dispatch run 5 on `046357f` green — macOS check default + dev, macOS smoke, determinism probe on
   Linux/Windows/macOS with matching hashes, soak, bench
   (https://github.com/ArvidsGertners/City-Builder/actions/runs/38987172290).
+- 2026-10-17 — M5.2 citizens: `cb_sim::citizens` (population tables, capacities from
+  `zones.ron`, immigration in 4 slices from tick 720, job matching in 200 slices from tick 500,
+  eviction/lay-offs when homes or workplaces stop being habitable) and `cb_sim::demand` (§15 with
+  stubs; immigration uses R without the housing-vacancy term — ALGORITHMS §16). Tests
+  `households_move_in_and_find_jobs`, `citizens_deterministic`,
+  `abandoned_home_empties_and_closed_workplace_lays_off`. 4×3 mixed town: 6 households/h,
+  622 citizens after 44 game hours, unemployment 3–9 %. The state hash now covers population and
+  demand (probe hashes change).

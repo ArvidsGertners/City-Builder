@@ -87,4 +87,29 @@ fn hash_objects(world: &World, h: &mut StableHasher) {
             f32s(h, &[p.pos().x, p.pos().y, p.pos().z, p.yaw()]);
         }
     }
+    hash_population(world, h);
+}
+
+fn hash_population(world: &World, h: &mut StableHasher) {
+    let Some(pop) = world.get_resource::<crate::citizens::Population>() else {
+        return;
+    };
+    for (id, hh) in pop.households() {
+        (id, hh.home(), hh.members(), hh.wealth(), hh.cars()).hash(h);
+        (hh.moved_in_tick(), hh.happiness().to_bits()).hash(h);
+    }
+    for (id, c) in pop.citizens() {
+        (id, c.household(), c.age(), c.education(), c.job()).hash(h);
+    }
+    if let Some(d) = world.get_resource::<crate::demand::Demand>() {
+        f32s(
+            h,
+            &[
+                d.zone(crate::catalog::ZoneKind::Residential),
+                d.zone(crate::catalog::ZoneKind::Commercial),
+                d.zone(crate::catalog::ZoneKind::Industrial),
+                d.immigration(),
+            ],
+        );
+    }
 }

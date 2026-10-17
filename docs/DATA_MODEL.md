@@ -273,6 +273,12 @@ struct Citizen {                             // ≤ 32 bytes, const-asserted
 enum Activity { GoToWork(CitizenId), GoHome(CitizenId), GoToSchool(CitizenId), Shop(HouseholdId), Leisure(HouseholdId) }
 ```
 
+M5 implementation (`cb_sim::citizens`): `households`/`citizens` are `BTreeMap`s keyed by ID (stable
+iteration order) with `IdAllocator`s; `Citizen.job = Option<(BuildingId, edu level of the job)>`;
+the per-building indices (`homes`, `filled`) are `#[serde(skip)]` and rebuilt after load
+(`Population::rebuild_indices`). Home/job capacities live in the derived `Capacities` table
+(refreshed hourly; a building is re-measured only when its level changes).
+
 Individual citizens are visible in the UI (building info lists residents/workers with
 generated names from seed + ID) but are never ECS entities.
 

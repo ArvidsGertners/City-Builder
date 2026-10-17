@@ -79,7 +79,10 @@ frontage turns ≤ 25° (ADR-0064); max depths R 45, C 50, I 80 m;
 min area R 120, C 200, I 600 m². Level caps by lot area: R L4 ≥ 400 m², R L5 ≥ 700 m²; C L3 ≥
 600 m²; I L3 ≥ 2 000 m². Leveling thresholds `up = [0.35, 0.5, 0.62, 0.75]`, down = up − 0.15;
 weights in ALGORITHMS §20. Job education requirements: C L1 edu 0+, C L2 edu 1+, C L3 edu 2+
-(60 %); I L1 0, I L2 1, I L3 2 (40 %). Before M7 everything is unlocked implicitly; M7 enables
+(60 %); I L1 0, I L2 1, I L3 2 (40 %). Capacity per building (M5, `zones.ron` `capacity`):
+floor area (footprint × round(height / 3 m) floors) ÷ 110 m² per household (R), 30 m² per job (C),
+60 m² per job (I), clamped to the level's range in the table above; over-qualified citizens may
+take lower jobs. Before M7 everything is unlocked implicitly; M7 enables
 tiers.
 
 ## 5. Services

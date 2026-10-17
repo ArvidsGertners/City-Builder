@@ -6,10 +6,12 @@
 
 pub mod buildings;
 pub mod catalog;
+pub mod citizens;
 pub mod citygen;
 pub mod clock;
 pub mod commands;
 pub mod config;
+pub mod demand;
 pub mod driver;
 pub mod economy;
 pub mod hash;
@@ -103,7 +105,16 @@ impl Plugin for WorldStatePlugin {
             .add_systems(SimEdit, commands::apply_commands.in_set(EditSet::Commands))
             .add_systems(SimEdit, lanes::patch_lanes.in_set(EditSet::Lanes))
             .add_systems(SimEdit, zoning::update_dirty_plots.in_set(EditSet::Zoning))
-            .add_systems(SimTick, buildings::growth.in_set(TickSet::SubRate));
+            .init_resource::<citizens::Population>()
+            .init_resource::<citizens::Capacities>()
+            .init_resource::<citizens::PopulationStats>()
+            .init_resource::<demand::Demand>()
+            .add_systems(
+                SimTick,
+                (buildings::growth, demand::tick, citizens::tick)
+                    .chain()
+                    .in_set(TickSet::SubRate),
+            );
     }
 }
 

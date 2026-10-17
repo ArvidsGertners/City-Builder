@@ -1,0 +1,20 @@
+// Citizen parameters (GAME_DESIGN §10, ALGORITHMS §16).
+(
+    // Household size 1–5.
+    household_size_weights: (0.28, 0.34, 0.16, 0.15, 0.07),
+    // Education of arriving adults: none, secondary, higher (until schools exist, M6).
+    adult_education_weights: (0.45, 0.38, 0.17),
+    // Probability that the second member of a household of ≥ 2 is an adult (else a child).
+    second_adult_p: 0.75,
+    // Probability that a household of ≤ 2 adults is retired.
+    senior_household_p: 0.12,
+    // Wealth by home level (index = level − 1): weights of Low, Mid, High.
+    wealth_by_level: ((0.55, 0.40, 0.05), (0.40, 0.48, 0.12), (0.30, 0.50, 0.20), (0.25, 0.50, 0.25), (0.20, 0.45, 0.35)),
+    // Cars per household by wealth (stochastic rounding).
+    cars_by_wealth: (0.6, 1.0, 1.5),
+    // Immigration per game hour: ceil(max(R, 0) × base × (1 + pop / pop_scale)).
+    immigration_base_per_game_h: 6.0,
+    immigration_pop_scale: 1500.0,
+    // Straight-line job search radius until macro routing (M5.7) estimates commutes (m).
+    job_search_radius_m: 4000.0,
+)

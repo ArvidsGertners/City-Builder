@@ -61,6 +61,70 @@ pub struct ZoneSpec {
     pub max_level: u8,
     /// Smallest lot area (m²) for each level (index = level − 1).
     pub level_min_area_m2: [f32; 5],
+    /// Households (R) or jobs (C/I) per building.
+    pub capacity: CapacitySpec,
+}
+
+/// Units a zoned building offers: households for residential, jobs for commercial/industrial.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CapacitySpec {
+    /// Floor area per unit (m²).
+    pub m2_per_unit: f32,
+    /// Clamp of the unit count per level (index = level − 1).
+    pub range: [(u16, u16); 5],
+    /// Share of jobs by required education (0, 1, 2) per level.
+    pub job_edu: [[f32; 3]; 5],
+}
+
+impl CapacitySpec {
+    /// Units for a building of `level` with `floor_area_m2` of floor space.
+    #[must_use]
+    pub fn units(&self, level: u8, floor_area_m2: f32) -> u16 {
+        let (lo, hi) = self.range[usize::from(level.clamp(1, 5)) - 1];
+        let n = (floor_area_m2 / self.m2_per_unit.max(1.0)).round();
+        // Clamp in f32 first: the value is a small non-negative count.
+        n.clamp(f32::from(lo), f32::from(hi)) as u16
+    }
+
+    /// Jobs split by required education; the remainder of rounding goes to the most
+    /// common requirement so the parts sum to `jobs`.
+    #[must_use]
+    pub fn split_jobs(&self, level: u8, jobs: u16) -> [u16; 3] {
+        let w = self.job_edu[usize::from(level.clamp(1, 5)) - 1];
+        let mut out = [0u16; 3];
+        for k in 0..3 {
+            out[k] = (f32::from(jobs) * w[k]).floor() as u16;
+        }
+        let rest = jobs.saturating_sub(out.iter().sum());
+        let top = (0..3)
+            .max_by(|a, b| w[*a].total_cmp(&w[*b]).then(b.cmp(a)))
+            .unwrap_or(0);
+        out[top] += rest;
+        out
+    }
+}
+
+/// Citizen parameters (GAME_DESIGN §10, ALGORITHMS §16), `data/citizens.ron`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CitizensSpec {
+    /// Household size 1–5 weights.
+    pub household_size_weights: [f32; 5],
+    /// Education weights of arriving adults (none, secondary, higher).
+    pub adult_education_weights: [f32; 3],
+    /// Probability that the second member is an adult.
+    pub second_adult_p: f32,
+    /// Probability that a small household is retired.
+    pub senior_household_p: f32,
+    /// Wealth weights (Low, Mid, High) by home level.
+    pub wealth_by_level: [[f32; 3]; 5],
+    /// Cars per household by wealth.
+    pub cars_by_wealth: [f32; 3],
+    /// Immigration base rate (households per game hour at R = 1).
+    pub immigration_base_per_game_h: f32,
+    /// Population that doubles the immigration rate.
+    pub immigration_pop_scale: f32,
+    /// Straight-line job search radius (m).
+    pub job_search_radius_m: f32,
 }
 
 impl ZoneSpec {
@@ -222,6 +286,7 @@ pub struct Catalog {
     civic: CivicFile,
     start_money: StartMoney,
     growth_debug_delay_ticks: u64,
+    citizens: CitizensSpec,
 }
 
 /// Catalog parse errors.
@@ -249,6 +314,7 @@ const ROADS_RON: &str = include_str!("../data/roads.ron");
 const ZONES_RON: &str = include_str!("../data/zones.ron");
 const ECONOMY_RON: &str = include_str!("../data/economy.ron");
 const CIVIC_RON: &str = include_str!("../data/civic.ron");
+const CITIZENS_RON: &str = include_str!("../data/citizens.ron");
 
 impl Catalog {
     /// Parses the embedded data.
@@ -273,6 +339,11 @@ impl Catalog {
             file: "civic.ron",
             source,
         })?;
+        let citizens: CitizensSpec =
+            ron::from_str(CITIZENS_RON).map_err(|source| CatalogError::Parse {
+                file: "citizens.ron",
+                source,
+            })?;
         for k in RoadKind::ALL {
             if !roads.roads.contains_key(&k) {
                 return Err(CatalogError::Missing {
@@ -303,7 +374,14 @@ impl Catalog {
             civic,
             start_money: eco.start_money_cents,
             growth_debug_delay_ticks: eco.growth_debug_delay_ticks,
+            citizens,
         })
+    }
+
+    /// Citizen parameters.
+    #[must_use]
+    pub fn citizens(&self) -> &CitizensSpec {
+        &self.citizens
     }
 
     /// Road type data (every kind is present after [`Catalog::load`]).

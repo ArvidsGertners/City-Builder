@@ -512,7 +512,10 @@ via `MeshTag`.
 
 ## 15. Demand — `cb_sim::demand`
 
-Hourly (game), EMA half-life 6 game hours, range −1…1, breakdown stored for tooltips. All
+Hourly (game, tick 60), EMA half-life 6 game hours (the first sample seeds the average), range
+−1…1, breakdown stored for tooltips. Inputs of systems that do not exist yet use the GAME_DESIGN
+§10 stubs (happiness 60, coverage 0.5, land value 0.5, commute 15 min, goods available, exports
+reachable, taxes 9 %). All
 terms normalized to [0, 1] unless signed:
 - `job_vacancy = (jobs − filled) / max(jobs, 1)`; `housing_vacancy = free_slots / max(slots, 1)`.
 - `attractiveness = 0.30 (2h − 1) + 0.20 cov + 0.20 (2 LV − 1) − 0.20 min(1, 5 unemp)
@@ -538,10 +541,14 @@ terms normalized to [0, 1] unless signed:
 
 ## 16. Citizens, trips & mode choice — `cb_sim::citizens` (ADR-0016)
 
-- **Immigration**: households per game hour `= ceil(max(R, 0) × 6 × (1 + pop / 1 500))`, capped
-  by free slots in connected buildings; each arrives as a trip from the nearest outside
+- **Immigration**: households per game hour `= ceil(max(R_imm, 0) × 6 × (1 + pop / 1 500))`,
+  capped by free slots in connected buildings, where `R_imm` is R without the housing-vacancy term
+  (vacant homes attract movers; they only hold back new residential construction); 4 slices from
+  tick 720, homes drawn by free slots (`SimRng` Citizens); each arrives as a trip from the nearest outside
   connection; wealth/education from attractiveness and education coverage.
-- **Job matching** (hourly, sliced): unemployed adults sorted `(education desc, CitizenId)`;
+- **Job matching** (hourly, 200 slices from tick 500; slice k = citizens with `id % 200 == k`):
+  unemployed adults sorted `(education desc, CitizenId)`; until macro routing (M5.7) candidates
+  are workplaces within a 4 km straight line, score `= −distance − 0.2 × level mismatch × 4 km`;
   candidate workplaces from the per-workplace-segment bounded Dijkstra cache; score
   `= −routed_estimate − 0.2 × level mismatch`; reject estimates > 300 sim s.
 - **Trip scale** (ADR-0062): one vehicle-trip entity per 6 citizens' trips of the same household
