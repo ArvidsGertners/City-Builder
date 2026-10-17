@@ -275,6 +275,9 @@ enum Activity { GoToWork(CitizenId), GoHome(CitizenId), GoToSchool(CitizenId), S
 
 M5 implementation (`cb_sim::citizens`): `households`/`citizens` are `BTreeMap`s keyed by ID (stable
 iteration order) with `IdAllocator`s; `Citizen.job = Option<(BuildingId, edu level of the job)>`;
+`shift_start_min` and `commute_sim_s` (sim s = perceived deci-minutes, 0 unknown, `u16::MAX`
+no route) are set at hiring and refreshed by the daily commute assignment (ADR-0068, the link
+totals live in `cb_sim::traffic::Traffic`);
 the per-building indices (`homes`, `filled`) are `#[serde(skip)]` and rebuilt after load
 (`Population::rebuild_indices`). Home/job capacities live in the derived `Capacities` table
 (refreshed hourly; a building is re-measured only when its level changes).

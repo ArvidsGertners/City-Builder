@@ -547,10 +547,18 @@ terms normalized to [0, 1] unless signed:
   tick 720, homes drawn by free slots (`SimRng` Citizens); each arrives as a trip from the nearest outside
   connection; wealth/education from attractiveness and education coverage.
 - **Job matching** (hourly, 200 slices from tick 500; slice k = citizens with `id % 200 == k`):
-  unemployed adults sorted `(education desc, CitizenId)`; until macro routing (M5.7) candidates
-  are workplaces within a 4 km straight line, score `= −distance − 0.2 × level mismatch × 4 km`;
-  candidate workplaces from the per-workplace-segment bounded Dijkstra cache; score
-  `= −routed_estimate − 0.2 × level mismatch`; reject estimates > 300 sim s.
+  unemployed adults sorted `(education desc, CitizenId)`; one tree per seeker home bounded by the
+  maximum commute (300 sim s incl. 2 × 10 sim s terminals) under the day costs gives the routed
+  estimate to every open workplace; score `= −estimate − 0.2 × level mismatch × 300 s`;
+  unreachable or longer commutes are never offered. A hire samples the shift start and stores
+  the estimate (ADR-0068).
+- **Macro commute model** (ADR-0068, `cb_sim::traffic`): every 2 ticks one of 14 400 daily
+  slices (households `id % 14 400 == k`) grows one shortest-path tree per home to all its
+  workers' workplaces (early stop); each worker's commute estimate is refreshed, its path adds
+  the household's car share to the link totals and its departure enters the histogram. At the
+  day boundary the totals become the next day's BPR costs (`V_peak = car commuters / 6 × 0.3 ×
+  30` per sim hour) and `CommuteStats` (departures, perceived p50/p95, no-route count) are
+  published; noise uses the mean daily segment volume.
 - **Trip scale** (ADR-0062): one vehicle-trip entity per 6 citizens' trips of the same household
   cohort, purpose and departure window; every citizen it represents gets its experienced time.
 - **Schedules** (ADR-0042, data per ADR-0062): shifts commercial N(08:45, σ 75 game min)

@@ -16,8 +16,9 @@
         // Reference distance (m) and type offsets (dB) of road line sources.
         d0_m: 10.0,
         road_db: (dirt: -6.0, street: 0.0, one_way: 0.0, avenue: 3.0),
-        // Traffic volume stubs (veh per sim-hour) until the flow model reports volumes.
-        volume_stub_per_sim_h: (dirt: 30.0, street: 300.0, one_way: 300.0, avenue: 1200.0),
+        // Traffic the commute model does not carry (deliveries, shopping, through traffic), added
+        // to the daily mean flow-model volume (veh per sim-hour).
+        base_volume_per_sim_h: (dirt: 10.0, street: 60.0, one_way: 60.0, avenue: 200.0),
         // Point sources at d0 (dB).
         industrial_db: 70.0,
         power_plant_db: 75.0,

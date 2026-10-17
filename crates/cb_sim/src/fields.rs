@@ -12,6 +12,7 @@
 
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
+use cb_core::ids::SegmentId;
 use cb_core::math::{exp, log10, powf};
 use cb_core::time::TICKS_PER_GAME_HOUR;
 use cb_procgen::building::civic::CivicKind;
@@ -462,12 +463,12 @@ fn building_points(world: &World) -> Vec<(BuildingKind, Condition, Vec2, u8)> {
 }
 
 /// Road segments as sampled points with their kind.
-fn road_samples(world: &World, step: f32) -> Vec<(Vec2, cb_network::RoadKind)> {
+fn road_samples(world: &World, step: f32) -> Vec<(Vec2, cb_network::RoadKind, SegmentId)> {
     let Some(ids) = world.get_resource::<Ids>() else {
         return Vec::new();
     };
     let mut out = Vec::new();
-    for (_, e) in ids.segments.iter() {
+    for (sid, e) in ids.segments.iter() {
         let Some(s) = world.get::<RoadSegment>(e) else {
             continue;
         };
@@ -476,7 +477,7 @@ fn road_samples(world: &World, step: f32) -> Vec<(Vec2, cb_network::RoadKind)> {
         let n = ((len / step).ceil() as usize).max(1);
         for k in 0..n {
             let t = (k as f32 + 0.5) / n as f32 * len;
-            out.push((line.point_at(t), s.kind()));
+            out.push((line.point_at(t), s.kind(), sid));
         }
     }
     out
@@ -539,10 +540,16 @@ fn tree_density(world: &World, f: &ScalarField) -> Vec<f32> {
 
 fn noise_emitters(world: &World, spec: &FieldsSpec) -> Vec<Emitter> {
     let n = &spec.noise;
+    let traffic = world.get_resource::<crate::traffic::Traffic>();
+    let trip_scale = world
+        .get_resource::<Catalog>()
+        .map_or(6.0, |c| c.citizens().commute.trip_scale);
     let mut out: Vec<Emitter> = road_samples(world, NOISE_SAMPLE_M)
         .into_iter()
-        .map(|(p, k)| {
-            let l0 = 10.0 * log10(n.volume_stub_per_sim_h.get(k).max(1.0)) + n.road_db.get(k);
+        .map(|(p, k, sid)| {
+            let flow = traffic.map_or(0.0, |t| t.segment_volume_per_sim_h(sid, trip_scale));
+            let volume = n.base_volume_per_sim_h.get(k) + flow;
+            let l0 = 10.0 * log10(volume.max(1.0)) + n.road_db.get(k);
             Emitter {
                 pos: p,
                 energy: road_sample_energy(l0, NOISE_SAMPLE_M, n.d0_m),
@@ -583,7 +590,7 @@ fn lv_inputs(
         .collect();
     let samples: Vec<Emitter> = road_samples(world, 16.0)
         .into_iter()
-        .map(|(p, k)| Emitter {
+        .map(|(p, k, _)| Emitter {
             pos: p,
             energy: match k {
                 cb_network::RoadKind::Dirt => 0.3,

@@ -20,6 +20,7 @@ cb_geometry.workspace = true
 cb_network.workspace = true
 cb_procgen.workspace = true
 cb_terrain.workspace = true
+cb_traffic.workspace = true
 glam.workspace = true
 ron.workspace = true
 smallvec.workspace = true

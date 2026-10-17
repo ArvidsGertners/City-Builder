@@ -1778,6 +1778,7 @@ dependencies = [
  "cb_network",
  "cb_procgen",
  "cb_terrain",
+ "cb_traffic",
  "glam",
  "ron",
  "serde",

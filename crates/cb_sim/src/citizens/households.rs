@@ -215,6 +215,8 @@ pub(crate) fn move_in(
                 age,
                 education,
                 job: None,
+                shift_start_min: 0,
+                commute_sim_s: 0,
             },
         );
         members.push(cid);

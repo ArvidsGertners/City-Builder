@@ -25,6 +25,7 @@ pub mod save;
 pub mod schedule;
 pub mod terrain;
 pub mod testing;
+pub mod traffic;
 pub mod utilities;
 pub mod zoning;
 
@@ -107,6 +108,13 @@ impl Plugin for WorldStatePlugin {
             .add_systems(SimEdit, commands::apply_commands.in_set(EditSet::Commands))
             .add_systems(SimEdit, lanes::patch_lanes.in_set(EditSet::Lanes))
             .add_systems(SimEdit, zoning::update_dirty_plots.in_set(EditSet::Zoning))
+            .add_systems(
+                SimEdit,
+                (traffic::mark_dirty, traffic::rebuild_if_dirty)
+                    .chain()
+                    .in_set(EditSet::Connectivity),
+            )
+            .init_resource::<traffic::Traffic>()
             .init_resource::<citizens::Population>()
             .init_resource::<citizens::Capacities>()
             .init_resource::<citizens::PopulationStats>()
@@ -125,6 +133,7 @@ impl Plugin for WorldStatePlugin {
                     economy::goods::tick,
                     demand::tick,
                     utilities::tick,
+                    traffic::tick,
                     fields::tick,
                     citizens::happiness::tick,
                     buildings::develop,

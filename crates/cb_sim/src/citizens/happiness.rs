@@ -17,7 +17,7 @@ use crate::config::WorldSeed;
 pub const SERVICES_STUB: f32 = 0.5;
 /// Crime stub until services exist (M6).
 pub const CRIME_STUB: f32 = 0.2;
-/// Commute score stub until macro routing estimates commutes (M5.7).
+/// Neutral commute score of households without commuting workers.
 pub const COMMUTE_STUB: f32 = 0.7;
 /// Tick of the daily happiness pass in the game day (hour 2).
 pub const OFFSET: u64 = 2 * TICKS_PER_GAME_HOUR;
@@ -197,6 +197,7 @@ pub(crate) fn daily(world: &mut World, now: u64) {
         return;
     };
     let fspec = *cat.fields();
+    let cspec = cat.citizens().commute;
     let seed = world.get_resource::<WorldSeed>().map_or(0, |s| s.0);
     let tax = world
         .get_resource::<crate::economy::Finances>()
@@ -215,6 +216,7 @@ pub(crate) fn daily(world: &mut World, now: u64) {
     for (hid, h) in pop.households() {
         let st = utilities.map(|u| u.status(h.home())).unwrap_or_default();
         let pos = cap.pos(h.home()).unwrap_or_default();
+        let commute = commute_score(pop, h.members(), &cspec);
         let (force, employed) = h.members().iter().fold((0u32, 0u32), |acc, c| {
             pop.citizen(*c).map_or(acc, |c| {
                 if c.in_labour_force() {
@@ -237,7 +239,7 @@ pub(crate) fn daily(world: &mut World, now: u64) {
             polluted_water: st.polluted_water,
             garbage_problem: st.garbage_problem,
             services: SERVICES_STUB,
-            commute: COMMUTE_STUB,
+            commute,
             pollution: fields.map_or(0.0, |f| {
                 f.pollution().sample(pos) / fspec.pollution.saturation
             }),
@@ -286,6 +288,29 @@ pub(crate) fn daily(world: &mut World, now: u64) {
         pop.remove_household(hid);
     }
     world.insert_resource(stats);
+}
+
+/// Commute score of a household: the mean over its workers of `1` at or below the short and `0`
+/// at or above the long perceived commute, `0` without a route; neutral without workers or
+/// estimates.
+pub(crate) fn commute_score(
+    pop: &Population,
+    members: &[cb_core::ids::CitizenId],
+    spec: &crate::catalog::CommuteSpec,
+) -> f32 {
+    let (lo, hi) = spec.score_min;
+    let mut sum = 0.0;
+    let mut n = 0u32;
+    for c in members.iter().filter_map(|c| pop.citizen(*c)) {
+        if c.no_route() {
+            n += 1;
+        } else if let (Some(_), Some(s)) = (c.job(), c.commute_sim_s()) {
+            let perceived = f32::from(s) * 0.1;
+            sum += (1.0 - (perceived - lo) / (hi - lo).max(1.0)).clamp(0.0, 1.0);
+            n += 1;
+        }
+    }
+    if n == 0 { COMMUTE_STUB } else { sum / n as f32 }
 }
 
 /// `TickSet::SubRate`: the daily happiness pass.

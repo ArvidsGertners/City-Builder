@@ -74,6 +74,7 @@ has since been superseded should be read as references to its successor (follow 
 | [0065](0065-terrain-v3.md) | Terrain v3 — road–terrain interface (validated by spike S-G) | Accepted (supersedes 0046) |
 | [0066](0066-traffic-v3.md) | Traffic simulation v3 and junction control (validated by spike S-T) | Accepted (supersedes 0047 and the control section of 0063) |
 | [0067](0067-routing-v3.md) | Routing v3 — sliced batch searches, 15-minute epochs (validated by spike S-T) | Accepted (supersedes 0048) |
+| [0068](0068-macro-commute-model.md) | Macro commute model — daily shortest-path assignment with BPR day costs | Accepted |
 
 Current decision per required topic (superseded ADRs remain for history): engine (0001),
 rendering (0049), lighting (0050), sim/render separation (0005), fixed timestep & time model
@@ -84,7 +85,7 @@ procgen determinism (0043), weather & day/night sim effects (0018), audio (0019)
 migration (0044), localization (0021), logging (0022), crate selection (0023). Platforms:
 support (0037), CI/release (0060), input (0052), file locations (0040), high-DPI (0053). Also:
 UI (0051, font 0059), licence (0059), coverage (0056), goods economy (0057), verification process (0058),
-sim executor (0061), trip scale (0062).
+sim executor (0061), trip scale (0062), macro commute model (0068).
 
 ADRs carrying an **Amendments** section (clarifications from the 2026-10-15 plan review that
 do not change the decision): 0001, 0007, 0014, 0016, 0019, 0021, 0022, 0023, 0025, 0028, 0029, 0031,

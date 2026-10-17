@@ -123,8 +123,44 @@ pub struct CitizensSpec {
     pub immigration_base_per_game_h: f32,
     /// Population that doubles the immigration rate.
     pub immigration_pop_scale: f32,
-    /// Straight-line job search radius (m).
-    pub job_search_radius_m: f32,
+    /// Commute model.
+    pub commute: CommuteSpec,
+}
+
+/// Shift-start distribution of one workplace zone (ADR-0062), in game minutes after midnight.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShiftSpec {
+    /// Mean start of the day shift.
+    pub mean_min: f32,
+    /// Standard deviation.
+    pub sd_min: f32,
+    /// Truncation range of the day shift.
+    pub range_min: (f32, f32),
+    /// Share of workers on the alternative (evening/night) shift.
+    pub alt_share: f32,
+    /// Start of the alternative shift relative to the day shift sample.
+    pub alt_offset_min: f32,
+}
+
+/// Macro commute model (ALGORITHMS §16, ADR-0062).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CommuteSpec {
+    /// Job matching rejects longer routed estimates (sim s).
+    pub max_sim_s: f32,
+    /// Getting from the door to the road and parking, per trip end (sim s).
+    pub terminal_sim_s: f32,
+    /// Commercial (and civic) shifts.
+    pub commercial: ShiftSpec,
+    /// Industrial shifts.
+    pub industrial: ShiftSpec,
+    /// Departure slack before the planned arrival: mean and deviation (game min).
+    pub slack_min: (f32, f32),
+    /// Perceived minutes scoring 1 and 0 in happiness.
+    pub score_min: (f32, f32),
+    /// Citizen trips per vehicle-trip entity (ADR-0062).
+    pub trip_scale: f32,
+    /// Share of a day's commuters in the peak game hour.
+    pub peak_hour_share: f32,
 }
 
 impl ZoneSpec {
@@ -418,8 +454,9 @@ pub struct NoiseSpec {
     pub d0_m: f32,
     /// Type offset of road line sources (dB).
     pub road_db: PerRoad,
-    /// Volume stubs (veh per sim-hour) until the flow model reports volumes.
-    pub volume_stub_per_sim_h: PerRoad,
+    /// Traffic the commute model does not carry yet (deliveries, shopping, through traffic),
+    /// added to the flow-model volume (veh per sim-hour).
+    pub base_volume_per_sim_h: PerRoad,
     /// Industrial point source at d0 (dB).
     pub industrial_db: f32,
     /// Power plant point source (dB).

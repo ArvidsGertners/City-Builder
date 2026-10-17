@@ -40,15 +40,22 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Next step
 
-**M5 — Simulation core.** First action: in `crates/cb_sim/src/clock.rs` add the owning tests
-`calendar_day_is_28800_ticks` and `season_changes_every_4_days` for `SimClock::calendar` and the
-`HourElapsed`/`DayElapsed`/`SeasonChanged` messages (headless, `crates/cb_sim/tests/calendar.rs`),
-then start the population model in `crates/cb_sim/src/citizens/{population,households}.rs`
-(`CitizensPlugin`, ARCHITECTURE §3: households per residential lot from `ZoneSpec` capacities,
-seeds via `derive_seed` from the `LotId` with a new household domain) feeding
-`growth_scenario_flat_3days`. Read ADR-0044 (save core) before touching `save/`. Carry-overs: the
-city10k centre is hilly (empty commercial blocks, see `docs/screenshots/M4/index.md`); split
-`cb_game/src/tools.rs` further (road/edit/plot/bulldoze submodules like `tools/place.rs`).
+**M5.8 — save core v0, determinism, perf, completion.** First action: read ADR-0044, then
+extend `crates/cb_sim/src/save/` (existing `snapshot.rs`) with `format.rs` (header + body, format
+v0) collecting the M5 resources — `Population`, `Ledger`/`Finances`/`Treasury`, `Goods`,
+`Demand`, `Utilities` hysteresis state, `Fields` rasters, and the ADR-0068 traffic state
+(`Traffic` today/last link totals by link key, day accumulators, stats) — and add
+`crates/cb_sim/tests/save.rs` with `save_roundtrip_hash_equal`,
+`save_load_continue_equals_continuous`, `save_corrupt_returns_error`, `save_fuzz_no_panic`,
+`migration_v0_to_v1_synthetic`, `struct_map_missing_field_defaults`. Then determinism tests
+(`same_seed_same_commands_same_hash_daily`, `results_identical_1_4_8_threads`, cross-OS job
+blocking), `SetSimConfig` + dev panel, `growth_scenario_flat_3days` (pop ≥ 400 with 120 R lots +
+power + water; unemployment ≤ 15 %; departure peak 05:30–07:30 from `Traffic::stats()`), perf
+(slice utilities at tick 120, noise/land-value setup; a populated 50k `headless_bench` city;
+`phase_table_nominal_le_0_6ms_per_tick`), consider `GrowthMode::Normal` as default, then
+`milestone-completion`. Carry-overs: the city10k centre is hilly (empty commercial blocks, see
+`docs/screenshots/M4/index.md`); split `cb_game/src/tools.rs` further (road/edit/plot/bulldoze
+submodules like `tools/place.rs`).
 
 ## Process conventions (ADR-0058)
 
@@ -577,9 +584,12 @@ state, happiness stubs, `SetSimConfig` + dev panel, cross-OS determinism job bec
 - [x] Fields/happiness: `pollution_decays_0_97_per_hour`, `noise_line_and_point_attenuation`,
       `happiness_factors_weights_sum_100`, `happiness_stub_replacement_keeps_formula`,
       `fields_double_buffer_no_seams` (`cb_sim::fields`, `cb_sim::citizens::happiness`).
-- [ ] Routing (macro): `astar_equals_dijkstra_random_graphs`, `alt_heuristic_admissible_with_variants`,
+- [x] Routing (macro): `astar_equals_dijkstra_random_graphs`, `alt_heuristic_admissible_with_variants`,
       `route_cache_invalidation_on_removed_links`, `routing_budget_deterministic`,
-      `one_way_trap_flagged`.
+      `one_way_trap_flagged` (`cb_traffic/tests/routing.rs`); macro commute model (ADR-0068):
+      `commute_estimates_routed_and_published_daily`, `departures_follow_shift_starts`,
+      `day_costs_rise_with_assigned_volume`, `job_matching_rejects_commutes_over_300_sim_s`,
+      `one_way_trap_flagged_no_route` (`cb_sim/tests/commute.rs`).
 - [ ] Save: `save_roundtrip_hash_equal`, `save_load_continue_equals_continuous`,
       `save_corrupt_returns_error`, `save_fuzz_no_panic`, `migration_v0_to_v1_synthetic`,
       `struct_map_missing_field_defaults`.
@@ -954,3 +964,15 @@ Known gaps (planned):
   ticks by phase-table slot: p95 1.0 ms, p99 1.9 ms, but single-slot spikes of 16 ms (utilities
   at tick 120), 7–10 ms (noise setup/slices at 300–335) and 6 ms (land value setup at 400) —
   to be sliced in M5.8 (Known bugs).
+- 2026-10-17 — M5.7 routing: `cb_traffic` (CSR link graph with turn penalties, ALT A* with 16
+  farthest-point landmarks / 4 active and resumable searches, LRU route cache with per-link
+  eviction and negative cache, 8-slot scheduler, Tarjan SCC, BPR, bounded shortest-path `Tree`)
+  and the macro commute model `cb_sim::traffic` (ADR-0068): graph rebuilt in
+  `EditSet::Connectivity`, access from lot frontage (cached between edits), job matching on
+  routed estimates ≤ 300 sim s, shift starts per ADR-0062, daily assignment in 14 400 slices
+  every 2 ticks (commutes, car-share link totals, departure histogram, perceived p50/p95),
+  BPR day costs, noise from flow volumes + base, happiness commute score. 4×3 mixed town: departure
+  peak 07:00–07:30, p50 3 perceived min. `headless_bench 57600 --city 10k`: p95 0.97 ms, p99
+  2.0 ms, assignment slices p99 < 0.01 ms; the bench now prints population and commute stats
+  (citygen 10k only reaches 667 citizens in 2 days — the 50k perf bench needs a populated city,
+  M5.8).

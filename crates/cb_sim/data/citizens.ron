@@ -15,6 +15,23 @@
     // Immigration per game hour: ceil(max(R, 0) × base × (1 + pop / pop_scale)).
     immigration_base_per_game_h: 6.0,
     immigration_pop_scale: 1500.0,
-    // Straight-line job search radius until macro routing (M5.7) estimates commutes (m).
-    job_search_radius_m: 4000.0,
+    // Macro commute model (ALGORITHMS §16, ADR-0062).
+    commute: (
+        // Job matching rejects routed estimates above this (sim s; 300 sim s = 30 perceived min).
+        max_sim_s: 300.0,
+        // Door to road and parking, per trip end (sim s).
+        terminal_sim_s: 10.0,
+        // Shift starts in game minutes after midnight: N(mean, sd) truncated to range; a share
+        // works the alternative shift starting alt_offset later (evening / night).
+        commercial: (mean_min: 525.0, sd_min: 75.0, range_min: (390.0, 690.0), alt_share: 0.15, alt_offset_min: 480.0),
+        industrial: (mean_min: 450.0, sd_min: 45.0, range_min: (360.0, 660.0), alt_share: 0.10, alt_offset_min: 960.0),
+        // Departure = shift start − commute (game min) − slack N(mean, sd).
+        slack_min: (10.0, 5.0),
+        // Perceived commute minutes scoring 1 and 0 in happiness.
+        score_min: (10.0, 60.0),
+        // Citizen trips per vehicle-trip entity; link volumes count entities like agents do.
+        trip_scale: 6.0,
+        // Share of a day's commuters in the peak game hour (BPR day costs use the peak).
+        peak_hour_share: 0.3,
+    ),
 )

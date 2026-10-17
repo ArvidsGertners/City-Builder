@@ -66,6 +66,13 @@ pub struct Citizen {
     pub(crate) education: u8,
     /// Workplace and the education level of the job held there.
     pub(crate) job: Option<(BuildingId, u8)>,
+    /// Shift start (game minutes after midnight), sampled when hired (ADR-0062).
+    #[serde(default)]
+    pub(crate) shift_start_min: u16,
+    /// Routed commute estimate (sim s, = perceived deci-minutes); 0 unknown,
+    /// [`crate::traffic::NO_ROUTE`] when the workplace cannot be reached.
+    #[serde(default)]
+    pub(crate) commute_sim_s: u16,
 }
 
 impl Citizen {
@@ -91,6 +98,25 @@ impl Citizen {
     #[must_use]
     pub fn job(&self) -> Option<BuildingId> {
         self.job.map(|j| j.0)
+    }
+
+    /// Shift start (game minutes after midnight); meaningful while employed.
+    #[must_use]
+    pub fn shift_start_min(&self) -> u16 {
+        self.shift_start_min
+    }
+
+    /// Routed commute estimate (sim s), if known and reachable.
+    #[must_use]
+    pub fn commute_sim_s(&self) -> Option<u16> {
+        (self.commute_sim_s != 0 && self.commute_sim_s != crate::traffic::NO_ROUTE)
+            .then_some(self.commute_sim_s)
+    }
+
+    /// The workplace cannot be reached by road.
+    #[must_use]
+    pub fn no_route(&self) -> bool {
+        self.job.is_some() && self.commute_sim_s == crate::traffic::NO_ROUTE
     }
 
     /// Adults look for work; seniors, children and students do not.

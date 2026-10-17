@@ -37,6 +37,10 @@ in the PROGRESS.md log. Values live in code consts or `crates/cb_sim/data/*.ron`
 | Agent cap default | 5 000 | spike S-Time / `agent_share_at_50k` | ≥ 40 % of peak trips are agents (S-Time: 100 % at trip scale 6) |
 | Shift starts | commercial N(08:45, σ 75) [06:30, 11:30]; industry N(07:30, σ 45) [06:00, 11:00] | spike S-Time | night share ≤ 10 %; peak/off-peak (10–13 h) ≥ 3 |
 | Perceived time factor | 0.1 min per sim s | `commute_p50_balance` | p50 12–25 perceived min |
+| Max commute for job matching | 300 sim s incl. 2 × 10 sim s terminals (`citizens.ron`, ADR-0068) | `job_matching_rejects_commutes_over_300_sim_s` | no hire beyond the bound; unemployment ≤ 15 % in `growth_scenario_flat_3days` |
+| Peak-hour share / trip scale (BPR day costs) | 0.3 / 6 (`citizens.ron`, ADR-0068) | `day_costs_rise_with_assigned_volume` | loaded links (V > 0.2 C) cost more than free flow; never below free flow |
+| Commute assignment slicing | every 2 ticks, 14 400 slices per day (`traffic::FLOW_PERIOD`) | `phase_table_nominal_le_0_6ms_per_tick` | ≤ 0.05 ms per slice nominal; every household once per day |
+| Noise base volume | dirt 10, street 60, avenue 200 veh/sim-h (`fields.ron`) | `noise_line_and_point_attenuation` | line source L0 = 10 log10(base + mean daily flow) + type offset |
 | Corridor carve / shoulder | 0.15 m / 3.5 m | `road_above_terrain_all_lods` | terrain ≤ road − 0.03 m under carriageway (S-G: 100 % of carriageway samples) |
 | Blend width factor | 1.6 · \|e\| / side slope | `no_cliffs_outside_corridors` | 0 adjacent-sample jumps > tan(slope)·2 m + 5 cm (S-G: 0) |
 | Terrain LOD1+ downsampling | constrained decimation, core − 5 mm, ≤ 12 passes (ADR-0065) | `road_above_terrain_all_lods` | LOD1–3 ≤ road on ≥ 99.9 % (S-G: 100 %) |

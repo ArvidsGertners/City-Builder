@@ -181,8 +181,9 @@ circular. Bus lanes are a segment style.
 
 **Neutral stubs before the real system exists** (formulas unchanged when the stub is replaced;
 test `happiness_stub_replacement_keeps_formula`): services coverage 0.5 (until M6), commute =
-routed macro estimate (M5 has routing), noise from traffic = flow-model volumes (M5), crime 0.2
-(until M6).
+routed macro estimate (M5, ADR-0068: score `1 − (perceived − 10) / 50` clamped, no route 0,
+households without workers 0.7), noise from traffic = flow-model volumes plus a per-road-type
+base volume for trips not yet modelled (M5), crime 0.2 (until M6).
 
 **Walking thresholds (one table)**: walk mode ≤ 800 m; stop access ≤ 600 m (network); transfer
 walk ≤ 300 m; land-value transit bonus ≤ 400 m; visual pedestrians within 400 m of the camera

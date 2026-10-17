@@ -58,4 +58,16 @@ fn main() {
         pick(1.0)
     );
     println!("slowest (ms@tick-in-hour): {}", slots.join(" "));
+    let pop = s.world().resource::<cb_sim::citizens::PopulationStats>();
+    let c = s.world().resource::<cb_sim::traffic::Traffic>().stats();
+    println!(
+        "population={} jobs_filled={}/{} commuters={} no_route={} commute_p50_min={:.0} p95_min={:.0}",
+        pop.population,
+        pop.jobs_filled,
+        pop.jobs,
+        c.commuters,
+        c.no_route,
+        c.p50_perceived_min,
+        c.p95_perceived_min
+    );
 }

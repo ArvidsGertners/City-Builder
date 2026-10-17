@@ -11,7 +11,9 @@ pub mod graph;
 pub mod router;
 pub mod scc;
 pub mod slots;
+pub mod tree;
 
 pub use cache::{Key, RouteCache};
 pub use graph::{Graph, LinkSpec};
 pub use router::{Costs, Landmarks, Route};
+pub use tree::Tree;

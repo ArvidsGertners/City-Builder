@@ -420,12 +420,15 @@ Tool previews use the same pure validation functions as the sim commands.
 | Immigration / lot development | 1 game h | 720 | 4 | ≤ 0.2 ms |
 | Dispatch (incidents → vehicles) | 20 ticks | 7 | 1 | ≤ 0.2 ms |
 | Cycle detection slice | 100 ticks | 13 | 1 | ≤ 0.05 ms |
+| Commute assignment (ADR-0068) | 2 ticks | 0 | 14 400 per day | ≤ 0.05 ms |
 | Happiness | 1 game day | hour 2, 0 | 600 | ≤ 0.2 ms |
 | Leveling / decline | 1 game day | hour 3, 0 | 600 | ≤ 0.2 ms |
 | Weather forecast pre-roll | 1 game day | hour 0, 30 | 1 | ≤ 0.1 ms |
 | Lifecycle / education | 1 season | day 0 hour 4 | 1 200 | ≤ 0.2 ms |
 
-No tick runs more than one slot's work; a unit test asserts every tick's nominal sum ≤ 0.6 ms.
+No tick runs more than one slot's work, except the commute assignment slice, which runs beside
+the others (≤ 0.05 ms nominal; ADR-0068); a unit test asserts every tick's nominal sum ≤ 0.6 ms.
+The link graph is rebuilt in `EditSet::Connectivity` when the network changed.
 
 ## 6. Simulation ↔ rendering data flow
 
