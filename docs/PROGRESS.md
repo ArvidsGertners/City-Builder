@@ -5,8 +5,8 @@ milestone and before ending a session (skill `milestone-completion`).
 
 ## Current status
 
-- **Phase:** M4 all zone types, special buildings, leveling visuals ☑ (CI pending at commit; UV-5,
-  UV-11 open) → M5 next. M3 ☑ (UV-10 open). M2 ☑
+- **Phase:** M4 all zone types, special buildings, leveling visuals ☑ (CI green on all three OSes;
+  UV-5, UV-11 open) → M5 in progress. M3 ☑ (UV-10 open). M2 ☑
   (UV-2/3/4 open). Phase S ☑ — S-Render ☑, S-Time ☑ (fallback
   ADR-0062), S-J ☑ (ADR-0063), S-P ☑ (ADR-0064), S-G ☑ (ADR-0065), S-T ☑ (ADR-0066/0067).
 - **M2 done so far (pure crates):** `cb_terrain` (worldgen with rivers/lakes/outside connections,
@@ -898,3 +898,10 @@ Known gaps (planned):
   benchmark game sets p95 `m4_city10k` 2.57, `bench_city` 1.92, `empty` 1.33 ms (≤ 4 ms);
   `headless_bench --city 10k`: citygen 14.3 s, 13 777 buildings, tick p95 0.035 ms; peak RSS
   city10k smoke 2.63 GB (lavapipe, CPU + GPU memory), headless 61 MB.
+- 2026-10-17 — M4 CI confirmed: `ci.yml` run 66 on `5b280cc` (M4 + calendar tests; run 65 on
+  `046357f` was cancelled by the newer push) green — Linux/Windows check default + dev, render
+  smoke, sim isolation, determinism compare
+  (https://github.com/ArvidsGertners/City-Builder/actions/runs/38987250857); `nightly.yml`
+  dispatch run 5 on `046357f` green — macOS check default + dev, macOS smoke, determinism probe on
+  Linux/Windows/macOS with matching hashes, soak, bench
+  (https://github.com/ArvidsGertners/City-Builder/actions/runs/38987172290).
