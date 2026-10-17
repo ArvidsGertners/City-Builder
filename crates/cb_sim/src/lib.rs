@@ -118,6 +118,7 @@ impl Plugin for WorldStatePlugin {
             .init_resource::<citizens::Population>()
             .init_resource::<citizens::Capacities>()
             .init_resource::<citizens::PopulationStats>()
+            .init_resource::<citizens::jobs::JobMap>()
             .init_resource::<demand::Demand>()
             .init_resource::<economy::Ledger>()
             .init_resource::<economy::Finances>()

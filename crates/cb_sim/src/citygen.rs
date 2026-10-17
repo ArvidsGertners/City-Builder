@@ -1354,3 +1354,47 @@ pub fn m4_features(world: &mut World, town: Vec2, town_half: Vec2) -> M4Features
     }
     out
 }
+
+/// Fills every free household slot of habitable homes and runs one full job-matching hour, so
+/// benchmarks and soak tests start from a populated city (`headless_bench --populate`).
+/// Returns the population.
+pub fn populate(world: &mut World) -> usize {
+    crate::citizens::capacity::refresh(world);
+    let seed = world
+        .get_resource::<crate::config::WorldSeed>()
+        .map_or(0, |s| s.0);
+    let now = world
+        .get_resource::<crate::SimClock>()
+        .map_or(0, |c| c.tick().0);
+    let (Some(spec), Some(cap)) = (
+        world
+            .get_resource::<crate::catalog::Catalog>()
+            .map(|c| *c.citizens()),
+        world.get_resource::<crate::citizens::Capacities>(),
+    ) else {
+        return 0;
+    };
+    let homes: Vec<(cb_core::ids::BuildingId, u16, u8)> = cap
+        .homes()
+        .map(|(b, slots)| (b, slots, cap.level(b).unwrap_or(1)))
+        .collect();
+    if let Some(mut pop) = world.get_resource_mut::<crate::citizens::Population>() {
+        for (home, slots, level) in homes {
+            let used = pop.residents_of(home).len();
+            for _ in used..usize::from(slots) {
+                crate::citizens::households::move_in(&mut pop, &spec, seed, now, home, level);
+            }
+        }
+    }
+    crate::traffic::rebuild_if_dirty(world);
+    for level in 0..3 {
+        crate::citizens::jobs::build_map_level(world, level);
+    }
+    for k in 0..crate::citizens::jobs::SLICES {
+        crate::citizens::jobs::match_slice(world, now, k);
+    }
+    crate::citizens::update_stats(world);
+    world
+        .get_resource::<crate::citizens::Population>()
+        .map_or(0, crate::citizens::Population::population)
+}

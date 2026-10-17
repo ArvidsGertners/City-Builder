@@ -351,6 +351,9 @@ pub(crate) fn tick(world: &mut World) {
         .get_resource::<crate::SimClock>()
         .map_or(0, |c| c.tick().0);
     let t = tick_in_hour(now);
+    if (jobs::MAP_OFFSET..jobs::OFFSET).contains(&t) {
+        jobs::build_map_level(world, (t - jobs::MAP_OFFSET) as usize);
+    }
     if (jobs::OFFSET..jobs::OFFSET + jobs::SLICES).contains(&t) {
         if t == jobs::OFFSET {
             capacity::refresh(world);

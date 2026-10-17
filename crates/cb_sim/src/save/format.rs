@@ -198,6 +198,8 @@ pub struct Body {
     fields: Fields,
     happiness: HappinessStats,
     traffic: TrafficSave,
+    #[serde(default)]
+    jobs: crate::citizens::jobs::JobMap,
 }
 
 /// Stable hash of a byte slice (the file checksum).
@@ -392,6 +394,7 @@ pub fn capture(world: &World) -> Body {
         utilities: res::<Utilities>(world),
         fields: res::<Fields>(world),
         happiness: res::<HappinessStats>(world),
+        jobs: res::<crate::citizens::jobs::JobMap>(world),
         traffic: world
             .get_resource::<Traffic>()
             .map(Traffic::to_save)
@@ -727,6 +730,7 @@ fn apply_body(world: &mut World, body: Body) {
     world.insert_resource(body.utilities);
     world.insert_resource(body.fields);
     world.insert_resource(body.happiness);
+    world.insert_resource(body.jobs);
     world.insert_resource(Traffic::from_save(&body.traffic));
     world.insert_resource(crate::history::History::default());
 }

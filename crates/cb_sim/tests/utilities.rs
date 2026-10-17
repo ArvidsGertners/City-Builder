@@ -110,13 +110,14 @@ fn homes(s: &Scenario) -> Vec<(cb_core::ids::BuildingId, Vec2)> {
         .collect()
 }
 
-/// Runs to just after the next utility balance (tick 120 of an hour).
+/// Runs to just after the next utility allocation (after the collection slices).
 fn next_balance(s: &mut Scenario) {
     let t = s.ticks() % TICKS_PER_GAME_HOUR;
-    let to = if t < 121 {
-        121 - t
+    let done = cb_sim::utilities::OFFSET + cb_sim::utilities::COLLECT_SLICES + 1;
+    let to = if t < done {
+        done - t
     } else {
-        TICKS_PER_GAME_HOUR - t + 121
+        TICKS_PER_GAME_HOUR - t + done
     };
     s.run_ticks(to);
 }

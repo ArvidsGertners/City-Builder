@@ -29,8 +29,10 @@ use crate::roads::RoadSegment;
 use crate::zoning::{Lot, Plot};
 use network::Consumer;
 
-/// Tick of the utility balance in the game hour (phase table).
+/// First tick of the utility pass in the game hour (phase table).
 pub const OFFSET: u64 = 120;
+/// Building collection slices (`BuildingId % 16`); the allocation runs on the tick after.
+pub const COLLECT_SLICES: u64 = 16;
 /// Civic buildings attach to a segment within this distance of their centre (m).
 const CIVIC_ACCESS_M: f32 = 60.0;
 /// Outlets inject into a river point within this distance (m); pumps draw within it too.
@@ -77,6 +79,9 @@ pub struct Utilities {
     pub(crate) power: BTreeMap<NodeId, Balance>,
     #[serde(default)]
     pub(crate) water: BTreeMap<NodeId, Balance>,
+    /// Buildings collected so far this hour (saved: the pass spans several ticks).
+    #[serde(default)]
+    pub(crate) pending: Vec<Node>,
 }
 
 impl Utilities {
@@ -116,8 +121,8 @@ impl Utilities {
 }
 
 /// What a building produces or needs.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-struct Profile {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Profile {
     power_kw: f32,
     water_m3h: f32,
     sewage_m3h: f32,
@@ -161,7 +166,8 @@ fn civic_profile(spec: &UtilitySpec, kind: CivicKind) -> Profile {
 }
 
 /// One building in the hourly pass.
-struct Node {
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Node {
     id: BuildingId,
     pos: Vec2,
     /// Access segment's end nodes.
@@ -175,20 +181,29 @@ fn access_ends(world: &World, ids: &Ids, seg: SegmentId) -> Option<(NodeId, Node
 }
 
 /// Collects buildings with their access and profile.
-fn collect(world: &World, spec: &UtilitySpec) -> Vec<Node> {
+fn collect(world: &World, spec: &UtilitySpec, slice: u64) -> Vec<Node> {
     let (Some(ids), Some(cap)) = (
         world.get_resource::<Ids>(),
         world.get_resource::<Capacities>(),
     ) else {
         return Vec::new();
     };
-    let segments: Vec<(SegmentId, &RoadSegment)> = ids
+    // Segments with their centreline bounds, so civic access projects only onto nearby ones.
+    let segments: Vec<(SegmentId, &RoadSegment, Vec2, Vec2)> = ids
         .segments
         .iter()
-        .filter_map(|(id, e)| Some((id, world.get::<RoadSegment>(e)?)))
+        .filter_map(|(id, e)| {
+            let s = world.get::<RoadSegment>(e)?;
+            let (lo, hi) = cb_geometry::polygon::bounds(s.geom().centerline.points());
+            Some((id, s, lo, hi))
+        })
         .collect();
     let mut out = Vec::new();
-    for (id, e) in ids.buildings.iter() {
+    for (id, e) in ids
+        .buildings
+        .iter()
+        .filter(|(id, _)| u64::from(id.get()) % COLLECT_SLICES == slice)
+    {
         let Some(b) = world.get::<Building>(e) else {
             continue;
         };
@@ -223,7 +238,13 @@ fn collect(world: &World, spec: &UtilitySpec) -> Vec<Node> {
             BuildingKind::Civic(kind) => {
                 let ends = segments
                     .iter()
-                    .map(|(sid, s)| (s.geom().centerline.project(pos).1.abs(), *sid, *s))
+                    .filter(|(_, _, lo, hi)| {
+                        pos.x >= lo.x - CIVIC_ACCESS_M
+                            && pos.x <= hi.x + CIVIC_ACCESS_M
+                            && pos.y >= lo.y - CIVIC_ACCESS_M
+                            && pos.y <= hi.y + CIVIC_ACCESS_M
+                    })
+                    .map(|(sid, s, _, _)| (s.geom().centerline.project(pos).1.abs(), *sid, *s))
                     .filter(|x| x.0 <= CIVIC_ACCESS_M)
                     .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
                     .map(|(_, _, s)| (s.start(), s.end()));
@@ -240,13 +261,48 @@ fn collect(world: &World, spec: &UtilitySpec) -> Vec<Node> {
     out
 }
 
-/// The hourly utility pass.
-pub(crate) fn balance(world: &mut World) {
+/// A per-building map aligned to `nodes` (both sorted by id), by a merge walk.
+fn aligned<V: Copy>(nodes: &[Node], map: &BTreeMap<BuildingId, V>) -> Vec<Option<V>> {
+    let mut it = map.iter().peekable();
+    nodes
+        .iter()
+        .map(|n| {
+            while it.peek().is_some_and(|(k, _)| **k < n.id) {
+                it.next();
+            }
+            match it.peek() {
+                Some((k, v)) if **k == n.id => Some(**v),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// One collection slice: buildings with `id % COLLECT_SLICES == k` join the pending list.
+fn collect_slice(world: &mut World, k: u64) {
     let Some(spec) = world.get_resource::<Catalog>().map(|c| *c.utilities()) else {
         return;
     };
-    let nodes = collect(world, &spec);
-    // Road graph.
+    let mut part = collect(world, &spec, k);
+    if let Some(mut u) = world.get_resource_mut::<Utilities>() {
+        if k == 0 {
+            u.pending.clear();
+        }
+        u.pending.append(&mut part);
+    }
+}
+
+/// The hourly allocation over the collected buildings (dense graph, arrays aligned to the
+/// buildings in id order).
+#[allow(clippy::too_many_lines)]
+fn finish(world: &mut World) {
+    let Some(spec) = world.get_resource::<Catalog>().map(|c| *c.utilities()) else {
+        return;
+    };
+    let mut prev = world.remove_resource::<Utilities>().unwrap_or_default();
+    let mut nodes = std::mem::take(&mut prev.pending);
+    nodes.sort_by_key(|n| n.id);
+    nodes.dedup_by_key(|n| n.id);
     let edges: Vec<(NodeId, NodeId, f32)> = world.get_resource::<Ids>().map_or(Vec::new(), |ids| {
         ids.segments
             .iter()
@@ -256,120 +312,119 @@ pub(crate) fn balance(world: &mut World) {
             })
             .collect()
     });
-    let adj = network::adjacency(&edges);
-    let comp = network::components(&adj);
-    let comp_of = |n: &Node| n.ends.and_then(|(a, _)| comp.get(&a).copied());
-    // Rivers and pollution from sewage outlets.
+    let g = network::Dense::build(&edges);
+    let comp = g.components();
+    let ends_idx: Vec<Option<(usize, usize)>> = nodes
+        .iter()
+        .map(|n| n.ends.and_then(|(a, b)| Some((g.index(a)?, g.index(b)?))))
+        .collect();
     let rivers: Vec<Vec<Vec2>> = world
         .get_resource::<crate::terrain::TerrainRes>()
         .map(|t| t.rivers().to_vec())
         .unwrap_or_default();
-    let prev = world
-        .get_resource::<Utilities>()
-        .cloned()
-        .unwrap_or_default();
-    let mut status: BTreeMap<BuildingId, Supply> = BTreeMap::new();
-    let mut power_bal = BTreeMap::new();
-    let mut water_bal = BTreeMap::new();
-    let mut networks: BTreeMap<NodeId, Vec<&Node>> = BTreeMap::new();
-    for n in &nodes {
-        let connected = comp_of(n).is_some();
-        status.insert(
-            n.id,
-            Supply {
-                connected,
-                ..Supply::default()
-            },
-        );
-        if let Some(c) = comp_of(n) {
-            networks.entry(c).or_default().push(n);
+    let prev_status = aligned(&nodes, &prev.status);
+    let idx_of = |id: BuildingId| nodes.binary_search_by_key(&id, |n| n.id).ok();
+    let mut status: Vec<Supply> = ends_idx
+        .iter()
+        .map(|e| Supply {
+            connected: e.is_some(),
+            ..Supply::default()
+        })
+        .collect();
+    let mut networks: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    for (i, e) in ends_idx.iter().enumerate() {
+        if let Some((a, _)) = e {
+            networks.entry(comp[*a]).or_default().push(i);
         }
     }
+    let mut power_bal = BTreeMap::new();
+    let mut water_bal = BTreeMap::new();
     let mut river_injections: Vec<Vec<(usize, f32)>> = vec![Vec::new(); rivers.len()];
-    let mut pumps: Vec<(NodeId, Vec2, f32)> = Vec::new();
+    let mut pumps: Vec<(u32, Vec2, f32)> = Vec::new();
     for (c, members) in &networks {
-        // Distances from each producer kind.
         let from = |pick: fn(&Profile) -> f32| {
-            let src: Vec<NodeId> = members
+            let src: Vec<usize> = members
                 .iter()
-                .filter(|n| pick(&n.profile) > 0.0)
-                .filter_map(|n| n.ends.map(|e| e.0))
+                .filter(|i| pick(&nodes[**i].profile) > 0.0)
+                .filter_map(|i| ends_idx[*i].map(|e| e.0))
                 .collect();
-            network::distances(&adj, &src)
+            g.distances(&src)
         };
-        let consumers = |pick: fn(&Profile) -> f32,
-                         dist: &BTreeMap<NodeId, f32>,
-                         served: fn(&Supply) -> bool| {
+        let consumers = |pick: fn(&Profile) -> f32, dist: &[f32], served: fn(&Supply) -> bool| {
             members
                 .iter()
-                .filter(|n| pick(&n.profile) > 0.0)
-                .map(|n| Consumer {
-                    id: n.id,
-                    priority: n.profile.priority,
-                    distance_m: n.ends.map_or(f32::INFINITY, |(a, b)| {
-                        let da = dist.get(&a).copied().unwrap_or(f32::INFINITY);
-                        let db = dist.get(&b).copied().unwrap_or(f32::INFINITY);
-                        da.min(db)
-                    }),
-                    need: pick(&n.profile),
-                    was_served: served(&prev.status(n.id)),
+                .filter(|i| pick(&nodes[**i].profile) > 0.0)
+                .map(|i| Consumer {
+                    id: nodes[*i].id,
+                    priority: nodes[*i].profile.priority,
+                    distance_m: ends_idx[*i].map_or(f32::INFINITY, |(a, b)| dist[a].min(dist[b])),
+                    need: pick(&nodes[*i].profile),
+                    was_served: prev_status[*i].as_ref().is_some_and(served),
                 })
                 .collect::<Vec<_>>()
         };
+        let key = g.ids[*c as usize];
         // Power.
-        let supply: f32 = members.iter().map(|n| n.profile.power_out).sum();
+        let supply: f32 = members.iter().map(|i| nodes[*i].profile.power_out).sum();
         let d = from(|p| p.power_out);
         let cs = consumers(|p| p.power_kw, &d, |s| s.power);
         let need: f32 = cs.iter().map(|c| c.need).sum();
         power_bal.insert(
-            *c,
+            key,
             Balance {
                 supply,
                 demand: need,
             },
         );
         for id in network::allocate(supply, &cs, spec.hysteresis) {
-            if let Some(s) = status.get_mut(&id) {
-                s.power = true;
+            if let Some(i) = idx_of(id) {
+                status[i].power = true;
             }
         }
         // Water.
-        let supply: f32 = members.iter().map(|n| n.profile.water_out).sum();
+        let supply: f32 = members.iter().map(|i| nodes[*i].profile.water_out).sum();
         let d = from(|p| p.water_out);
         let cs = consumers(|p| p.water_m3h, &d, |s| s.water);
         let need: f32 = cs.iter().map(|c| c.need).sum();
         water_bal.insert(
-            *c,
+            key,
             Balance {
                 supply,
                 demand: need,
             },
         );
         for id in network::allocate(supply, &cs, spec.hysteresis) {
-            if let Some(s) = status.get_mut(&id) {
-                s.water = true;
+            if let Some(i) = idx_of(id) {
+                status[i].water = true;
             }
         }
-        for n in members.iter().filter(|n| n.profile.water_out > 0.0) {
-            pumps.push((*c, n.pos, n.profile.water_out));
+        for i in members
+            .iter()
+            .filter(|i| nodes[**i].profile.water_out > 0.0)
+        {
+            pumps.push((*c, nodes[*i].pos, nodes[*i].profile.water_out));
         }
         // Sewage.
-        let supply: f32 = members.iter().map(|n| n.profile.sewage_out).sum();
+        let supply: f32 = members.iter().map(|i| nodes[*i].profile.sewage_out).sum();
         let d = from(|p| p.sewage_out);
         let cs = consumers(|p| p.sewage_m3h, &d, |s| s.sewage);
-        let mut taken = 0.0f32;
-        for id in network::allocate(supply, &cs, spec.hysteresis) {
-            if let Some(s) = status.get_mut(&id) {
-                s.sewage = true;
+        let served = network::allocate(supply, &cs, spec.hysteresis);
+        for id in &served {
+            if let Some(i) = idx_of(*id) {
+                status[i].sewage = true;
             }
-            taken += cs.iter().find(|x| x.id == id).map_or(0.0, |x| x.need);
         }
-        // Each outlet discharges its share of the sewage taken into the nearest river.
-        let outlets: Vec<&&Node> = members
+        let taken: f32 = cs
             .iter()
-            .filter(|n| n.profile.sewage_out > 0.0)
-            .collect();
-        for o in &outlets {
+            .filter(|c| served.binary_search(&c.id).is_ok())
+            .map(|c| c.need)
+            .sum();
+        // Each outlet discharges its share of the sewage taken into the nearest river.
+        for i in members
+            .iter()
+            .filter(|i| nodes[**i].profile.sewage_out > 0.0)
+        {
+            let o = &nodes[*i];
             let share = taken.min(supply) * o.profile.sewage_out / supply.max(1e-6);
             if let Some((ri, (pi, _))) = rivers
                 .iter()
@@ -388,7 +443,7 @@ pub(crate) fn balance(world: &mut World) {
         .map(|(r, inj)| pollution::advect(r, inj, spec.pollution_decay_per_km, spec.river_flow_m3h))
         .collect();
     // Polluted water: a network whose pumps mostly draw polluted water.
-    let mut polluted_out: BTreeMap<NodeId, (f32, f32)> = BTreeMap::new();
+    let mut polluted_out: BTreeMap<u32, (f32, f32)> = BTreeMap::new();
     for (c, pos, out) in pumps {
         let conc = rivers
             .iter()
@@ -405,32 +460,33 @@ pub(crate) fn balance(world: &mut World) {
         }
     }
     for (c, members) in &networks {
-        let polluted = polluted_out.get(c).is_some_and(|(p, t)| *p * 2.0 > *t);
-        if polluted {
-            for n in members {
-                if let Some(s) = status.get_mut(&n.id)
-                    && s.water
-                {
-                    s.polluted_water = true;
+        if polluted_out.get(c).is_some_and(|(p, t)| *p * 2.0 > *t) {
+            for i in members {
+                if status[*i].water {
+                    status[*i].polluted_water = true;
                 }
             }
         }
     }
     // Garbage: accumulate, then landfills collect within their network.
-    let mut garbage = prev.garbage_kg.clone();
-    let mut landfill = prev.landfill_kg.clone();
-    garbage.retain(|id, _| status.contains_key(id));
-    landfill.retain(|id, _| nodes.iter().any(|n| n.id == *id && n.profile.landfill));
-    for n in &nodes {
-        if n.profile.garbage_kg_day > 0.0 && !n.profile.landfill {
-            *garbage.entry(n.id).or_default() += n.profile.garbage_kg_day / 24.0;
-        }
-    }
+    let mut garbage: Vec<Option<f32>> = nodes
+        .iter()
+        .zip(aligned(&nodes, &prev.garbage_kg))
+        .map(|(n, g)| {
+            if n.profile.garbage_kg_day > 0.0 && !n.profile.landfill {
+                Some(g.unwrap_or(0.0) + n.profile.garbage_kg_day / 24.0)
+            } else {
+                g
+            }
+        })
+        .collect();
+    let mut landfill = prev.landfill_kg;
+    landfill.retain(|id, _| idx_of(*id).is_some_and(|i| nodes[i].profile.landfill));
     for members in networks.values() {
         let fills: Vec<BuildingId> = members
             .iter()
-            .filter(|n| n.profile.landfill)
-            .map(|n| n.id)
+            .filter(|i| nodes[**i].profile.landfill)
+            .map(|i| nodes[*i].id)
             .collect();
         let room: f32 = fills
             .iter()
@@ -439,17 +495,14 @@ pub(crate) fn balance(world: &mut World) {
             })
             .sum();
         let capacity = (spec.landfill_collection_kg_day / 24.0 * fills.len() as f32).min(room);
-        let stored: f32 = members
-            .iter()
-            .map(|n| garbage.get(&n.id).copied().unwrap_or(0.0))
-            .sum();
+        let stored: f32 = members.iter().map(|i| garbage[*i].unwrap_or(0.0)).sum();
         if capacity <= 0.0 || stored <= 0.0 {
             continue;
         }
         let ratio = (capacity / stored).min(1.0);
         let mut collected = 0.0;
-        for n in members {
-            if let Some(g) = garbage.get_mut(&n.id) {
+        for i in members {
+            if let Some(g) = garbage[*i].as_mut() {
                 let take = *g * ratio;
                 *g -= take;
                 collected += take;
@@ -463,31 +516,37 @@ pub(crate) fn balance(world: &mut World) {
             collected -= add;
         }
     }
-    for n in &nodes {
+    for (i, n) in nodes.iter().enumerate() {
         let limit = n.profile.garbage_kg_day * spec.garbage_problem_days;
-        if limit > 0.0
-            && garbage.get(&n.id).copied().unwrap_or(0.0) > limit
-            && let Some(s) = status.get_mut(&n.id)
-        {
-            s.garbage_problem = true;
+        if limit > 0.0 && garbage[i].unwrap_or(0.0) > limit {
+            status[i].garbage_problem = true;
         }
     }
     world.insert_resource(Utilities {
-        status,
-        garbage_kg: garbage,
+        status: nodes.iter().zip(status).map(|(n, s)| (n.id, s)).collect(),
+        garbage_kg: nodes
+            .iter()
+            .zip(garbage)
+            .filter_map(|(n, g)| Some((n.id, g?)))
+            .collect(),
         landfill_kg: landfill,
         river_pollution,
         power: power_bal,
         water: water_bal,
+        pending: Vec::new(),
     });
 }
 
-/// `TickSet::SubRate`: the hourly utility balance.
+/// `TickSet::SubRate`: the hourly utility pass — building collection in [`COLLECT_SLICES`]
+/// slices from tick [`OFFSET`], then the allocation.
 pub(crate) fn tick(world: &mut World) {
     let now = world
         .get_resource::<crate::SimClock>()
         .map_or(0, |c| c.tick().0);
-    if now % TICKS_PER_GAME_HOUR == OFFSET {
-        balance(world);
+    let t = now % TICKS_PER_GAME_HOUR;
+    if (OFFSET..OFFSET + COLLECT_SLICES).contains(&t) {
+        collect_slice(world, t - OFFSET);
+    } else if t == OFFSET + COLLECT_SLICES {
+        finish(world);
     }
 }

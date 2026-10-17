@@ -147,13 +147,15 @@ pub struct Access {
 }
 
 /// Graph terminals: (graph node, extra cost ms).
-type Terminals = SmallVec<[(u32, u64); 2]>;
+pub(crate) type Terminals = SmallVec<[(u32, u64); 2]>;
 
 /// The link graph and the macro commute model.
 #[derive(Resource, Clone, Debug)]
 pub struct Traffic {
     graph: Graph,
     nodes: BTreeMap<NodeId, u32>,
+    /// Road node per graph node index (ascending ids).
+    node_ids: Vec<NodeId>,
     seg_links: BTreeMap<SegmentId, [Option<u32>; 2]>,
     version: u64,
     dirty: bool,
@@ -190,6 +192,7 @@ impl Default for Traffic {
         Self {
             graph: Graph::default(),
             nodes: BTreeMap::new(),
+            node_ids: Vec::new(),
             seg_links: BTreeMap::new(),
             version: 0,
             dirty: true,
@@ -265,13 +268,25 @@ impl Traffic {
         *self.access.entry(b).or_insert_with(|| access(world, b))
     }
 
+    /// Road node of a graph node index.
+    #[must_use]
+    pub fn node_id(&self, idx: u32) -> Option<NodeId> {
+        self.node_ids.get(idx as usize).copied()
+    }
+
+    /// Day costs of all links (ms).
+    #[must_use]
+    pub fn day_costs(&self) -> &[u32] {
+        &self.day_ms
+    }
+
     /// Whether a graph node lies in a one-way trap.
     #[must_use]
     pub fn trapped(&self, node: u32) -> bool {
         self.trapped.get(node as usize).copied().unwrap_or(false)
     }
 
-    fn origins(&self, a: Access) -> Terminals {
+    pub(crate) fn origins(&self, a: Access) -> Terminals {
         let [f, b] = self.links_of(a.segment);
         let mut out = Terminals::new();
         let part = |l: u32, frac: f32| {
@@ -286,7 +301,7 @@ impl Traffic {
         out
     }
 
-    fn dests(&self, a: Access) -> Terminals {
+    pub(crate) fn dests(&self, a: Access) -> Terminals {
         let [f, b] = self.links_of(a.segment);
         let mut out = Terminals::new();
         let part = |l: u32, frac: f32| {
@@ -331,35 +346,6 @@ impl Traffic {
             .iter()
             .filter_map(|(n, extra)| self.tree.cost(*n).map(|c| (c + extra, *n)))
             .min()
-    }
-
-    /// Routed commute estimate (sim s, terminals included) from `home` to each workplace in
-    /// `work`, within `max_sim_s`; `None` when out of reach or unreachable.
-    pub(crate) fn estimates(
-        &mut self,
-        home: Access,
-        work: &[Option<Access>],
-        spec: &CommuteSpec,
-    ) -> Vec<Option<f32>> {
-        let terminals = 2.0 * spec.terminal_sim_s;
-        let bound_ms = ((spec.max_sim_s - terminals).max(0.0) * 1000.0) as u64;
-        if self.origins(home).is_empty() {
-            return vec![None; work.len()];
-        }
-        let dests: Vec<Terminals> = work
-            .iter()
-            .map(|w| w.map(|a| self.dests(a)).unwrap_or_default())
-            .collect();
-        // Bounded, without early stop: the whole reachable area is a candidate set.
-        self.grow_from(home, &[], bound_ms);
-        dests
-            .iter()
-            .map(|d| {
-                self.cost_to(d)
-                    .filter(|(c, _)| *c <= bound_ms)
-                    .map(|(c, _)| c as f32 / 1000.0 + terminals)
-            })
-            .collect()
     }
 
     /// The saved state.
@@ -447,6 +433,7 @@ impl Traffic {
         }
         self.trapped = trapped;
         self.graph = graph;
+        self.node_ids = nodes.keys().copied().collect();
         self.nodes = nodes;
         self.seg_links = seg_links;
         self.version += 1;

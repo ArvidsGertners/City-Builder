@@ -180,6 +180,72 @@ impl Tree {
     }
 }
 
+/// Nearest source per node in reverse (ALGORITHMS §16 job matching): for every node, the
+/// cheapest cost of driving from it to one of `sources` `(node, extra ms on arrival, label)`
+/// with its label, within `bound_ms`; `None` beyond. Link-based with turn penalties; ties go to
+/// the smaller label, then the smaller link, so the result is deterministic.
+#[must_use]
+pub fn nearest_reverse(
+    g: &Graph,
+    link_ms: &[u32],
+    sources: &[(u32, u64, u32)],
+    bound_ms: u64,
+) -> Vec<Option<(u64, u32)>> {
+    let nl = g.link_count();
+    let mut best: Vec<Option<(u64, u32)>> = vec![None; g.node_count()];
+    let mut cost = vec![UNSET; nl];
+    let mut label = vec![u32::MAX; nl];
+    let mut closed = vec![false; nl];
+    let mut heap: BinaryHeap<Reverse<(u64, u32, u32)>> = BinaryHeap::new();
+    let cost_of = |l: u32| u64::from(link_ms.get(l as usize).copied().unwrap_or(u32::MAX));
+    for &(v, extra, lab) in sources {
+        if (v as usize) >= best.len() {
+            continue;
+        }
+        if best[v as usize].is_none_or(|b| (extra, lab) < b) {
+            best[v as usize] = Some((extra, lab));
+        }
+        for &l in g.in_links(v) {
+            let c = extra + cost_of(l);
+            if (c, lab) < (cost[l as usize], label[l as usize]) {
+                cost[l as usize] = c;
+                label[l as usize] = lab;
+                heap.push(Reverse((c, lab, l)));
+            }
+        }
+    }
+    while let Some(Reverse((c, lab, l))) = heap.pop() {
+        if c > bound_ms {
+            break;
+        }
+        if closed[l as usize] || (c, lab) > (cost[l as usize], label[l as usize]) {
+            continue;
+        }
+        closed[l as usize] = true;
+        let from = g.link(l).from as usize;
+        if best[from].is_none_or(|b| (c, lab) < b) {
+            best[from] = Some((c, lab));
+        }
+        for &(p, turn) in g.pred(l) {
+            if closed[p as usize] {
+                continue;
+            }
+            let pc = c + u64::from(turn) + cost_of(p);
+            if (pc, lab) < (cost[p as usize], label[p as usize]) {
+                cost[p as usize] = pc;
+                label[p as usize] = lab;
+                heap.push(Reverse((pc, lab, p)));
+            }
+        }
+    }
+    for b in &mut best {
+        if b.is_some_and(|(c, _)| c > bound_ms) {
+            *b = None;
+        }
+    }
+    best
+}
+
 #[cfg(test)]
 mod tests {
     use glam::Vec2;
@@ -230,5 +296,23 @@ mod tests {
         t.grow(&g, g.free_costs(), &[(0, 0)], u64::MAX, &[2]);
         assert_eq!(t.cost(2), Some(20_000));
         assert!(t.settled <= 4, "settled {}", t.settled);
+    }
+
+    #[test]
+    fn nearest_reverse_matches_forward_trees() {
+        let g = line(8);
+        // Sources at nodes 1 (label 7) and 6 (label 3, arriving costs 2 s extra).
+        let near = nearest_reverse(&g, g.free_costs(), &[(1, 0, 7), (6, 2_000, 3)], u64::MAX);
+        let mut t = Tree::new();
+        for v in 0..8u32 {
+            t.grow(&g, g.free_costs(), &[(v, 0)], u64::MAX, &[]);
+            let a = t.cost(1).unwrap();
+            let b = t.cost(6).unwrap() + 2_000;
+            let want = if (a, 7) <= (b, 3) { (a, 7) } else { (b, 3) };
+            assert_eq!(near[v as usize], Some(want), "node {v}");
+        }
+        let bounded = nearest_reverse(&g, g.free_costs(), &[(0, 0, 1)], 25_000);
+        assert_eq!(bounded[2], Some((20_000, 1)));
+        assert_eq!(bounded[3], None);
     }
 }

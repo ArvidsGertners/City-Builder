@@ -1,6 +1,7 @@
 //! Headless tick benchmark (PERFORMANCE §8). M1: the empty schedules; M4: `--city 10k` builds the
 //! mixed-zone citygen city of the `m4_city10k` scene first and reports its size and build time.
-//! Usage: `cargo run -p cb_sim --release --example headless_bench -- [ticks] [--city 10k]`.
+//! Usage: `cargo run -p cb_sim --release --example headless_bench -- [ticks] [--city 10k]
+//! [--populate]` (`--populate` fills every home and matches jobs before measuring).
 
 use std::time::Instant;
 
@@ -27,6 +28,15 @@ fn main() {
             rep.buildings + rep.civic
         );
         label = "city10k";
+        if args.iter().any(|a| a == "--populate") {
+            let t = Instant::now();
+            let n = cb_sim::citygen::populate(s.world_mut());
+            println!(
+                "populate: {n} citizens in {:.1} s",
+                t.elapsed().as_secs_f64()
+            );
+            label = "city10k_populated";
+        }
     }
     s.run_ticks(1);
     let mut samples = Vec::with_capacity(usize::try_from(ticks).unwrap_or(0));
@@ -38,13 +48,43 @@ fn main() {
         samples.push(ms);
         worst.push((ms, s.ticks() % cb_core::time::TICKS_PER_GAME_HOUR));
     }
-    // The slowest ticks with their tick-in-hour (phase-table slot).
-    worst.sort_by(|a, b| b.0.total_cmp(&a.0));
-    let slots: Vec<String> = worst
+    // The slowest phase-table slots (worst tick per tick-in-hour).
+    let mut by_slot: std::collections::BTreeMap<u64, f64> = std::collections::BTreeMap::new();
+    for (ms, t) in &worst {
+        let e = by_slot.entry(*t).or_insert(0.0);
+        *e = e.max(*ms);
+    }
+    let mut slots: Vec<(u64, f64)> = by_slot.into_iter().collect();
+    slots.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let slots: Vec<String> = slots
         .iter()
-        .take(6)
-        .map(|(ms, t)| format!("{ms:.2}@{t}"))
+        .take(10)
+        .map(|(t, ms)| format!("{ms:.2}@{t}"))
         .collect();
+    if std::env::var("CB_BENCH_CLASSES").is_ok() {
+        let class = |t: u64| match t {
+            500..=699 => "jobs",
+            200..=263 | 300..=363 | 400..=463 => "fields",
+            _ if t.is_multiple_of(2) => "commute",
+            _ => "other",
+        };
+        let mut groups: std::collections::BTreeMap<&str, Vec<f64>> =
+            std::collections::BTreeMap::new();
+        for (ms, t) in &worst {
+            groups.entry(class(*t)).or_default().push(*ms);
+        }
+        for (k, mut v) in groups {
+            v.sort_by(f64::total_cmp);
+            let q = |q: f64| v[((v.len() - 1) as f64 * q) as usize];
+            println!(
+                "class={k} n={} p50={:.3} p95={:.3} p99={:.3}",
+                v.len(),
+                q(0.5),
+                q(0.95),
+                q(0.99)
+            );
+        }
+    }
     samples.sort_by(f64::total_cmp);
     let pick = |q: f64| {
         let i = ((samples.len() as f64 - 1.0) * q).round() as usize;
@@ -57,7 +97,7 @@ fn main() {
         pick(0.99),
         pick(1.0)
     );
-    println!("slowest (ms@tick-in-hour): {}", slots.join(" "));
+    println!("slowest slots (max ms@tick-in-hour): {}", slots.join(" "));
     let pop = s.world().resource::<cb_sim::citizens::PopulationStats>();
     let c = s.world().resource::<cb_sim::traffic::Traffic>().stats();
     println!(

@@ -72,6 +72,104 @@ pub fn distances(adj: &Adjacency, sources: &[NodeId]) -> BTreeMap<NodeId, f32> {
     dist
 }
 
+/// The undirected road graph in dense form for the hourly pass: nodes in id order (index order
+/// = id order, so "smallest index" = "smallest id"), CSR neighbour lists sorted by neighbour.
+#[derive(Clone, Debug, Default)]
+pub struct Dense {
+    /// Node ids by index.
+    pub ids: Vec<NodeId>,
+    off: Vec<u32>,
+    adj: Vec<(u32, f32)>,
+}
+
+impl Dense {
+    /// Builds the graph from `(a, b, length)` edges.
+    #[must_use]
+    pub fn build(edges: &[(NodeId, NodeId, f32)]) -> Self {
+        let mut ids: Vec<NodeId> = edges.iter().flat_map(|e| [e.0, e.1]).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let at = |n: NodeId| ids.binary_search(&n).unwrap_or(0) as u32;
+        let mut pairs: Vec<(u32, u32, f32)> = Vec::with_capacity(edges.len() * 2);
+        for &(a, b, l) in edges {
+            let (ia, ib) = (at(a), at(b));
+            pairs.push((ia, ib, l));
+            pairs.push((ib, ia, l));
+        }
+        pairs.sort_by(|x, y| x.0.cmp(&y.0).then(x.1.cmp(&y.1)).then(x.2.total_cmp(&y.2)));
+        let mut off = vec![0u32; ids.len() + 1];
+        for p in &pairs {
+            off[p.0 as usize + 1] += 1;
+        }
+        for i in 0..ids.len() {
+            off[i + 1] += off[i];
+        }
+        let adj = pairs.iter().map(|p| (p.1, p.2)).collect();
+        Self { ids, off, adj }
+    }
+
+    /// Index of a node.
+    #[must_use]
+    pub fn index(&self, n: NodeId) -> Option<usize> {
+        self.ids.binary_search(&n).ok()
+    }
+
+    fn neighbours(&self, i: usize) -> &[(u32, f32)] {
+        &self.adj[self.off[i] as usize..self.off[i + 1] as usize]
+    }
+
+    /// Component per node: the smallest index in it.
+    #[must_use]
+    pub fn components(&self) -> Vec<u32> {
+        let mut comp = vec![u32::MAX; self.ids.len()];
+        let mut stack = Vec::new();
+        for start in 0..self.ids.len() {
+            if comp[start] != u32::MAX {
+                continue;
+            }
+            comp[start] = start as u32;
+            stack.push(start);
+            while let Some(n) = stack.pop() {
+                for &(m, _) in self.neighbours(n) {
+                    if comp[m as usize] == u32::MAX {
+                        comp[m as usize] = start as u32;
+                        stack.push(m as usize);
+                    }
+                }
+            }
+        }
+        comp
+    }
+
+    /// Network distance from the nearest source (m; infinite when unreachable). Ties settle by
+    /// index through millimetre heap keys, so the result is deterministic.
+    #[must_use]
+    pub fn distances(&self, sources: &[usize]) -> Vec<f32> {
+        let mut dist = vec![f32::INFINITY; self.ids.len()];
+        let mut heap: BinaryHeap<Reverse<(u64, u32)>> = BinaryHeap::new();
+        for &s in sources {
+            if s < dist.len() {
+                dist[s] = 0.0;
+                heap.push(Reverse((0, s as u32)));
+            }
+        }
+        while let Some(Reverse((dmm, n))) = heap.pop() {
+            let d = dist[n as usize];
+            if ((d * 1000.0).round() as u64) < dmm {
+                continue;
+            }
+            for &(m, l) in self.neighbours(n as usize) {
+                let nd = d + l;
+                if nd < dist[m as usize] {
+                    dist[m as usize] = nd;
+                    heap.push(Reverse(((nd * 1000.0).round() as u64, m)));
+                }
+            }
+        }
+        dist
+    }
+}
+
 /// One consumer in a shortage allocation.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Consumer {
@@ -126,6 +224,23 @@ mod tests {
     }
     fn b(i: u32) -> BuildingId {
         BuildingId::try_new(i).unwrap()
+    }
+
+    #[test]
+    fn dense_matches_map_graph() {
+        let edges = [
+            (n(1), n(2), 100.0),
+            (n(2), n(3), 50.0),
+            (n(5), n(4), 10.0),
+            (n(1), n(3), 400.0),
+        ];
+        let g = Dense::build(&edges);
+        let c = g.components();
+        assert_eq!(c[g.index(n(3)).unwrap()], g.index(n(1)).unwrap() as u32);
+        assert_eq!(g.ids[c[g.index(n(5)).unwrap()] as usize], n(4));
+        let d = g.distances(&[g.index(n(1)).unwrap()]);
+        assert!((d[g.index(n(3)).unwrap()] - 150.0).abs() < 1e-3);
+        assert!(d[g.index(n(4)).unwrap()].is_infinite());
     }
 
     #[test]
