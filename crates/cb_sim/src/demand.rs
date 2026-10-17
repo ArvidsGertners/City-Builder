@@ -222,7 +222,6 @@ pub fn inputs(world: &World) -> Inputs {
         return x;
     };
     x.population = pop.population() as f32;
-    x.unemployment = pop.unemployment();
     let mut happiness = 0.0;
     for (_, h) in pop.households() {
         x.retail_demand += SPEND_BY_WEALTH[h.wealth().index()];
@@ -259,16 +258,27 @@ pub fn inputs(world: &World) -> Inputs {
         }
     }
     x.goods_demand = x.retail_demand * GOODS_PER_CUSTOMER * 24.0;
-    // Unemployed adults who qualify for an open industrial job (any level ≤ their education).
-    let mut matching = 0.0;
+    // One pass over the citizens: unemployment, and the unemployed adults who qualify for an
+    // open industrial job (any level ≤ their education).
+    let (mut force, mut unemployed, mut matching) = (0u32, 0u32, 0.0);
     for (_, c) in pop.citizens() {
-        if c.in_labour_force() && c.job().is_none() {
+        if !c.in_labour_force() {
+            continue;
+        }
+        force += 1;
+        if c.job().is_none() {
+            unemployed += 1;
             let e = usize::from(c.education().min(2));
             if open_i_edu[..=e].iter().any(|o| *o > 0.0) {
                 matching += 1.0;
             }
         }
     }
+    x.unemployment = if force == 0 {
+        0.0
+    } else {
+        unemployed as f32 / force as f32
+    };
     x.unemployed_matching = matching;
     x.open_industrial_jobs = open_i;
     x
@@ -279,10 +289,13 @@ pub(crate) fn tick(world: &mut World) {
     let now = world
         .get_resource::<crate::SimClock>()
         .map_or(0, |c| c.tick().0);
-    if crate::citizens::tick_in_hour(now) != OFFSET {
+    let t = crate::citizens::tick_in_hour(now);
+    if t == OFFSET - 2 {
+        crate::citizens::capacity::refresh(world);
+    }
+    if t != OFFSET {
         return;
     }
-    crate::citizens::capacity::refresh(world);
     let s = sample(&inputs(world));
     let mut d = world.get_resource::<Demand>().copied().unwrap_or_default();
     // The first sample seeds the average so a new city does not wait a day for demand.

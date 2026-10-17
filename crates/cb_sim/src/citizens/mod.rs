@@ -351,25 +351,24 @@ pub(crate) fn tick(world: &mut World) {
         .get_resource::<crate::SimClock>()
         .map_or(0, |c| c.tick().0);
     let t = tick_in_hour(now);
+    // Capacities and evictions run on their own ticks before job matching and immigration.
+    if t == jobs::MAP_OFFSET - 2 || t == households::OFFSET - 4 {
+        capacity::refresh(world);
+    }
+    if t == jobs::MAP_OFFSET - 1 || t == households::OFFSET - 2 {
+        households::evict_uninhabitable(world);
+    }
     if (jobs::MAP_OFFSET..jobs::OFFSET).contains(&t) {
         jobs::build_map_level(world, (t - jobs::MAP_OFFSET) as usize);
     }
     if (jobs::OFFSET..jobs::OFFSET + jobs::SLICES).contains(&t) {
-        if t == jobs::OFFSET {
-            capacity::refresh(world);
-            households::evict_uninhabitable(world);
-        }
         jobs::match_slice(world, now, t - jobs::OFFSET);
     }
     if (households::OFFSET..households::OFFSET + households::SLICES).contains(&t) {
-        if t == households::OFFSET {
-            capacity::refresh(world);
-            households::evict_uninhabitable(world);
-        }
         households::immigrate_slice(world, now, t - households::OFFSET);
-        if t + 1 == households::OFFSET + households::SLICES {
-            update_stats(world);
-        }
+    }
+    if t == households::OFFSET + households::SLICES {
+        update_stats(world);
     }
 }
 

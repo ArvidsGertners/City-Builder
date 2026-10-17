@@ -640,7 +640,7 @@ pub(crate) fn growth(world: &mut World) {
 }
 
 /// Tick of lot development in the game hour (phase table, with immigration).
-pub const DEVELOP_OFFSET: u64 = 720;
+pub const DEVELOP_OFFSET: u64 = 740;
 
 /// New constructions per zone in one game hour: `ceil(max(0, D) × clamp(base + pop /
 /// pop_scale, base, max))` (ALGORITHMS §15, `zones.ron`).
@@ -655,13 +655,15 @@ pub fn constructions_per_hour(
     (demand.max(0.0) * rate).ceil() as usize
 }
 
-/// `GrowthMode::Normal` (ALGORITHMS §15): each game hour at [`DEVELOP_OFFSET`], every zone with
+/// `GrowthMode::Normal` (ALGORITHMS §15): each game hour from [`DEVELOP_OFFSET`] (one tick per
+/// zone: residential, commercial, industrial), every zone with
 /// positive demand starts [`constructions_per_hour`] buildings on empty lots drawn by weighted
 /// sampling (weight = land value × access × utilities; stubs of 1 until fields and utilities
 /// exist), with `SimRng::for_event(Growth, zone, hour, k)`.
 pub(crate) fn develop(world: &mut World) {
     let now = tick(world);
-    if now % TICKS_PER_GAME_HOUR != DEVELOP_OFFSET
+    let t = now % TICKS_PER_GAME_HOUR;
+    if !(DEVELOP_OFFSET..DEVELOP_OFFSET + 3).contains(&t)
         || world
             .get_resource::<SimConfig>()
             .is_none_or(|c| c.growth != GrowthMode::Normal)
@@ -686,6 +688,7 @@ pub(crate) fn develop(world: &mut World) {
     ]
     .into_iter()
     .enumerate()
+    .filter(|(zi, _)| *zi as u64 == t - DEVELOP_OFFSET)
     {
         let k = constructions_per_hour(demand.zone(zone), population, &dev);
         if k == 0 {
