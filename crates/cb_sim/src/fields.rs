@@ -38,6 +38,8 @@ pub const POLLUTION_OFFSET: u64 = 200;
 pub const NOISE_OFFSET: u64 = 300;
 /// Land value update offset.
 pub const LAND_VALUE_OFFSET: u64 = 400;
+/// Ticks before each window that gather its inputs.
+pub const SETUP_TICKS: u64 = 3;
 /// Spacing of road noise samples (m).
 const NOISE_SAMPLE_M: f32 = 8.0;
 /// Bucket size of the noise source index (m).
@@ -367,6 +369,9 @@ pub struct Fields {
     /// Rows and columns within the city margin (lo, hi inclusive).
     city: Option<(usize, usize, usize, usize)>,
     lv_inputs: LvInputs,
+    /// Emitters gathered by the setup ticks before a window.
+    #[serde(default)]
+    pending: Vec<Emitter>,
 }
 
 /// Per-hour land value inputs.
@@ -399,6 +404,7 @@ impl Fields {
             noise_index: NoiseIndex::default(),
             city: None,
             lv_inputs: LvInputs::default(),
+            pending: Vec::new(),
         }
     }
 
@@ -538,15 +544,18 @@ fn tree_density(world: &World, f: &ScalarField) -> Vec<f32> {
     out
 }
 
-fn noise_emitters(world: &World, spec: &FieldsSpec) -> Vec<Emitter> {
+fn noise_emitters(world: &World, spec: &FieldsSpec, points: bool) -> Vec<Emitter> {
     let n = &spec.noise;
     let traffic = world.get_resource::<crate::traffic::Traffic>();
     let trip_scale = world
         .get_resource::<Catalog>()
         .map_or(6.0, |c| c.citizens().commute.trip_scale);
+    if points {
+        return noise_points(world, spec);
+    }
     // Every sample of a segment carries the same energy: compute it once per segment.
     let mut last: Option<(SegmentId, f32)> = None;
-    let mut out: Vec<Emitter> = road_samples(world, NOISE_SAMPLE_M)
+    road_samples(world, NOISE_SAMPLE_M)
         .into_iter()
         .map(|(p, k, sid)| {
             let energy = match last {
@@ -562,8 +571,14 @@ fn noise_emitters(world: &World, spec: &FieldsSpec) -> Vec<Emitter> {
             };
             Emitter { pos: p, energy }
         })
-        .collect();
-    // Point sources: energies per distinct level, computed once.
+        .collect()
+}
+
+/// Point noise sources (industry, power plants, construction sites).
+fn noise_points(world: &World, spec: &FieldsSpec) -> Vec<Emitter> {
+    let n = &spec.noise;
+    let mut out = Vec::new();
+    // Energies per distinct level, computed once.
     let mut by_db: BTreeMap<u32, f32> = BTreeMap::new();
     for (kind, cond, p, level) in building_points(world) {
         let db = match (kind, cond) {
@@ -585,12 +600,8 @@ fn noise_emitters(world: &World, spec: &FieldsSpec) -> Vec<Emitter> {
     out
 }
 
-fn lv_inputs(
-    world: &World,
-    f: &ScalarField,
-    city: Option<(usize, usize, usize, usize)>,
-) -> LvInputs {
-    let abandoned = world.get_resource::<Ids>().map_or(Vec::new(), |ids| {
+fn lv_abandoned(world: &World) -> Vec<Vec2> {
+    world.get_resource::<Ids>().map_or(Vec::new(), |ids| {
         ids.buildings
             .iter()
             .filter_map(|(_, e)| {
@@ -603,7 +614,10 @@ fn lv_inputs(
                     .map(|o| cb_geometry::polygon::centroid(o))
             })
             .collect()
-    });
+    })
+}
+
+fn lv_roads(world: &World, f: &ScalarField) -> NoiseIndex {
     let samples: Vec<Emitter> = road_samples(world, 16.0)
         .into_iter()
         .map(|(p, k, _)| Emitter {
@@ -616,7 +630,14 @@ fn lv_inputs(
         })
         .collect();
     let half = Vec2::splat(f.half_m);
-    let roads = NoiseIndex::build(&samples, -half, half);
+    NoiseIndex::build(&samples, -half, half)
+}
+
+fn lv_parks(
+    world: &World,
+    f: &ScalarField,
+    city: Option<(usize, usize, usize, usize)>,
+) -> Vec<f32> {
     let mut parks = vec![0.0f32; N * N];
     let has_props = world
         .get_resource::<Ids>()
@@ -628,11 +649,7 @@ fn lv_inputs(
             }
         }
     }
-    LvInputs {
-        abandoned,
-        roads,
-        parks,
-    }
+    parks
 }
 
 /// `TickSet::SubRate`: the sliced field updates.
@@ -642,7 +659,21 @@ pub(crate) fn tick(world: &mut World) {
         .map_or(0, |c| c.tick().0);
     let t = now % TICKS_PER_GAME_HOUR;
     let in_window = |o: u64| (o..o + SLICES).contains(&t);
-    if !(in_window(POLLUTION_OFFSET) || in_window(NOISE_OFFSET) || in_window(LAND_VALUE_OFFSET)) {
+    // Setup ticks before each window (inputs gathered over three ticks).
+    let setup = |o: u64| {
+        (o - SETUP_TICKS..o)
+            .contains(&t)
+            .then(|| t + SETUP_TICKS - o)
+    };
+    let any_setup = setup(POLLUTION_OFFSET)
+        .or(setup(NOISE_OFFSET))
+        .or(setup(LAND_VALUE_OFFSET))
+        .is_some();
+    if !(any_setup
+        || in_window(POLLUTION_OFFSET)
+        || in_window(NOISE_OFFSET)
+        || in_window(LAND_VALUE_OFFSET))
+    {
         return;
     }
     let Some(spec) = world.get_resource::<Catalog>().map(|c| *c.fields()) else {
@@ -653,14 +684,45 @@ pub(crate) fn tick(world: &mut World) {
         return;
     };
     fields.ensure(half);
+    if setup(POLLUTION_OFFSET) == Some(0) {
+        fields.sources = pollution_sources(world, &spec, fields.pollution.front());
+    }
+    if setup(POLLUTION_OFFSET) == Some(1) && fields.trees.is_empty() {
+        fields.trees = tree_density(world, fields.pollution.front());
+    }
+    match setup(NOISE_OFFSET) {
+        Some(0) => {
+            fields.city = city_bounds(world, fields.noise.front(), spec.land_value.city_margin_m);
+            fields.pending = noise_emitters(world, &spec, false);
+        }
+        Some(1) => {
+            let mut points = noise_emitters(world, &spec, true);
+            fields.pending.append(&mut points);
+        }
+        Some(_) => {
+            let half_v = Vec2::splat(half);
+            fields.noise_index = NoiseIndex::build(&fields.pending, -half_v, half_v);
+            fields.pending.clear();
+        }
+        None => {}
+    }
+    match setup(LAND_VALUE_OFFSET) {
+        Some(0) => {
+            fields.city = city_bounds(
+                world,
+                fields.land_value.front(),
+                spec.land_value.city_margin_m,
+            );
+            fields.lv_inputs.abandoned = lv_abandoned(world);
+        }
+        Some(1) => fields.lv_inputs.roads = lv_roads(world, fields.land_value.front()),
+        Some(_) => {
+            fields.lv_inputs.parks = lv_parks(world, fields.land_value.front(), fields.city);
+        }
+        None => {}
+    }
     if in_window(POLLUTION_OFFSET) {
         let k = t - POLLUTION_OFFSET;
-        if k == 0 {
-            fields.sources = pollution_sources(world, &spec, fields.pollution.front());
-            if fields.trees.is_empty() {
-                fields.trees = tree_density(world, fields.pollution.front());
-            }
-        }
         let (sources, trees) = (&fields.sources, &fields.trees);
         let p = spec.pollution;
         fields.pollution.update_slice(k, |front, i, j| {
@@ -669,12 +731,6 @@ pub(crate) fn tick(world: &mut World) {
     }
     if in_window(NOISE_OFFSET) {
         let k = t - NOISE_OFFSET;
-        if k == 0 {
-            fields.city = city_bounds(world, fields.noise.front(), spec.land_value.city_margin_m);
-            let em = noise_emitters(world, &spec);
-            let half_v = Vec2::splat(half);
-            fields.noise_index = NoiseIndex::build(&em, -half_v, half_v);
-        }
         let (index, city) = (&fields.noise_index, fields.city);
         let n = spec.noise;
         fields
@@ -688,14 +744,6 @@ pub(crate) fn tick(world: &mut World) {
     }
     if in_window(LAND_VALUE_OFFSET) {
         let k = t - LAND_VALUE_OFFSET;
-        if k == 0 {
-            fields.city = city_bounds(
-                world,
-                fields.land_value.front(),
-                spec.land_value.city_margin_m,
-            );
-            fields.lv_inputs = lv_inputs(world, fields.land_value.front(), fields.city);
-        }
         let terrain = world.get_resource::<crate::terrain::TerrainRes>();
         let lv = spec.land_value;
         let n = spec.noise;

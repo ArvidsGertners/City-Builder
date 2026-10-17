@@ -75,6 +75,8 @@ fn bankruptcy_after_7_days_triggers_loan() {
         },
     );
     s.set_balance(-100_000);
+    // Days close on the accrual tick, a few ticks after midnight.
+    s.run_ticks(cb_sim::economy::ACCRUE_DELAY + 1);
     for day in 1..=6 {
         s.run_ticks(TICKS_PER_GAME_DAY);
         let f = s.world().resource::<Finances>();
@@ -112,7 +114,7 @@ fn bankrupt_without_loans_freezes_construction() {
     let r = s.command(PlayerCommand::TakeLoan { tier: 1 });
     assert!(r.outcome.is_err());
     s.set_balance(-50_000_000);
-    s.run_ticks(7 * TICKS_PER_GAME_DAY);
+    s.run_ticks(7 * TICKS_PER_GAME_DAY + cb_sim::economy::ACCRUE_DELAY + 1);
     assert!(s.world().resource::<Finances>().bankrupt());
     let r = s.command(PlayerCommand::BuildRoad(BuildRoad {
         kind: RoadKind::Street,

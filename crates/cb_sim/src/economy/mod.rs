@@ -310,6 +310,8 @@ pub(crate) fn refund(world: &mut World, amount: Money) {
 
 /// Tick of the accrual in the game hour (phase table).
 pub const OFFSET: u64 = 0;
+/// Ticks after [`OFFSET`] at which the hour is accrued (and the day closed).
+pub const ACCRUE_DELAY: u64 = 4;
 
 /// Household tax per game hour in millicents: `income(level, wealth) × rate / 24`.
 #[must_use]
@@ -506,12 +508,16 @@ pub(crate) fn tick(world: &mut World) {
     let now = world
         .get_resource::<crate::SimClock>()
         .map_or(0, |c| c.tick().0);
-    if now % TICKS_PER_GAME_HOUR != OFFSET {
-        return;
+    let t = now % TICKS_PER_GAME_HOUR;
+    if t == OFFSET {
+        goods::hour(world, now);
     }
-    goods::hour(world, now);
-    accrue_hour(world);
-    if now > 0 && now.is_multiple_of(TICKS_PER_GAME_DAY) {
-        close_day(world, now / TICKS_PER_GAME_DAY - 1);
+    // Accrual on its own tick after the goods hour (it taxes that hour's profits).
+    if t == OFFSET + ACCRUE_DELAY {
+        accrue_hour(world);
+        let day_tick = now - ACCRUE_DELAY;
+        if day_tick > 0 && day_tick.is_multiple_of(TICKS_PER_GAME_DAY) {
+            close_day(world, day_tick / TICKS_PER_GAME_DAY - 1);
+        }
     }
 }
